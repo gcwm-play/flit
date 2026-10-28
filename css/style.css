@@ -609,7 +609,8 @@ details.spend .sub { margin: 4px 0 6px 14px; font-size: 13px; }
 }
 .age-box b { font-family: var(--pixel); font-size: 10px; }
 .age-box small { color: var(--muted); font-weight: 700; }
-@container (max-width: 420px) { .room-label { left: 8px; transform: none; } }
+/* On narrow rooms the label sits top left and wraps, so it never runs under the age box. */
+@container (max-width: 520px) { .room-label { left: 8px; transform: none; white-space: normal; max-width: calc(100% - 150px); line-height: 1.5; } }
 
 /* loan term picker */
 .term-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
@@ -638,3 +639,23 @@ details.spend .sub { margin: 4px 0 6px 14px; font-size: 13px; }
 .summary.bill tr.pay td { color: var(--muted); padding-left: 18px; }
 .summary.rates tr.on td { background: #ffe6d9; }
 @media (prefers-reduced-motion: reduce) { .fan { animation: none; } }
+
+/* Income tax and giving */
+.k-tax { background: #6b7280; } .k-give { background: #e86aa8; }
+button.cb-item.cb-link { background: none; border: 0; padding: 0 0 4px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.cb-link u { color: #2f6fb5; font-size: 12px; font-weight: 800; }
+.turn-rows .tr-link { text-align: left; font-size: inherit; }
+.tax-table td small, .tax-bands td small { color: var(--muted); font-weight: 400; }
+.tax-table tr.sub td, .tax-bands tr.sub td { border-top: 2px solid var(--line); font-weight: 800; }
+.tax-bands th:not(:first-child), .tax-bands td:not(:first-child) { text-align: right; white-space: nowrap; }
+details summary { cursor: pointer; font-weight: 800; margin: 8px 0; }
+.tax-table td:last-child { white-space: nowrap; vertical-align: middle; }
+.tax-why ul { margin: 4px 0 0; padding-left: 18px; }
+.tax-why p { margin: 0 0 4px; }
+
+/* Advanced: your own job */
+.advanced-job h3 { margin-top: 0; }
+.field-label { font-weight: 700; margin: 12px 0 4px; }
+#cj-growth { width: 100%; accent-color: var(--accent, #e3574a); }
+label.check { display: flex; gap: 8px; align-items: center; font-weight: 700; margin: 12px 0; }
+label.check input { width: 20px; height: 20px; }

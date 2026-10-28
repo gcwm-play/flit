@@ -17,6 +17,9 @@ export const LIFE_PAYOUT_ESTIMATES = { BRS: 950, FRS: 1780, ERS: 3440 };
 
 export const BASIC_HEALTHCARE_SUM = 79000; // MediSave cap for 2026
 
+// CPF Annual Limit: compulsory contributions plus Voluntary Contributions in a year.
+export const CPF_ANNUAL_LIMIT = 37740;
+
 export const MEDISAVE_NEWBORN_GRANT = 4000;
 
 export const INTEREST = { oa: 0.025, sa: 0.04, ma: 0.04, ra: 0.04 };
@@ -34,6 +37,24 @@ export const RATE_TABLE = [
   { maxAge: 70, employer: 9, employee: 7.5, oa: 1, sa: 5, ma: 10.5 },
   { maxAge: Infinity, employer: 7.5, employee: 5, oa: 1, sa: 1, ma: 10.5 },
 ];
+
+// Compulsory MediSave for the self-employed (CPF, 2026): [below this age, full rate %].
+// Nothing is due on net trade income (NTI) of $6,000 or less. From $6,000 to $12,000 the rate is
+// half the full rate; from $12,000 to $18,000 it phases up to the full rate, which applies above
+// $18,000. NTI counts only up to $96,000 (12 x the $8,000 Ordinary Wage ceiling).
+export const SELF_EMPLOYED_MEDISAVE = [[35, 8], [45, 9], [50, 10], [65, 10.5], [70, 8], [Infinity, 7]];
+export const SELF_EMPLOYED_NTI_CEILING = ORDINARY_WAGE_CEILING * 12;
+
+export function selfEmployedMedisave(age, nti) {
+  if (nti <= 6000) return 0;
+  const full = SELF_EMPLOYED_MEDISAVE.find(([below]) => age < below)[1] / 100;
+  const low = full / 2;
+  if (nti <= 12000) return nti * low;
+  // Phased in: the low rate on all of it, plus a slice of the part above $12,000,
+  // so the amount reaches the full rate at $18,000.
+  if (nti <= 18000) return nti * low + ((18000 * (full - low)) / 6000) * (nti - 12000);
+  return Math.min(nti, SELF_EMPLOYED_NTI_CEILING) * full;
+}
 
 export function rateBand(age) {
   return RATE_TABLE.find((r) => age <= r.maxAge);
@@ -53,10 +74,9 @@ export function monthlyContribution(age, wage, { selfEmployed = false } = {}) {
   const band = rateBand(age);
   const zero = { employer: 0, employee: 0, total: 0, oa: 0, sa: 0, ma: 0 };
   if (selfEmployed) {
-    // Self-employed people only have to contribute to MediSave
-    // (when yearly net trade income is above $6,000).
-    if (wage * 12 <= 6000) return zero;
-    const ma = Math.min(wage, ORDINARY_WAGE_CEILING) * (band.ma / 100);
+    // Self-employed people only have to contribute to MediSave, worked out on the year's
+    // net trade income (paid here in monthly instalments, like CPF's GIRO plan).
+    const ma = selfEmployedMedisave(age, wage * 12) / 12;
     return { ...zero, employee: ma, total: ma, ma };
   }
   if (wage <= 50) return zero;

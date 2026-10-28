@@ -4,6 +4,7 @@ import * as housing from './housing.js';
 import * as invest from './invest.js';
 import * as health from './health.js';
 import * as cars from './car.js';
+import * as tax from './tax.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, SHOP, LIFESTYLES,
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
@@ -69,7 +70,7 @@ export function newGame(name, look) {
 }
 
 export function newBudget() {
-  return { hobbies: 0, shopping: 0, cpfSelf: 0, cpfYearly: 0, kidsCpf: 0, investAmt: 0, investId: 'world' };
+  return { hobbies: 0, shopping: 0, cpfSelf: 0, cpfYearly: 0, kidsCpf: 0, donateYearly: 0, investAmt: 0, investId: 'world' };
 }
 
 export function unlockedStats(s) {
@@ -145,11 +146,7 @@ export function allocateGift(s, { cash = 0, treat = 0, charity = 0, cpf: toCpf =
   s.bank += cash;
   const joy = Math.min(6, (treat + charity * 1.3) * joyPerDollar(s));
   s.joy += joy;
-  if (charity > 0) {
-    s.stats.communication += Math.min(2, charity * joyPerDollar(s));
-    s.given = (s.given || 0) + charity;
-    story(s, 'give', '💝', `Gave ${money(charity)} to charity`, { amount: charity });
-  }
+  if (charity > 0) recordDonation(s, charity);
   let refused = 0, matched = 0;
   if (toCpf > 0) {
     const r = topUpCpf(s, toCpf);
@@ -160,6 +157,26 @@ export function allocateGift(s, { cash = 0, treat = 0, charity = 0, cpf: toCpf =
   settleDebt(s);
   return { refused, matched };
 }
+
+// Gives cash to charity: helps others, and gifts to approved charities (IPCs) cut your income tax.
+export function donate(s, amount) {
+  const a = Math.max(0, Math.min(amount, s.bank));
+  if (a <= 0) return 0;
+  spendCash(s, a);
+  s.joy += Math.min(6, a * 1.3 * joyPerDollar(s));
+  recordDonation(s, a);
+  return a;
+}
+
+function recordDonation(s, amount) {
+  s.stats.communication += Math.min(2, amount * joyPerDollar(s));
+  s.given = (s.given || 0) + amount;
+  const before = donationsThisYear(s);
+  s.donations = { age: s.age, amount: before + amount };
+  story(s, 'give', '💝', `Gave ${money(amount)} to charity`, { amount });
+}
+
+export const donationsThisYear = (s) => (s.donations && s.donations.age === s.age ? s.donations.amount : 0);
 
 // Anyone can top up: before you work, your parents can top up your SA for you (RSTU).
 export function canTopUpCpf(s) {
@@ -194,12 +211,51 @@ export const aOrAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 
 // The job you have now, whether you started in it or switched into it later.
 export function careerInfo(s) {
-  return CAREERS.find((c) => c.id === s.career) || CAREER_SWITCHES.find((c) => c.id === s.career) || null;
+  return (s.customJobs || {})[s.career] || CAREERS.find((c) => c.id === s.career) || CAREER_SWITCHES.find((c) => c.id === s.career) || null;
+}
+
+// ---------- your own job (Advanced) ----------
+
+// Job titles the player types in show up in the life recap, so they're checked first.
+// Words that are blocked anywhere in the title (after undoing tricks like f*ck, sh1t, s e x):
+const BLOCKED_ANYWHERE = ['fuck', 'fuk', 'shit', 'cunt', 'bitch', 'bastard', 'whore', 'slut', 'porn', 'prostitut', 'hooker',
+  'escort', 'stripper', 'striptease', 'sexwork', 'camgirl', 'camboy', 'onlyfans', 'pimp', 'brothel', 'masturbat', 'blowjob',
+  'handjob', 'dildo', 'fetish', 'bdsm', 'nigg', 'faggot', 'retard', 'pedophil', 'paedophil', 'molest', 'hitman', 'assassin',
+  'terrorist', 'drugdeal', 'drugdealer', 'drugtraffick', 'drugmule', 'loanshark', 'ahlong', 'scammer', 'kanina', 'knn', 'cheebye',
+  'chibai', 'lanjiao', 'nabeh', 'pukimak', 'sohai', 'diaolei', 'motherfucker', 'wanker', 'dickhead', 'arsehole', 'asshole'];
+// Short words that are only blocked on their own, so "assistant" or "Sussex" are fine:
+const BLOCKED_WORDS = ['ass', 'arse', 'sex', 'sexy', 'cum', 'tit', 'tits', 'dick', 'cock', 'nude', 'nudes', 'xxx', 'rape', 'nazi',
+  'gigolo', 'mamasan', 'thief', 'gangster', 'gang', 'smuggler', 'drug', 'drugs', 'kill', 'killer', 'hoe', 'boobs', 'penis',
+  'vagina', 'horny', 'lust', 'rapist', 'twat', 'pedo', 'paedo', 'damn', 'crap', 'piss', 'wtf', 'stfu', 'fk', 'sial', 'lj', 'cb'];
+const LEET = { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't', 8: 'b', '@': 'a', $: 's', '!': 'i', '|': 'i', '+': 't' };
+
+// Returns an error message, or '' if the title is fine.
+export function checkJobTitle(raw) {
+  const title = (raw || '').trim();
+  if (title.length < 2) return 'Type a job title.';
+  if (title.length > 32) return 'Keep the job title to 32 characters.';
+  if (!/^[A-Za-z0-9 &'().,/-]+$/.test(title)) return 'Use letters, numbers, spaces and simple punctuation only.';
+  const lower = title.toLowerCase().replace(/[0-9@$!|+]/g, (c) => LEET[c] || c);
+  const squashed = lower.replace(/[^a-z]/g, '').replace(/(.)\1+/g, '$1');
+  const plain = lower.replace(/[^a-z]/g, '');
+  const words = lower.split(/[^a-z]+/).filter(Boolean);
+  const bad = BLOCKED_ANYWHERE.some((w) => plain.includes(w) || squashed.includes(w.replace(/(.)\1+/g, '$1')))
+    || words.some((w) => BLOCKED_WORDS.includes(w));
+  return bad ? 'Please choose a different job title. This one can\'t be used in the game.' : '';
+}
+
+// Takes your own job: a title, yearly income and how fast your pay grows each year.
+export function takeCustomJob(s, { title, annual, growth, selfEmployed }) {
+  const id = `custom-${Object.keys(s.customJobs || {}).length + 1}`;
+  (s.customJobs ||= {})[id] = { id, label: title.trim(), icon: '💼', growth, selfEmployed: !!selfEmployed, custom: true };
+  const first = !s.career;
+  takeJob(s, { id, label: title.trim(), icon: '💼', selfEmployed, pay: Math.round(annual / 12) });
+  if (first) { s.careerStartAge = s.age; s.cpfWorked = true; }
 }
 
 // A career switch you've earned with a very high stat, not offered in the last 10 years.
 export function careerSwitchOffer(s) {
-  if (s.stage !== 'adult' || s.age < 25 || s.age > 60) return null;
+  if (s.stage !== 'adult' || s.age < 25 || s.age > 60 || (s.customJobs || {})[s.career]) return null;
   return CAREER_SWITCHES.find((c) => {
     if (c.id === s.career) return false;
     const last = (s.switchOffers || {})[c.id];
@@ -283,8 +339,23 @@ export function ageStage(age) {
 
 export function yearsThisTurn(s) {
   const st = STAGES[s.stage];
+  // Men finish studying after NS: the turn stops when it's time to find a first job.
+  if (isStudying(s)) return Math.min(st.yearsPerTurn, firstJobAge(s) - s.age);
   return Math.min(st.yearsPerTurn, st.endAge - s.age);
 }
+
+// ---------- National Service ----------
+
+// Men enlist for two years of full-time National Service at about 18 (after JC or poly; many
+// poly students enlist at 19 or 20). NSF allowance (MINDEF, 2026): $715 a month as a recruit or
+// private, $790 as a corporal, $1,055 as a third sergeant, plus a vocation allowance from $75.
+// NSF allowances aren't wages, so no CPF is paid on them, and they aren't taxed.
+export const NS = { startAge: 18, years: 2, allowance: { 18: 790, 19: 980 } };
+export const doesNs = (s) => !!(s.look && s.look.gender === 'male');
+export const isNsf = (s, age = s.age) => doesNs(s) && age >= NS.startAge && age < NS.startAge + NS.years;
+// The game starts working life at 21; men start two years later because of NS.
+export const firstJobAge = (s) => STAGES.adult.startAge + (doesNs(s) ? NS.years : 0);
+export const isStudying = (s) => s.stage === 'adult' && !s.career && s.age < firstJobAge(s);
 
 // ---------- the money simulation ----------
 
@@ -292,7 +363,9 @@ export function yearsThisTurn(s) {
 // Returns a summary of what happened to the money.
 export function advanceYears(s, years, opts = {}) {
   const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0,
-    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cpfInterest: 0, bankInterest: 0, insuranceMa: 0, insuranceCash: 0, groceries: 0, homeSpouse: 0, cashStart: s.bank };
+    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cpfInterest: 0, bankInterest: 0, insuranceMa: 0, insuranceCash: 0, groceries: 0, homeSpouse: 0, cashStart: s.bank,
+    // Gifts and top-ups you made yourself before this turn (they count towards this year's tax).
+    givenOnce: donationsThisYear(s), topUpOnce: topUpsThisYear(s) };
   for (let y = 0; y < years; y++) {
     // One-off effects (like months without pay) only hit the first year.
     oneYear(s, sum, y === 0 ? opts : { jobWage: opts.jobWage });
@@ -306,7 +379,9 @@ export function advanceYears(s, years, opts = {}) {
 function oneYear(s, sum, opts) {
   const age = s.age;
   const st = STAGES[s.stage];
-  const young = s.stage === 'child' || s.stage === 'teen';
+  // Still studying after NS counts as young: no pay yet, and your parents support you.
+  const young = s.stage === 'child' || s.stage === 'teen' || isStudying(s);
+  const nsf = isNsf(s, age);
   childSupportYear(s, sum);
   const lifeOn = !!(s.life && age >= s.life.startAge);
   if (lifeOn) {
@@ -320,7 +395,7 @@ function oneYear(s, sum, opts) {
     }
   }
   const wage = young ? 0 : currentWage(s);
-  const jobMonths = young && opts.jobWage && age >= 16 ? 3 : 0; // teen holiday job
+  const jobMonths = young && opts.jobWage && age >= 16 && !nsf ? 3 : 0; // teen holiday job (not during NS)
   // Everyday spending, split into its parts so the player can see where it goes.
   const parts = young ? null : spendBreakdown(s);
   const costFactor = opts.costFactor || 1;
@@ -329,6 +404,7 @@ function oneYear(s, sum, opts) {
   const funMonthly = young ? 0 : (b.hobbies || 0) + (b.shopping || 0);
   const acc = cpf.newInterestAccrual();
   let cash = 0;
+  const earnings = { pay: 0, cpf: 0 }; // for income tax
 
   // Health insurance premiums: MediShield Life, plus any Shield plan and rider. MediSave pays
   // MediShield Life and part of a Shield plan (up to the Additional Withdrawal Limit); the rest is cash.
@@ -395,6 +471,7 @@ function oneYear(s, sum, opts) {
     if (monthWage > 0) {
       const c = cpf.monthlyContribution(age, monthWage, { selfEmployed: !young && s.selfEmployed });
       pay = monthWage - c.employee;
+      if (!young) { earnings.pay += monthWage; earnings.cpf += c.employee; }
       cpf.deposit(s.cpf, age, c);
       sum.cpfIn += c.total;
       sum.employerIn += c.employer;
@@ -412,8 +489,14 @@ function oneYear(s, sum, opts) {
 
   if (young) {
     // Pocket money: half is yours to spend, your parents bank the rest.
-    const allowance = st.yearlyAllowance * (opts.allowanceFactor ?? 1);
+    const allowance = (st.yearlyAllowance ?? STAGES.teen.yearlyAllowance) * (opts.allowanceFactor ?? 1);
     sum.income += allowance;
+    // NSF allowance: you spend about half on transport, food and your phone, and save the rest.
+    if (nsf) {
+      const ns = NS.allowance[age] * 12;
+      sum.nsPay = (sum.nsPay || 0) + ns;
+      s.bank += ns / 2;
+    }
     // Pocket money gets spent through the year, so only what you had at the start stays untouched.
     s.bank += allowance + cash;
   } else if (cash >= 0) {
@@ -425,6 +508,7 @@ function oneYear(s, sum, opts) {
   if (!young) {
     takeHolidays(s, sum);
     budgetTransfers(s, sum);
+    payIncomeTax(s, sum, earnings);
     // Hobbies and treats: joy, and hobbies keep you healthy and creative.
     s.joy += Math.min(4, funMonthly * 12 * joyPerDollar(s));
     const h = Math.min(1, ((b.hobbies || 0) * 12) / 3000);
@@ -458,8 +542,10 @@ function oneYear(s, sum, opts) {
   if (s.debt > 0 && s.age >= 55 && !s.shortfallAge) s.shortfallAge = age;
 
   // Pay rises: faster early in your career.
-  const growth = age < 45 ? 0.025 : age < 55 ? 0.005 : 0; // real pay growth, after inflation
-  if (s.salary && !young) s.salary = Math.min(15000, s.salary * (1 + growth));
+  // Real pay growth, after inflation. Your own job (Advanced) grows at the rate you chose, until 65.
+  const own = (s.customJobs || {})[s.career];
+  const growth = own ? (age < 65 ? own.growth : 0) : age < 45 ? 0.025 : age < 55 ? 0.005 : 0;
+  if (s.salary && !young) s.salary = own ? s.salary * (1 + growth) : Math.min(15000, s.salary * (1 + growth));
   if (s.spouse) s.spouse.salary *= 1 + growth;
   if (s.home) housing.yearPassed(s.home);
 }
@@ -794,6 +880,8 @@ export function haveChild(s) {
     uni: null,
   });
   s.joy += 4;
+  // Parenthood Tax Rebate: used against your income tax until it runs out.
+  s.taxRebateLeft = (s.taxRebateLeft || 0) + tax.PARENTHOOD_REBATE[Math.min(2, s.children.length - 1)];
   s.log.push(`Age ${s.age}: welcomed child number ${s.children.length}`);
   story(s, 'family', '👶', `Welcomed child number ${s.children.length}`);
   return babySupport(s.children.length);
@@ -934,7 +1022,8 @@ export function leaseBuyback(s) {
 // What you're doing for a living, in words.
 export function workStatus(s) {
   if (s.stage === 'child') return 'At school';
-  if (s.stage === 'teen') return s.age >= 17 ? 'Studying' : 'At school';
+  if (s.stage === 'teen') return isNsf(s) ? 'National Service' : s.age >= 17 ? 'Studying' : 'At school';
+  if (isStudying(s)) return 'Studying after NS';
   if (s.stage === 'adult') return s.selfEmployed ? 'Running your own business' : 'Working full-time';
   if (s.age >= 70 || s.workMode === 'retired') return 'Retired';
   return s.workMode === 'part' ? 'Working part-time' : 'Working full-time';
@@ -1005,6 +1094,8 @@ function budgetTransfers(s, sum) {
       s.cpfPlanStopped = { age: s.age + 1, before55: s.age < 55 };
     }
   }
+  // Yearly giving to charity, from cash you have.
+  if (b.donateYearly > 0) sum.donated = (sum.donated || 0) + donate(s, take(b.donateYearly));
   const kids = (s.children || []).filter((c) => s.age - c.bornAge < 21);
   if (b.kidsCpf > 0 && kids.length) {
     for (const c of kids) {
@@ -1057,23 +1148,51 @@ export function lbsCheck(s) {
 
 // ---------- CPF top-ups ----------
 
-// Only the first $8,000 of cash top-ups to your own SA/RA each year gets income tax relief.
-export const TOP_UP_TAX_RELIEF_CAP = 8000;
+// Cash top-ups to your own SA/RA (RSTU) and MediSave share one $8,000 tax relief limit a year.
+export const TOP_UP_TAX_RELIEF_CAP = tax.TOP_UP_RELIEF_SELF;
 
-// Compulsory contributions plus Voluntary Contributions in a year can't go above this.
-export const CPF_ANNUAL_LIMIT = 37740;
+// Compulsory contributions plus Voluntary Contributions (to MediSave or all three accounts)
+// in a year can't go above this. RSTU top-ups don't count towards it.
+export const CPF_ANNUAL_LIMIT = cpf.CPF_ANNUAL_LIMIT;
 
-export function topUpsThisYear(s) {
-  return s.topUps && s.topUps.age === s.age ? s.topUps.amount : 0;
+// Where a cash top-up can go (CPF Board):
+//   ret: Retirement Sum Topping-Up, to the SA up to the FRS, or the RA up to the ERS from 55
+//   ma:  Voluntary Contribution to MediSave, up to the Basic Healthcare Sum
+//   all: Voluntary Contribution to all three accounts, split like your monthly contributions
+export const TOP_UP_ACCOUNTS = ['ret', 'ma', 'all'];
+
+const topUpRecord = (s) => (s.topUps && s.topUps.age === s.age ? s.topUps : { age: s.age, amount: 0, relief: 0, vc: 0 });
+
+// All cash top-ups to your own CPF this year.
+export const topUpsThisYear = (s) => topUpRecord(s).amount;
+// The part that qualifies for CPF cash top-up relief (before the $8,000 cap).
+export const topUpReliefThisYear = (s) => topUpRecord(s).relief || 0;
+export const taxReliefLeft = (s) => Math.max(0, TOP_UP_TAX_RELIEF_CAP - topUpReliefThisYear(s));
+// Voluntary Contributions this year (MediSave or three-account), which count towards the Annual Limit.
+export const vcThisYear = (s) => topUpRecord(s).vc || 0;
+
+// Compulsory contributions (yours and your employer's) for a year at today's pay.
+export function compulsoryThisYear(s) {
+  return cpf.monthlyContribution(s.age, currentWage(s), { selfEmployed: s.selfEmployed }).total * 12;
 }
 
-// How much more cash you can top up: the SA up to the FRS before 55, the RA up to the ERS after.
-// Before 55, SA savings you've invested through CPFIS-SA still count towards the FRS.
-// There's no yearly cap on RSTU top-ups; only the first $8,000 a year gets tax relief.
-export function topUpRoom(s) {
+// What's left under the CPF Annual Limit for Voluntary Contributions this year.
+export function annualLimitRoom(s) {
+  return Math.max(0, CPF_ANNUAL_LIMIT - compulsoryThisYear(s) - vcThisYear(s));
+}
+
+// How much more cash you can top up to an account this year.
+// RSTU: the SA up to the FRS before 55 (SA money invested through CPFIS-SA still counts),
+// the RA up to the ERS after. There's no yearly cap on RSTU top-ups.
+export function topUpRoom(s, account = 'ret') {
+  if (account === 'ma') return Math.max(0, Math.min(cpf.BASIC_HEALTHCARE_SUM - s.cpf.ma, annualLimitRoom(s)));
+  if (account === 'all') return annualLimitRoom(s);
   if (s.age < 55) return Math.max(0, cpf.topUpRoom(s.cpf, s.age) - invest.costOf(s, 'sa'));
   return cpf.topUpRoom(s.cpf, s.age, s.life ? s.life.premium : 0);
 }
+
+// Children and teens can only have their SA topped up (by their parents). No one gets tax relief for that.
+export const topUpAccounts = (s) => (s.stage === 'child' || s.stage === 'teen' ? ['ret'] : TOP_UP_ACCOUNTS);
 
 // Roughly how much more CPF LIFE pays each month for an extra RA top-up today.
 export function lifePayoutGain(s, amount) {
@@ -1085,20 +1204,103 @@ export function lifePayoutGain(s, amount) {
 }
 
 // Cash top-up. From 55, if your RA is below the BRS, the Matched Retirement
-// Savings Scheme matches it dollar for dollar, up to $2,000 a year.
-export function topUpCpf(s, amount) {
-  const accepted = cpf.cashTopUp(s.cpf, s.age, Math.min(amount, topUpRoom(s)), s.life ? s.life.premium : 0);
-  const before = topUpsThisYear(s);
-  s.topUps = { age: s.age, amount: before + accepted };
-  s.lifeTopUps = (s.lifeTopUps || 0) + accepted;
-  let matched = 0;
-  if (s.age >= 55 && accepted > 0 && s.cpf.ra - accepted < cpf.RETIREMENT_SUMS.BRS) {
-    const usedThisYear = s.mrss && s.mrss.age === s.age ? s.mrss.amount : 0;
-    const room = Math.min(2000 - usedThisYear, 20000 - (s.mrssTotal || 0));
-    matched = Math.max(0, Math.min(accepted, room, cpf.RETIREMENT_SUMS.BRS - (s.cpf.ra - accepted)));
-    s.cpf.ra += matched;
-    s.mrss = { age: s.age, amount: usedThisYear + matched };
-    s.mrssTotal = (s.mrssTotal || 0) + matched;
+// Savings Scheme matches RSTU top-ups dollar for dollar, up to $2,000 a year.
+export function topUpCpf(s, amount, account = 'ret') {
+  if (!topUpAccounts(s).includes(account)) account = 'ret';
+  const young = s.stage === 'child' || s.stage === 'teen';
+  const rec = topUpRecord(s);
+  const want = Math.max(0, Math.min(amount, topUpRoom(s, account)));
+  let accepted = 0, matched = 0, relief = 0;
+  if (account === 'ma') {
+    s.cpf.ma += want;
+    accepted = want;
+    rec.vc += want;
+    // Employees get CPF cash top-up relief (shared with RSTU); for the self-employed it counts as CPF relief.
+    if (s.selfEmployed) rec.selfVc = (rec.selfVc || 0) + want;
+    else relief = want;
+  } else if (account === 'all') {
+    // Split in the same shares as the monthly contribution at your age.
+    const band = cpf.rateBand(s.age);
+    const t = band.oa + band.sa + band.ma;
+    cpf.deposit(s.cpf, s.age, { oa: (want * band.oa) / t, sa: (want * band.sa) / t, ma: (want * band.ma) / t });
+    accepted = want;
+    rec.vc += want;
+    // Employees get no relief for these; the self-employed get CPF relief instead (see payIncomeTax).
+    if (s.selfEmployed) rec.selfVc = (rec.selfVc || 0) + want;
+  } else {
+    const raBefore = s.cpf.ra + (s.life ? s.life.premium : 0);
+    accepted = cpf.cashTopUp(s.cpf, s.age, want, s.life ? s.life.premium : 0);
+    // From 55, only top-ups that keep your RA at or below the current FRS get relief.
+    relief = s.age < 55 ? accepted : Math.min(accepted, Math.max(0, cpf.RETIREMENT_SUMS.FRS - raBefore));
+    if (s.age >= 55 && accepted > 0 && s.cpf.ra - accepted < cpf.RETIREMENT_SUMS.BRS) {
+      const usedThisYear = s.mrss && s.mrss.age === s.age ? s.mrss.amount : 0;
+      const room = Math.min(2000 - usedThisYear, 20000 - (s.mrssTotal || 0));
+      matched = Math.max(0, Math.min(accepted, room, cpf.RETIREMENT_SUMS.BRS - (s.cpf.ra - accepted)));
+      s.cpf.ra += matched;
+      s.mrss = { age: s.age, amount: usedThisYear + matched };
+      s.mrssTotal = (s.mrssTotal || 0) + matched;
+      // Top-ups that attract the MRSS grant don't get tax relief (from YA2026).
+      relief = Math.max(0, relief - matched);
+    }
   }
-  return { accepted, matched };
+  rec.amount += accepted;
+  if (!young) rec.relief = (rec.relief || 0) + relief;
+  s.topUps = rec;
+  s.lifeTopUps = (s.lifeTopUps || 0) + accepted;
+  return { accepted, matched, account };
+}
+
+// ---------- income tax ----------
+
+// The inputs IRAS would use for this year. `plan` adds what your budget will still do this year.
+function taxInputs(s, earnings, extra = {}) {
+  const rec = topUpRecord(s);
+  const children = (s.children || []).map((c, i) => ({ age: s.age - c.bornAge, order: i + 1 }));
+  const male = s.look && s.look.gender === 'male';
+  // The self-employed get CPF relief on their MediSave contributions and Voluntary Contributions,
+  // up to 37% of their income and the Annual Limit.
+  const selfCap = s.selfEmployed ? Math.min(0.37 * earnings.pay, CPF_ANNUAL_LIMIT) : Infinity;
+  const vcRelief = s.selfEmployed ? (rec.selfVc || 0) + (extra.selfVc || 0) : 0;
+  return {
+    age: s.age,
+    male,
+    mother: !male && children.length > 0,
+    earned: earnings.pay,
+    cpfRelief: Math.min(selfCap, earnings.cpf + vcRelief),
+    topUpRelief: (rec.relief || 0) + (extra.topUpRelief || 0),
+    donations: donationsThisYear(s) + (extra.donations || 0),
+    donationCarry: s.donationCarry || [],
+    spouseAtHome: !!(s.spouse && s.spouse.home),
+    children,
+    rebateLeft: s.taxRebateLeft || 0,
+  };
+}
+
+// Pays this year's income tax from cash. (In real life IRAS sends the bill for a year's income the next year.)
+function payIncomeTax(s, sum, earnings) {
+  const inputs = taxInputs(s, earnings);
+  const r = tax.incomeTax(inputs);
+  r.inputs = inputs;
+  s.donationCarry = r.donationCarry;
+  s.taxRebateLeft = r.rebateLeft;
+  s.lastTax = { ...r, age: s.age };
+  s.taxPaid = (s.taxPaid || 0) + r.tax;
+  sum.tax = (sum.tax || 0) + r.tax;
+  if (r.tax > 0) coverShortfall(s, r.tax, sum);
+}
+
+// This year's tax at today's pay, with your budget's yearly top-up and donations.
+// Pass { topUp: 0, donate: 0 } to see the tax without them.
+export function taxEstimate(s, opts = {}) {
+  const wage = currentWage(s);
+  const c = cpf.monthlyContribution(s.age, wage, { selfEmployed: s.selfEmployed });
+  const earnings = { pay: wage * 12, cpf: c.employee * 12 };
+  const b = s.budget || newBudget();
+  // The budget's yearly top-up goes to the SA or RA (RSTU) if there's room and cash.
+  const planTop = opts.topUp ?? Math.min(cpfTopUpPerYear(s), topUpRoom(s, 'ret'));
+  const raRoom = s.age < 55 ? Infinity : Math.max(0, cpf.RETIREMENT_SUMS.FRS - s.cpf.ra - (s.life ? s.life.premium : 0));
+  const extra = { topUpRelief: Math.min(planTop, raRoom) + (opts.extraRelief || 0), donations: (opts.donate ?? (b.donateYearly || 0)) + (opts.extraDonation || 0) };
+  const inputs = taxInputs(s, earnings, extra);
+  if (opts.bare) { inputs.topUpRelief = 0; inputs.donations = 0; inputs.donationCarry = []; }
+  return { ...tax.incomeTax(inputs), inputs };
 }
