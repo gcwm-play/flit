@@ -1570,7 +1570,7 @@ async function shopPanel() {
         const owned = S.room.includes(it.id);
         const boost = Object.entries(it.perTurn || {}).map(([k, v]) => `${STATS[k].icon}+${v}`).join(' ');
         return `<button class="shop-item" data-choice="${it.id}" ${owned || S.bank < it.price ? 'disabled' : ''}>
-          <span class="s-icon">${it.icon}</span><b>${it.name}</b><span>${owned ? 'Owned' : money(it.price)}</span>
+          <span class="s-icon" data-item="${it.id}">${itemHtml(it)}</span><b>${it.name}</b><span>${owned ? 'Owned' : money(it.price)}</span>
           <small>😊+${it.joy} ${boost}</small></button>`;
       }).join('')}</div>
       ${btn('ok', 'Close', 'primary')}`, { wide: true });

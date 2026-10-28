@@ -137,8 +137,8 @@ p { margin: 0.5em 0; }
 .items { position: absolute; inset: 0; pointer-events: none; }
 .item { position: absolute; font-size: clamp(22px, 4.2vw, 40px); filter: drop-shadow(2px 2px 0 rgba(0,0,0,.25)); }
 /* shelf slots, then floor slots left and right of the player */
-.slot-0 { right: 33%; top: 22%; } .slot-1 { right: 26%; top: 22%; } .slot-2 { right: 19%; top: 22%; }
-.slot-3 { right: 12%; top: 22%; } .slot-4 { right: 6%; top: 22%; }
+.slot-0 { right: 33%; bottom: 65.5%; } .slot-1 { right: 26%; bottom: 65.5%; } .slot-2 { right: 19%; bottom: 65.5%; }
+.slot-3 { right: 12%; bottom: 65.5%; } .slot-4 { right: 6%; bottom: 65.5%; }
 .slot-5 { left: 4%; bottom: 8%; } .slot-6 { left: 13%; bottom: 14%; } .slot-7 { left: 22%; bottom: 6%; }
 .slot-8 { right: 4%; bottom: 8%; } .slot-9 { right: 13%; bottom: 14%; } .slot-10 { right: 22%; bottom: 6%; }
 .slot-11 { left: 31%; bottom: 16%; } .slot-12 { right: 31%; bottom: 16%; }
@@ -365,7 +365,7 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 .title-sprites .person { --size: clamp(72px, 20vw, 120px); }
 .end .person.big { --size: 160px; }
 .grown .person { --size: 120px; }
-.item-art { display: block; height: clamp(40px, 8vw, 72px); width: auto; image-rendering: pixelated; }
+.item-art { display: block; height: calc(var(--s, 0.3) * clamp(84px, 17vw, 150px)); width: auto; max-width: none; }
 .animal-pick { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .animal-btn {
   display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px;
@@ -476,3 +476,5 @@ details.spend summary b { text-align: right; }
 details.spend .sub { margin: 4px 0 6px 14px; font-size: 13px; }
 .locked-jobs { padding-left: 18px; }
 .career em { font-style: normal; font-weight: 800; margin-left: 4px; }
+.s-icon { display: flex; justify-content: center; align-items: flex-end; height: 64px; }
+.s-icon .item-art { height: 60px; max-width: 100%; object-fit: contain; }

@@ -48,7 +48,9 @@ checkerboard background instead of magenta; the script handles that too.
 ## Shop items
 
 `item-{id}.png`, 64 × 64 (or 128 × 64 for wide furniture). The ids are in
-`SHOP` in `js/data.js`. Items still show as emoji for now.
+`SHOP` in `js/data.js`. All 27 are done: `tools/slice_items.py` cuts them out of the
+generated sheets in `source/items-{stage}.png`. Item heights in the room are set in
+`ITEM_HEIGHT` in `js/sprites.js`.
 
 The image-generation prompts for all of these, with exact sizes, are in the
 "FLIT art prompts: animal family and shop items" doc.

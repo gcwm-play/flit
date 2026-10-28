@@ -79,8 +79,18 @@ function customSrc({ stage, animal, gender }) {
 
 // A shop item: custom art if there is a PNG for it, otherwise its emoji.
 const itemUrl = (id) => `assets/sprites/item-${id}.png`;
+// How tall each item stands, as a share of an adult animal's frame, so a piano
+// is about as tall as you and a football is small. Anything not listed is small.
+const ITEM_HEIGHT = {
+  bookshelf: 1.05, piano: 0.95, tv: 0.85, treadmill: 0.85, massage: 0.85, plants: 0.7, sofa: 0.6,
+  guitar: 0.75, bike: 0.6, gamingpc: 0.5, karaoke: 0.6, chess: 0.55, garden: 0.45, fishtank: 0.5,
+  desk: 0.45, coffee: 0.4, posters: 0.45, console: 0.3, plush: 0.35, tablet: 0.35, phone: 0.28,
+  ball: 0.25, boardgame: 0.28, comics: 0.28, crayons: 0.3, headphones: 0.3, watch: 0.3,
+};
 export function itemHtml(item) {
-  return probe(itemUrl(item.id)) ? `<img class="pixel item-art" src="${itemUrl(item.id)}" alt="">` : item.icon || '';
+  return probe(itemUrl(item.id))
+    ? `<img class="pixel item-art" src="${itemUrl(item.id)}" alt="" style="--s:${ITEM_HEIGHT[item.id] || 0.3}">`
+    : item.icon || '';
 }
 
 // HTML for a character. Add the class "walking" to animate the walk cycle.
