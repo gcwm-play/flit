@@ -208,6 +208,10 @@ const me = (stage = S.stage) => lookOf(S.look, stage);
 
 // ---------- title screen ----------
 
+// A default name to start with, swapped when you switch between he and she (until you type your own).
+const DEFAULT_NAMES = { male: ['Daniel', 'Ryan', 'Ethan', 'Marcus', 'Jason', 'Adam'], female: ['Sarah', 'Rachel', 'Chloe', 'Emily', 'Grace', 'Hannah'] };
+const defaultName = (gender) => DEFAULT_NAMES[gender][Math.floor(Math.random() * DEFAULT_NAMES[gender].length)];
+
 function titleScreen() {
   const saved = loadSave();
   const animals = Object.keys(ANIMALS);
@@ -219,7 +223,7 @@ function titleScreen() {
       <div class="title-sprites" id="preview"></div>
       <div class="card start-card">
         <p>Grow up, build your skills, make money choices and see where they lead when you retire.</p>
-        <label class="field">Your name <input id="name" maxlength="16" placeholder="Alex" autocomplete="off"></label>
+        <label class="field">Your name <input id="name" maxlength="16" autocomplete="off"></label>
         <p class="pick-label">Pick your animal <small>(your partner and children will be the same animal)</small></p>
         <div class="animal-pick" role="group" aria-label="Animal">${Object.entries(ANIMALS).map(([k, a]) => `<button class="animal-btn" data-animal="${k}">${person({ stage: 'adult', animal: k, gender: 'male', outfit: 1 }, 'tiny')}<span>${a.label}</span></button>`).join('')}</div>
         <p class="small muted">Everyone in this Singapore is an animal, but the rules are real: the same CPF, HDB and marriage rules apply.</p>
@@ -238,12 +242,19 @@ function titleScreen() {
     app.querySelectorAll('[data-gender]').forEach((b) => b.classList.toggle('on', b.dataset.gender === look.gender));
     app.querySelectorAll('[data-outfit]').forEach((b) => b.classList.toggle('on', +b.dataset.outfit === look.outfit));
   };
-  app.querySelectorAll('[data-gender]').forEach((b) => (b.onclick = () => { look.gender = b.dataset.gender; refresh(); }));
+  const nameInput = $('#name');
+  let autoName = defaultName(look.gender);
+  nameInput.value = autoName;
+  app.querySelectorAll('[data-gender]').forEach((b) => (b.onclick = () => {
+    look.gender = b.dataset.gender;
+    if (nameInput.value.trim() === autoName || !nameInput.value.trim()) nameInput.value = autoName = defaultName(look.gender);
+    refresh();
+  }));
   app.querySelectorAll('[data-animal]').forEach((b) => (b.onclick = () => { look.animal = b.dataset.animal; refresh(); }));
   app.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => { look.outfit = +b.dataset.outfit; refresh(); }));
   refresh();
   $('#start').onclick = async () => {
-    const name = $('#name').value.trim() || 'Alex';
+    const name = nameInput.value.trim() || defaultName(look.gender);
     S = sim.newGame(name, look);
     render();
     await stageIntro('child');
