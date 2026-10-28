@@ -759,9 +759,11 @@ async function familyPanel() {
     if (c === 'split') { S.dating = null; logEvent('💔 Broke up'); }
     if (c === 'propose') await runPersonalEvent(PERSONAL_EVENTS.find((e) => e.id === 'partner').run(S));
     if (c === 'baby') await runPersonalEvent(PERSONAL_EVENTS.find((e) => e.id === 'baby').run(S));
-    if (c === 'dual' || c === 'home') {
+    if ((c === 'dual' || c === 'home') && sp.home !== (c === 'home')) {
       sp.home = c === 'home';
-      sim.story(S, 'family', c === 'home' ? '🏠' : '👥', c === 'home' ? `Your spouse became a stay-at-home parent at ${S.age}` : `Your spouse went back to work at ${S.age}`);
+      // Only the last change in a year goes in your life story.
+      S.story = (S.story || []).filter((e) => !(e.spouseWork && e.age === S.age));
+      sim.story(S, 'family', sp.home ? '🏠' : '👥', sp.home ? 'Your spouse became a stay-at-home parent' : 'Your spouse went back to work', { spouseWork: true });
     }
     if (S.spouse && !S.home && S.homeAskedMarried == null && S.stage === 'adult') { closeModal(); await homeDecision(); }
     render();
@@ -2113,7 +2115,13 @@ function kidsCpfRecap() {
 
 // ---------- the life recap ----------
 
-const stories = (kind) => (S.story || []).filter((e) => e.kind === kind);
+// A kind of story, without repeats (older saves logged the same line many times).
+// Changes to your spouse's work in the same year count as one: the last.
+const storyKey = (e) => (e.spouseWork || /^Your spouse (became|went back)/.test(e.text) ? `spouse@${e.age}` : `${e.text}@${e.age}`);
+const stories = (kind) => (S.story || []).filter((e, i, all) => e.kind === kind
+  && !all.some((x, j) => j > i && x.kind === kind && storyKey(x) === storyKey(e)));
+// "at 48" unless the line already says when.
+const atAge = (e) => (/\bat \d+\b/.test(e.text) ? '' : ` at ${e.age}`);
 const storyList = (list) => `<ol class="timeline">${list.map((e) => `<li><span class="j-age">${e.age}</span><span>${e.icon} ${esc(e.text)}</span></li>`).join('')}</ol>`;
 const ageSpan = (a, b) => (a === b ? `at ${a}` : `${a} to ${b}`);
 
@@ -2229,7 +2237,7 @@ function joysRecap() {
   return `<div class="recap-card wide">
     <h3>😊 Your joys <span class="ledger-sub">Joy ${Math.round(S.joy)}</span></h3>
     <ul class="moments">
-      ${family.map((e) => `<li>${e.icon} ${esc(e.text)} at ${e.age}</li>`).join('')}
+      ${family.map((e) => `<li>${e.icon} ${esc(e.text)}${atAge(e)}</li>`).join('')}
       ${places.length ? `<li>✈️ ${trips.length} holiday${trips.length > 1 ? 's' : ''} to ${places.length} place${places.length > 1 ? 's' : ''}; your favourite was <b>${places[0].h.name}</b>${places[0].n > 1 ? ` (${places[0].n} times)` : ''}</li>` : ''}
       ${items.length ? `<li>🛍️ ${items.length} things you bought and loved, costing ${money(items.reduce((a, e) => a + (e.amount || 0), 0))}. Favourites: ${favourites.map((e) => `${e.icon} ${esc(e.text)}`).join(', ')}</li>` : ''}
       ${S.given ? `<li>💝 You gave ${money(S.given)} to charity</li>` : ''}
