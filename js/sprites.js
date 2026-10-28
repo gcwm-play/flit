@@ -71,7 +71,8 @@ function probe(url) {
 }
 
 function customSrc({ stage, animal, gender }) {
-  const base = `assets/sprites/${animal}-${stage}`;
+  // An absolute URL: inside a CSS variable a relative one would resolve against the stylesheet.
+  const base = new URL(`assets/sprites/${animal}-${stage}`, document.baseURI).href;
   if (gender === 'female' && probe(`${base}-she-walk.png`)) return `${base}-she-walk.png`;
   return probe(`${base}-walk.png`) ? `${base}-walk.png` : '';
 }
