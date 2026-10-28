@@ -513,3 +513,32 @@ test('a yearly CPF top-up plan stops itself when the SA reaches the FRS', () => 
   assert.ok(s.cpfPlanStopped && s.cpfPlanStopped.before55);
   assert.equal(sim.topUpRoom(s), 0);
 });
+
+test('low wages: the employee share phases in at 3x the age band rate', () => {
+  assert.equal(cpf.monthlyContribution(30, 600).employee, 60); // 0.6 x $100
+  assert.equal(cpf.monthlyContribution(62, 600).employee, 37); // 0.375 x $100, rounded down
+  assert.equal(cpf.monthlyContribution(72, 700).employee, 30); // 0.15 x $200
+});
+
+test('MediSave above the BHS goes to the SA, or the OA once the SA is at the FRS', () => {
+  const a = { oa: 0, sa: 100, ma: cpf.BASIC_HEALTHCARE_SUM, ra: 0 };
+  cpf.deposit(a, 40, { ma: 500 });
+  assert.equal(a.sa, 600);
+  const b = { oa: 0, sa: cpf.RETIREMENT_SUMS.FRS - 200, ma: cpf.BASIC_HEALTHCARE_SUM, ra: 0 };
+  cpf.deposit(b, 40, { ma: 500 });
+  assert.equal(b.sa, cpf.RETIREMENT_SUMS.FRS);
+  assert.equal(b.oa, 300);
+});
+
+test('every holiday has a postcard and a tab, and trips record who went', async () => {
+  const { HOLIDAYS, HOLIDAY_GROUPS } = await import('../js/data.js');
+  const { postcard } = await import('../js/postcards.js');
+  for (const h of HOLIDAYS) {
+    assert.ok(postcard(h.id).includes('<svg'), `${h.id} has no postcard`);
+    assert.ok(HOLIDAY_GROUPS.some((g) => g.id === h.group), `${h.id} has no tab`);
+  }
+  const s = sim.newGame('T', { animal: 'cat' });
+  s.age = 30; s.stage = 'adult'; s.bank = 50000; s.holidayPlans = [{ id: 'kenya', mode: 'times', left: 1 }];
+  sim.advanceYears(s, 1);
+  assert.deepEqual(s.trips.at(-1), { age: 30, id: 'kenya', party: 'solo' });
+});

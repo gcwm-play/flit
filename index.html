@@ -1,19 +1,411 @@
 <!doctype html>
 <html lang="en-SG">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FLIT: Life &amp; CPF</title>
-  <meta name="description" content="A Singapore life simulator about growing up, making choices and planning your retirement with CPF.">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/style.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FLIT · Life &amp; CPF</title>
+<meta name="description" content="A free Singapore life simulator. Play a whole life from 7 to 85 with the real CPF and HDB rules, and see how today's choices shape your retirement. Plays in your browser, on phone or desktop.">
+<meta property="og:type" content="website">
+<meta property="og:title" content="FLIT · Life &amp; CPF">
+<meta property="og:description" content="Play a whole life, then think about yours. A free Singapore life simulator built on the real CPF and HDB rules.">
+<meta property="og:url" content="https://gcwm-play.github.io/flit/">
+<meta property="og:image" content="https://gcwm-play.github.io/flit/assets/landing/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#1d2238">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%231d2238'/%3E%3Crect x='2' y='9' width='3' height='5' fill='%233f7fd9'/%3E%3Crect x='5' y='6' width='3' height='8' fill='%23e0a23a'/%3E%3Crect x='8' y='8' width='3' height='6' fill='%233a9d8a'/%3E%3Crect x='11' y='3' width='3' height='11' fill='%239a5bd1'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Nunito:wght@400;700;800&display=swap">
+<style>
+/* Visual system follows the landing-page-design skill, with the game's own fonts and palette kept by request. */
+:root{
+  --navy:#1d2238;--navy2:#252b46;--navy3:#2f3656;--line:#3a4266;
+  --cream:#fffaf0;--ink:#2a2433;--ink-mute:#6d6577;--mute:#b8b3c7;--white:#f4f1ea;
+  --coral:#e2574c;--coral-hi:#ec6a5f;--sun:#ffd27a;--good:#3a9d5d;
+  --oa:#3f7fd9;--sa:#e0a23a;--ma:#3a9d8a;--ra:#9a5bd1;
+  --f-pixel:'Press Start 2P',ui-monospace,monospace;--f-body:'Nunito',system-ui,sans-serif;
+  --ease:cubic-bezier(0.22,1,0.36,1);
+  --hard:4px 4px 0 #0b0e1c;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--navy);color:var(--white);font-family:var(--f-body);font-size:16px;line-height:24px}
+img{display:block;max-width:100%;height:auto}
+a{color:inherit}
+:focus-visible{outline:2px solid var(--sun);outline-offset:4px;border-radius:4px}
+h1,h2,h3{margin:0;font-weight:400;text-wrap:balance}
+p{margin:0;text-wrap:pretty}
+.skip{position:absolute;left:16px;top:-48px;z-index:100;background:var(--sun);color:var(--ink);padding:8px 12px;border-radius:8px;font-weight:800;text-decoration:none;transition:transform .3s var(--ease)}
+.skip:focus{transform:translateY(64px)}
+.wrap{width:min(1120px,100%);margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+@media (min-width:768px){.wrap{padding-left:32px;padding-right:32px}}
+
+/* buttons: the game's chunky pixel buttons */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:4px;font:800 16px/24px var(--f-body);text-decoration:none;border:3px solid #0b0e1c;cursor:pointer;box-shadow:var(--hard);transition:transform .3s var(--ease),box-shadow .3s var(--ease),background-color .3s var(--ease)}
+.btn:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 #0b0e1c}
+.btn:active{transform:translate(2px,2px);box-shadow:2px 2px 0 #0b0e1c}
+.btn-main{background:var(--coral);color:#fff}
+.btn-main:hover{background:var(--coral-hi)}
+.btn-lg{padding:12px 24px;font-size:18px;line-height:28px}
+.btn-sm{font-size:14px;line-height:20px;padding:4px 12px;border-width:2px;box-shadow:3px 3px 0 #0b0e1c}
+
+/* nav */
+.nav{position:fixed;top:calc(12px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:16px;padding:8px 8px 8px 16px;border-radius:16px;background:#1d2238b3;border:1px solid #ffffff14;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);width:max-content;max-width:calc(100% - 24px)}
+.logo{font-family:var(--f-pixel);font-size:14px;line-height:20px;text-decoration:none;color:var(--white);white-space:nowrap;display:flex;align-items:center;gap:8px}
+.logo svg{flex:none}
+.nav ul{display:none;list-style:none;margin:0;padding:0;gap:4px}
+.nav ul a{display:block;padding:4px 12px;border-radius:8px;font-size:14px;line-height:20px;font-weight:700;text-decoration:none;color:var(--mute);transition:color .3s var(--ease),background-color .3s var(--ease)}
+.nav ul a:hover{color:var(--white);background:#ffffff0d}
+@media (min-width:768px){.nav ul{display:flex}}
+
+/* hero */
+.hero{position:relative;min-height:100svh;display:flex;flex-direction:column;align-items:center;overflow:hidden;isolation:isolate}
+.hero-art{position:absolute;inset:0 0 auto;height:max(100svh,720px);z-index:-2;background:var(--navy)}
+.hero-art svg,.hero-art picture,.hero-art img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 100%}
+.hero-scrim{position:absolute;inset:0 0 auto;height:max(100svh,720px);z-index:-1;background:#1d22389e}
+.hero-copy{position:relative;text-align:center;padding:128px 16px 48px;display:flex;flex-direction:column;align-items:center;gap:24px}
+.eyebrow{font-weight:800;font-size:14px;line-height:20px;letter-spacing:.08em;text-transform:uppercase;color:var(--sun);padding:4px 12px;border-radius:9999px;border:1px solid #ffffff26;background:#1d2238a6}
+.hero h1{font-family:var(--f-pixel);font-size:24px;line-height:40px;max-width:760px;color:#fff;text-shadow:4px 4px 0 #0b0e1c}
+.hero h1 .acc{color:var(--sun)}
+@media (min-width:640px){.hero h1{font-size:40px;line-height:60px}}
+.hero .sub{max-width:640px;font-size:18px;line-height:28px;color:#eeeaf6;text-shadow:0 1px 12px #000a}
+.hero .proof{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:4px 12px;border-radius:4px;background:var(--cream);color:var(--ink);border:2px solid #0b0e1c;box-shadow:3px 3px 0 #0b0e1c;font-size:14px;line-height:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.chip i{width:10px;height:10px;flex:none;border:2px solid #0b0e1c}
+.hero .fine{max-width:560px;font-size:16px;line-height:24px;color:#eeeaf6;text-shadow:0 1px 8px #000}
+.hero .fine b{color:var(--sun)}
+
+/* product shot */
+.shot{position:relative;margin:auto 0 0;width:min(1120px,calc(100% - 32px));transform:translateY(64px)}
+.frame{border-radius:12px;padding:8px;background:#1d2238cc;border:1px solid #ffffff1f;box-shadow:0 32px 96px #000c;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.frame-bar{display:flex;align-items:center;gap:8px;padding:4px 8px 12px}
+.frame-bar i{width:12px;height:12px;border-radius:9999px;background:#ffffff26}
+.frame-bar span{margin-left:8px;font-size:12px;line-height:16px;color:var(--mute)}
+.frame img{border-radius:6px}
+.shot .phone{display:none}
+@media (max-width:639px){
+  .shot{width:min(300px,calc(100% - 64px))}
+  .shot .desk{display:none}.shot .phone{display:block}
+  .frame{border-radius:24px}.frame img{border-radius:16px}
+  .frame-bar{display:none}
+}
+.after-hero{height:64px}
+
+/* sections */
+section{scroll-margin-top:80px}
+.sec{padding:96px 0}
+.kicker{font-family:var(--f-pixel);font-size:12px;line-height:20px;color:var(--sun);margin-bottom:16px}
+.h2{font-family:var(--f-pixel);font-size:20px;line-height:32px;color:var(--white);max-width:760px}
+@media (min-width:768px){.h2{font-size:28px;line-height:44px}}
+.lead{margin-top:16px;max-width:680px;font-size:18px;line-height:28px;color:var(--mute)}
+
+/* tagline reveal */
+.tagline{padding:96px 0}
+.tagline p{font-family:var(--f-pixel);font-size:18px;line-height:36px;max-width:920px;margin:0 auto;text-align:center}
+@media (min-width:768px){.tagline p{font-size:30px;line-height:52px}}
+.tagline .w{color:#f4f1ea38;transition:color .5s var(--ease)}
+.tagline .w.on{color:var(--white)}
+.tagline .w.hot.on{color:var(--sun)}
+
+/* steps */
+.steps{display:grid;gap:16px;margin-top:48px}
+@media (min-width:768px){.steps{grid-template-columns:repeat(3,1fr)}}
+.step{padding:24px;border-radius:4px;border:3px solid #0b0e1c;background:var(--cream);color:var(--ink);box-shadow:var(--hard)}
+.step .n{font-family:var(--f-pixel);font-size:12px;line-height:20px;color:var(--coral)}
+.step h3{margin-top:12px;font-family:var(--f-pixel);font-size:16px;line-height:24px}
+.step .ages{margin-top:4px;font-size:14px;line-height:20px;font-weight:800;color:var(--ink-mute)}
+.step p:last-child{margin-top:12px;color:var(--ink-mute)}
+
+/* features */
+.feat{display:grid;gap:64px;margin-top:96px}
+.row{display:grid;gap:32px;align-items:center}
+.row>*{min-width:0}
+@media (min-width:900px){.row{grid-template-columns:1fr 1.25fr;gap:64px}.row.flip>:first-child{order:2}}
+.row h3{font-family:var(--f-pixel);font-size:18px;line-height:28px;color:var(--white)}
+.row p{margin-top:16px;color:var(--mute);font-size:18px;line-height:28px}
+.row ul{margin:16px 0 0;padding:0;list-style:none;display:grid;gap:12px;color:var(--mute)}
+.row li{display:flex;gap:12px}
+.row li .dot{flex:none;width:10px;height:10px;margin-top:7px;border:2px solid #0b0e1c}
+.row li b{color:var(--white)}
+.pic{border-radius:6px;padding:8px;background:var(--navy2);border:1px solid var(--line)}
+.pic img{border-radius:4px}
+
+.cards{display:grid;gap:16px;margin-top:96px}
+@media (min-width:768px){.cards{grid-template-columns:repeat(3,1fr)}}
+.card{border-radius:6px;padding:24px;background:var(--navy2);border:1px solid var(--line);transition:transform .5s var(--ease),border-color .3s var(--ease)}
+.card:hover{transform:translateY(-4px);border-color:#4f5885}
+.card .ico{width:48px;height:48px;border-radius:4px;display:grid;place-items:center;background:var(--navy3);margin-bottom:16px}
+.card h3{font-family:var(--f-pixel);font-size:14px;line-height:24px}
+.card p{margin-top:8px;color:var(--mute)}
+
+/* the numbers */
+.numbers{margin-top:48px;display:grid;gap:16px}
+@media (min-width:900px){.numbers{grid-template-columns:repeat(2,1fr)}}
+.ledger{border-radius:4px;border:3px solid #0b0e1c;background:var(--cream);color:var(--ink);box-shadow:var(--hard);padding:24px}
+.ledger h3{font-family:var(--f-pixel);font-size:12px;line-height:20px;margin-bottom:12px}
+.ledger dl{margin:0;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:0}
+.ledger dt,.ledger dd{margin:0;padding:8px 0;border-top:2px dotted #d9d0bf;font-size:16px;line-height:24px}
+.ledger dt:first-of-type,.ledger dd:first-of-type{border-top:0}
+.ledger dd{padding-left:16px;font-weight:800;text-align:right;font-variant-numeric:tabular-nums}
+.ledger dt small{display:block;font-size:14px;line-height:20px;color:var(--ink-mute)}
+.ledger dd{white-space:nowrap}
+@media (max-width:639px){.ledger dl{grid-template-columns:minmax(0,1fr)}.ledger dd{text-align:left;padding:0 0 8px;border-top:0;white-space:normal}}
+.checked{margin-top:24px;color:var(--mute);font-size:14px;line-height:20px;max-width:760px}
+.checked a{color:var(--white)}
+
+/* faq */
+.faq{margin-top:48px;display:grid;gap:8px;max-width:800px}
+.faq details{border-radius:6px;background:var(--navy2);border:1px solid var(--line)}
+.faq summary{cursor:pointer;list-style:none;padding:16px 24px;font-weight:800;font-size:18px;line-height:28px;display:flex;justify-content:space-between;gap:16px;border-radius:6px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary svg{flex:none;margin-top:4px;color:var(--mute);transition:transform .5s var(--ease)}
+.faq details[open] summary svg{transform:rotate(45deg)}
+.faq details p{padding:0 24px 16px;color:var(--mute)}
+
+/* final cta */
+.final{text-align:center;padding:96px 16px;display:flex;flex-direction:column;align-items:center;gap:24px;border-radius:6px;background:var(--navy2);border:1px solid var(--line);margin:0 auto 96px}
+.final .h2{margin:0 auto}
+.final p{max-width:560px;color:var(--mute);font-size:18px;line-height:28px}
+.final .coins{display:flex;gap:8px;align-items:flex-end;height:48px}
+.final .coins i{width:16px;border:2px solid #0b0e1c}
+
+footer{border-top:1px solid var(--line);padding:32px 0 calc(48px + env(safe-area-inset-bottom,0px));color:var(--mute);font-size:14px;line-height:20px}
+footer .wrap{display:flex;flex-wrap:wrap;gap:16px 32px;justify-content:space-between}
+footer nav{display:flex;flex-wrap:wrap;gap:8px 24px}
+footer a{color:var(--mute);text-decoration:none}
+footer a:hover{color:var(--white)}
+
+/* reveals */
+.rv{opacity:0;transform:translateY(32px);transition:opacity .7s var(--ease),transform .7s var(--ease)}
+.rv.in{opacity:1;transform:none}
+.hero .rv{transition-duration:.8s}
+.hero .rv:nth-child(2){transition-delay:.06s}.hero .rv:nth-child(3){transition-delay:.12s}.hero .rv:nth-child(4){transition-delay:.18s}.hero .rv:nth-child(5){transition-delay:.24s}.hero .rv:nth-child(6){transition-delay:.3s}
+.shot.rv{transform:translateY(128px)}.shot.rv.in{transform:translateY(64px);transition-delay:.3s}
+
+/* placeholder art motion */
+.tw{animation:tw 3s steps(2) infinite}@keyframes tw{50%{opacity:.2}}
+.fl{animation:fl 2.4s steps(2) infinite}@keyframes fl{50%{opacity:.55}}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .rv,.shot.rv{transform:none!important;transition:opacity .4s linear}
+  .tw,.fl{animation:none}
+  .btn:hover,.card:hover{transform:none}
+}
+</style>
 </head>
 <body>
-  <div id="app"></div>
-  <div id="modal" class="modal" hidden><div class="modal-box"></div></div>
-  <div id="toasts"></div>
-  <script type="module" src="js/main.js"></script>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="nav" aria-label="Site">
+  <a class="logo" href="./"><svg width="20" height="20" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true"><rect x="1" y="9" width="3" height="6" fill="#3f7fd9"/><rect x="5" y="6" width="3" height="9" fill="#e0a23a"/><rect x="9" y="8" width="3" height="7" fill="#3a9d8a"/><rect x="13" y="3" width="3" height="12" fill="#9a5bd1"/></svg>FLIT</a>
+  <ul>
+    <li><a href="#how">How to play</a></li>
+    <li><a href="#numbers">The numbers</a></li>
+    <li><a href="#faq">FAQ</a></li>
+  </ul>
+  <a class="btn btn-main btn-sm" href="play.html">Play now</a>
+</header>
+
+<main id="main">
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-art" aria-hidden="true">
+    <svg id="placeholder-art" viewBox="0 0 320 180" preserveAspectRatio="xMidYMax slice" shape-rendering="crispEdges"></svg>
+    <!-- Drop the generated art in assets/landing/ and it replaces the placeholder automatically. -->
+    <picture>
+      <source media="(max-width: 639px)" srcset="assets/landing/hero-mobile.webp">
+      <img src="assets/landing/hero.webp" alt="" fetchpriority="high" onload="document.getElementById('placeholder-art').remove()" onerror="this.parentNode.remove()">
+    </picture>
+  </div>
+  <div class="hero-scrim"></div>
+  <div class="hero-copy">
+    <p class="eyebrow rv">A free life simulator · Singapore</p>
+    <h1 id="hero-title" class="rv">Play a whole life.<br><span class="acc">Then think about yours.</span></h1>
+    <p class="sub rv">Grow up, find work, spend, save, maybe marry and buy a flat, and grow old in a Singapore that runs on the real CPF and HDB rules. See how the choices you make at 25 show up at 65.</p>
+    <a class="btn btn-main btn-lg rv" href="play.html">Start a life<svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M221.66 133.66l-72 72a8 8 0 0 1-11.32-11.32L196.69 136H40a8 8 0 0 1 0-16h156.69l-58.35-58.34a8 8 0 0 1 11.32-11.32l72 72a8 8 0 0 1 0 11.32Z"/></svg></a>
+    <p class="fine rv">Free, no sign up, works on your phone. There's no winning or losing, just a life to look back on.</p>
+  </div>
+  <figure class="shot rv" style="margin-bottom:0">
+    <div class="frame">
+      <div class="frame-bar" aria-hidden="true"><i></i><i></i><i></i><span>gcwm-play.github.io/flit</span></div>
+      <img class="desk" src="assets/landing/game-desktop.webp" width="1800" height="1125" alt="The game at age 36: a cat family in their BTO flat, the year's money in and out, and the CPF balances in each account.">
+      <img class="phone" src="assets/landing/game-phone.webp" width="585" height="1266" alt="The game on a phone: the family in their flat, and the cash you can spend this year." loading="lazy">
+    </div>
+  </figure>
+</section>
+<div class="after-hero"></div>
+
+<section class="tagline" aria-label="Tagline">
+  <div class="wrap"><p id="tag">Retirement feels far away. The choices that shape it are made every day.</p></div>
+</section>
+
+<section class="sec" id="how" aria-labelledby="how-title" style="padding-top:0">
+  <div class="wrap">
+    <p class="kicker rv">How to play</p>
+    <h2 class="h2 rv" id="how-title">One choice a turn, from age 7 to 85.</h2>
+    <p class="lead rv">Pick an animal and a name. Each turn covers one to five years of your life, and every turn works the same way.</p>
+    <div class="steps">
+      <div class="step rv"><p class="n">01</p><h3>Choose a focus</h3><p class="ages">Study, exercise, a course, family</p><p>Pick what to spend these years on. It builds your skills, which open up jobs and help you cope when life gets hard.</p></div>
+      <div class="step rv"><p class="n">02</p><h3>Sort out your money</h3><p class="ages">Optional, as much as you like</p><p>See what came in and went out. Set a budget, plan a holiday, buy a flat, invest, or top up your CPF before you move on.</p></div>
+      <div class="step rv"><p class="n">03</p><h3>See what happens</h3><p class="ages">The years pass</p><p>Pay, interest and life events arrive, good and bad. Your savings and CPF update, and the next turn begins.</p></div>
+    </div>
+
+    <div class="feat">
+      <div class="row">
+        <div class="rv">
+          <h3>Watch your CPF grow over a lifetime</h3>
+          <p>Retirement savings build slowly, which is why they are easy to ignore. The game follows every account from childhood to 85, so you can see what years of contributions and interest add up to.</p>
+          <ul>
+            <li><span class="dot" style="background:var(--oa)"></span><span><b>What each account is for.</b> Ordinary for housing and education, Special for retirement, MediSave for health.</span></li>
+            <li><span class="dot" style="background:var(--sa)"></span><span><b>Why they grow differently.</b> How much goes into each one, and the interest each earns.</span></li>
+            <li><span class="dot" style="background:var(--ra)"></span><span><b>What happens at 55 and 65.</b> Your Retirement Account forms, then CPF LIFE pays you every month.</span></li>
+          </ul>
+        </div>
+        <div class="pic rv"><img src="assets/landing/game-cpf.webp" width="1600" height="1000" loading="lazy" alt="The CPF panel: a chart of all four accounts growing from age 7 to 36."></div>
+      </div>
+      <div class="row flip">
+        <div class="rv">
+          <h3>Weigh the big decisions</h3>
+          <p>Stay with your parents or buy a flat? Which one, how big a loan, CPF or cash? Each option shows what it costs now and what it leaves for later.</p>
+          <ul>
+            <li><span class="dot" style="background:var(--good)"></span><span><b>Worked out the way HDB would.</b> Grants and loan limits follow your household income.</span></li>
+            <li><span class="dot" style="background:var(--oa)"></span><span><b>The trade off with CPF.</b> Money used for your home goes back into your CPF, with interest, when you sell.</span></li>
+            <li><span class="dot" style="background:var(--sa)"></span><span><b>Choices later in life.</b> Moving to a smaller flat, or selling part of your lease to HDB.</span></li>
+          </ul>
+        </div>
+        <div class="pic rv"><img src="assets/landing/game-home.webp" width="1600" height="1000" loading="lazy" alt="The home panel for a BTO flat: its value, lease left, loan left, and the CPF used so far."></div>
+      </div>
+      <div class="row">
+        <div class="rv">
+          <h3>Look back, then look ahead</h3>
+          <p>At 85, or whenever you choose to stop, you see the story of the life you lived: your work, your homes, your holidays and your money. Then a few questions. How do you feel about it? What would you change? What do you want for your own retirement?</p>
+          <ul>
+            <li><span class="dot" style="background:var(--coral)"></span><span><b>No scores.</b> Saving a lot and living a lot can both be good lives.</span></li>
+            <li><span class="dot" style="background:var(--ma)"></span><span><b>Try another path.</b> Go back a few turns and see how a different choice turns out.</span></li>
+          </ul>
+        </div>
+        <div class="pic rv"><img src="assets/landing/game-recap.webp" width="1600" height="1000" loading="lazy" alt="The life recap at 85: career, housing journey, CPF decisions and lifestyle."></div>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="card rv"><div class="ico"><svg width="24" height="24" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><path fill="#e2574c" d="M2 2h3v1h2V2h3v1h1v3h-1v1H9v1H8v1H7v1H5V9H4V8H3V7H2V6H1V3h1z"/></svg></div><h3>Life won't go to plan</h3><p>Illness, a recession, a lost job or a new baby. You'll see how insurance, savings and skills soften the blow.</p></div>
+      <div class="card rv"><div class="ico"><svg width="24" height="24" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><path fill="#3a9d5d" d="M1 9h2v2H1zM4 7h2v4H4zM7 5h2v6H7zM10 2h1v9h-1z"/></svg></div><h3>Real rules, kept simple</h3><p>The 2026 CPF and HDB figures, with every amount in today's dollars so the numbers make sense.</p></div>
+      <div class="card rv"><div class="ico"><svg width="24" height="24" viewBox="0 0 12 12" shape-rendering="crispEdges" aria-hidden="true"><path fill="#e0a23a" d="M2 1h2v2h4V1h2v3h1v5h-1v1H2V9H1V4h1z"/><path fill="#2a2433" d="M4 5h1v1H4zM7 5h1v1H7zM5 7h2v1H5z"/></svg></div><h3>Good to talk about</h3><p>Play in a class or at home, then compare lives. Everyone in the game is an animal, so anyone can play.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="numbers" aria-labelledby="num-title" style="padding-top:0">
+  <div class="wrap">
+    <p class="kicker rv">The numbers</p>
+    <h2 class="h2 rv" id="num-title">The figures behind the game.</h2>
+    <p class="lead rv">The game uses the official 2026 figures, so what you learn carries over to real life. Here are some of them.</p>
+    <div class="numbers">
+      <div class="ledger rv">
+        <h3>CPF</h3>
+        <dl>
+          <dt>Contribution rate, 55 and under<small>Employee 20%, employer 17%</small></dt><dd>37%</dd>
+          <dt>Ordinary Wage ceiling<small>A month, from 1 January 2026</small></dt><dd>$8,000</dd>
+          <dt>Basic, Full and Enhanced Retirement Sums<small>For people turning 55 in 2026</small></dt><dd>$110,200 · $220,400 · $440,800</dd>
+          <dt>CPF LIFE payout from 65, Full Retirement Sum<small>Standard plan, estimated</small></dt><dd>about $1,780 a month</dd>
+          <dt>Basic Healthcare Sum</dt><dd>$79,000</dd>
+          <dt>Interest<small>OA, then SA, MediSave and RA</small></dt><dd>2.5% · 4%</dd>
+        </dl>
+      </div>
+      <div class="ledger rv">
+        <h3>Homes, health and family</h3>
+        <dl>
+          <dt>HDB loan<small>Up to 75% of the price, up to 25 years</small></dt><dd>2.6%</dd>
+          <dt>Enhanced CPF Housing Grant<small>First timers, by household income</small></dt><dd>up to $120,000</dd>
+          <dt>Mortgage Servicing Ratio · Total Debt Servicing Ratio</dt><dd>30% · 55%</dd>
+          <dt>MediShield Life deductible<small>Class B2 ward, age 80 and below</small></dt><dd>$2,500</dd>
+          <dt>SG Child Support Package<small>Baby Gift for each child, from April 2027</small></dt><dd>$10,000</dd>
+          <dt>Matched Retirement Savings Scheme<small>From 55, if your RA is below the BRS</small></dt><dd>up to $2,000 a year</dd>
+        </dl>
+      </div>
+    </div>
+    <p class="checked rv">Last checked 28 October 2026 against <a href="https://www.cpf.gov.sg/" rel="noopener">cpf.gov.sg</a>, <a href="https://www.hdb.gov.sg/" rel="noopener">hdb.gov.sg</a>, <a href="https://www.mas.gov.sg/" rel="noopener">mas.gov.sg</a>, <a href="https://www.moh.gov.sg/" rel="noopener">moh.gov.sg</a> and <a href="https://www.life.gov.sg/" rel="noopener">life.gov.sg</a>. Rules change every year, and the game simplifies some of them.</p>
+  </div>
+</section>
+
+<section class="sec" id="faq" aria-labelledby="faq-title" style="padding-top:0">
+  <div class="wrap">
+    <p class="kicker rv">FAQ</p>
+    <h2 class="h2 rv" id="faq-title">Before you start</h2>
+    <div class="faq">
+      <details class="rv"><summary>Is it really free?<svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg></summary><p>Yes. It runs in your browser with no download, no account and no ads.</p></details>
+      <details class="rv"><summary>Who is it for?<svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg></summary><p>Anyone who has never really thought about retirement: students meeting CPF for the first time, young workers, and parents who want to talk about money with their children.</p></details>
+      <details class="rv"><summary>Are the numbers real?<svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg></summary><p>The CPF, HDB, MAS and MediShield Life figures are the official 2026 ones. Prices, pay and investment returns are realistic estimates, kept in today's dollars. Companies and funds in the game are made up.</p></details>
+      <details class="rv"><summary>Does it save my game?<svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg></summary><p>After every turn, in the browser you are playing on. Pick it up later with Continue. Clearing your browser's site data erases the save.</p></details>
+      <details class="rv"><summary>Can I play on my phone?<svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg></summary><p>Yes. The layout works on phones, tablets and desktops.</p></details>
+      <details class="rv"><summary>Why animals?<svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg></summary><p>So anyone can see themselves in the game. Pick the family you like best.</p></details>
+      <details class="rv"><summary>Is this financial advice?<svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M224 128a8 8 0 0 1-8 8h-80v80a8 8 0 0 1-16 0v-80H40a8 8 0 0 1 0-16h80V40a8 8 0 0 1 16 0v80h80a8 8 0 0 1 8 8Z"/></svg></summary><p>No. It shows how the rules work and gives you something to think about. For your own plans, use the planners at cpf.gov.sg.</p></details>
+    </div>
+  </div>
+</section>
+
+<div class="wrap">
+  <section class="final rv" aria-labelledby="final-title">
+    <div class="coins" aria-hidden="true"><i style="height:20px;background:var(--oa)"></i><i style="height:32px;background:var(--sa)"></i><i style="height:26px;background:var(--ma)"></i><i style="height:44px;background:var(--ra)"></i></div>
+    <h2 class="h2" id="final-title">Your future starts with today's choices.</h2>
+    <p>Play one life, then spend a minute thinking about your own. It's free and saves as you go.</p>
+    <a class="btn btn-main btn-lg" href="play.html">Start a life
+      <svg width="20" height="20" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M221.66 133.66l-72 72a8 8 0 0 1-11.32-11.32L196.69 136H40a8 8 0 0 1 0-16h156.69l-58.35-58.34a8 8 0 0 1 11.32-11.32l72 72a8 8 0 0 1 0 11.32Z"/></svg></a>
+  </section>
+</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>FLIT: Life &amp; CPF. No accounts, no tracking, no cookies. Your save stays in your browser.</p>
+    <nav aria-label="Footer">
+      <a href="play.html">Play</a>
+      <a href="#numbers">The numbers</a>
+      <a href="https://github.com/gcwm-play/flit">Source on GitHub</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+// Placeholder hero art (pixel skyline at dusk), shown until assets/landing/hero.webp exists.
+(function(){
+  const svg=document.getElementById('placeholder-art');if(!svg)return;
+  let sd=42;const rr=()=>(sd=(sd*9301+49297)%233280)/233280;
+  const W=320,G=160;
+  const bands=['#1d2238','#232845','#2b2f52','#3a3765','#563f74','#7a4876','#a85270','#cf5d61','#e98a5c','#f5b867'];
+  let s='';bands.forEach((c,i)=>{s+=`<rect x="0" y="${i*12}" width="${W}" height="${i===bands.length-1?G:12}" fill="${c}"/>`});
+  for(let i=0;i<40;i++)s+=`<rect class="tw" style="animation-delay:${(rr()*3).toFixed(2)}s" x="${rr()*W|0}" y="${rr()*48|0}" width="1" height="1" fill="#fff"/>`;
+  s+='<rect x="252" y="20" width="10" height="10" fill="#f4f1ea"/><rect x="250" y="22" width="14" height="6" fill="#f4f1ea"/><rect x="254" y="18" width="6" height="14" fill="#f4f1ea"/>';
+  let x=-4;while(x<W){const w=10+rr()*16|0,h=10+rr()*22|0;s+=`<rect x="${x}" y="${G-h}" width="${w}" height="${h}" fill="#3a2f55"/>`;x+=w+2}
+  const acc=['#3f7fd9','#e0a23a','#3a9d8a','#9a5bd1','#e2574c'];
+  const hdb=(x,w,h,c)=>{const y=G-h;let o=`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${c}"/><rect x="${x}" y="${y}" width="${w}" height="2" fill="#ffffff1a"/>`;
+    for(let fy=y+5;fy<G-6;fy+=5)for(let fx=x+2;fx<x+w-2;fx+=4){const lit=rr()<.45;o+=`<rect ${lit&&rr()<.15?'class="fl" style="animation-delay:'+(rr()*2).toFixed(2)+'s"':''} x="${fx}" y="${fy}" width="2" height="2" fill="${lit?'#ffd27a':'#1a1d33'}"/>`;if(rr()<.06)o+=`<rect x="${fx-1}" y="${fy+2}" width="4" height="1" fill="${acc[rr()*acc.length|0]}"/>`}
+    return o};
+  s+=hdb(20,44,78,'#2c3150')+hdb(236,52,86,'#2c3150')+hdb(116,58,104,'#343a5e')+hdb(184,34,64,'#30365a')+hdb(80,28,56,'#30365a');
+  s+=`<rect x="0" y="${G}" width="${W}" height="20" fill="#1d2238"/>`;
+  for(let tx=4;tx<W;tx+=22+(rr()*14|0))s+=`<rect x="${tx}" y="${G-6}" width="8" height="6" fill="#2f6f4a"/><rect x="${tx+3}" y="${G}" width="2" height="2" fill="#5a3a2a"/>`;
+  svg.innerHTML=s;
+})();
+
+// Scroll reveals: once each, via IntersectionObserver.
+(function(){
+  const els=document.querySelectorAll('.rv');
+  if(!('IntersectionObserver' in window)){els.forEach(e=>e.classList.add('in'));return}
+  const io=new IntersectionObserver(es=>es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}}),{rootMargin:'0px 0px -10% 0px'});
+  els.forEach(e=>io.observe(e));
+})();
+
+// Tagline: each word lights up as it crosses a line 70% down the viewport.
+(function(){
+  const p=document.getElementById('tag');const hot=['far','away.','every','day.'];
+  p.innerHTML=p.textContent.split(' ').map(w=>`<span class="w${hot.includes(w)?' hot':''}">${w}</span>`).join(' ');
+  const ws=[...p.querySelectorAll('.w')];
+  if(matchMedia('(prefers-reduced-motion: reduce)').matches){ws.forEach(w=>w.classList.add('on'));return}
+  let ticking=false;
+  const upd=()=>{ticking=false;const line=innerHeight*0.7;let k=0;ws.forEach(w=>{if(!w.classList.contains('on')&&w.getBoundingClientRect().top<line){w.style.transitionDelay=(k++*60)+'ms';w.classList.add('on')}})};
+  addEventListener('scroll',()=>{if(!ticking){ticking=true;requestAnimationFrame(upd)}},{passive:true});upd();
+})();
+</script>
 </body>
 </html>

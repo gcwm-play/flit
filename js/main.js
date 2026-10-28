@@ -6,11 +6,11 @@ import * as invest from './invest.js';
 import * as health from './health.js';
 import * as cars from './car.js';
 import { postcard } from './postcards.js';
-import { characterHtml, itemHtml, lookOf, ANIMALS, GENDERS } from './sprites.js';
+import { characterHtml, itemHtml, itemWidth, lookOf, ANIMALS, GENDERS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS } from './events.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, CAREERS, CAREER_SWITCHES,
-  LIFESTYLES, RETIREMENT_LIFESTYLES, RENT_MONTHLY, FACTS, HOLIDAYS,
+  LIFESTYLES, RETIREMENT_LIFESTYLES, RENT_MONTHLY, FACTS, HOLIDAYS, HOLIDAY_GROUPS,
 } from './data.js';
 
 const SAVE_KEY = 'flit-save-v1';
@@ -208,6 +208,10 @@ const me = (stage = S.stage) => lookOf(S.look, stage);
 
 // ---------- title screen ----------
 
+// A default name to start with, swapped when you switch between he and she (until you type your own).
+const DEFAULT_NAMES = { male: ['Daniel', 'Ryan', 'Ethan', 'Marcus', 'Jason', 'Adam'], female: ['Sarah', 'Rachel', 'Chloe', 'Emily', 'Grace', 'Hannah'] };
+const defaultName = (gender) => DEFAULT_NAMES[gender][Math.floor(Math.random() * DEFAULT_NAMES[gender].length)];
+
 function titleScreen() {
   const saved = loadSave();
   const animals = Object.keys(ANIMALS);
@@ -219,7 +223,7 @@ function titleScreen() {
       <div class="title-sprites" id="preview"></div>
       <div class="card start-card">
         <p>Grow up, build your skills, make money choices and see where they lead when you retire.</p>
-        <label class="field">Your name <input id="name" maxlength="16" placeholder="Alex" autocomplete="off"></label>
+        <label class="field">Your name <input id="name" maxlength="16" autocomplete="off"></label>
         <p class="pick-label">Pick your animal <small>(your partner and children will be the same animal)</small></p>
         <div class="animal-pick" role="group" aria-label="Animal">${Object.entries(ANIMALS).map(([k, a]) => `<button class="animal-btn" data-animal="${k}">${person({ stage: 'adult', animal: k, gender: 'male', outfit: 1 }, 'tiny')}<span>${a.label}</span></button>`).join('')}</div>
         <p class="small muted">Everyone in this Singapore is an animal, but the rules are real: the same CPF, HDB and marriage rules apply.</p>
@@ -238,12 +242,19 @@ function titleScreen() {
     app.querySelectorAll('[data-gender]').forEach((b) => b.classList.toggle('on', b.dataset.gender === look.gender));
     app.querySelectorAll('[data-outfit]').forEach((b) => b.classList.toggle('on', +b.dataset.outfit === look.outfit));
   };
-  app.querySelectorAll('[data-gender]').forEach((b) => (b.onclick = () => { look.gender = b.dataset.gender; refresh(); }));
+  const nameInput = $('#name');
+  let autoName = defaultName(look.gender);
+  nameInput.value = autoName;
+  app.querySelectorAll('[data-gender]').forEach((b) => (b.onclick = () => {
+    look.gender = b.dataset.gender;
+    if (nameInput.value.trim() === autoName || !nameInput.value.trim()) nameInput.value = autoName = defaultName(look.gender);
+    refresh();
+  }));
   app.querySelectorAll('[data-animal]').forEach((b) => (b.onclick = () => { look.animal = b.dataset.animal; refresh(); }));
   app.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => { look.outfit = +b.dataset.outfit; refresh(); }));
   refresh();
   $('#start').onclick = async () => {
-    const name = $('#name').value.trim() || 'Alex';
+    const name = nameInput.value.trim() || defaultName(look.gender);
     S = sim.newGame(name, look);
     render();
     await stageIntro('child');
@@ -485,14 +496,44 @@ function roomHtml() {
 
 // Small things go on top of the low cabinet, big things on the floor.
 const SHELF_SLOTS = [0, 1, 2, 3, 4];
-// The left of the room fills first, keeping the cabinet on the right clear for as long as possible.
-const FLOOR_SLOTS = [5, 6, 7, 15, 13, 11, 17, 10, 12, 16, 14, 8, 9];
+// Floor items go against the wall first (left of the cabinet), then in a front row across the
+// room. Each one takes the free spot that overlaps least with what's already there, keeps
+// clear of the bed where it can, and stays as far from its neighbours as possible, so big
+// pieces spread out instead of piling up on one side.
+const BED = [27, 44];
+const ROWS = [{ max: 62, bottom: 22, z: 1, cost: 0 }, { max: 99, bottom: 3, z: 3, cost: 4 }];
+const overlap = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+function layoutFloor(items) {
+  const done = [];
+  const order = [...items].sort((a, b) => itemWidth(b) - itemWidth(a));
+  for (const it of order) {
+    const w = itemWidth(it);
+    let best = null;
+    ROWS.forEach((row, r) => {
+      for (let x = 1; x + w <= row.max || x === 1; x++) {
+        let cost = row.cost;
+        let near = Infinity;
+        for (const d of done) {
+          cost += overlap(x, x + w, d.x, d.x + d.w) * (d.r === r ? 3 : 1);
+          near = Math.min(near, Math.abs(x + w / 2 - (d.x + d.w / 2)));
+        }
+        if (r === 0) cost += overlap(x, x + w, ...BED) * 0.5;
+        cost -= Math.min(near, 40) * 0.05;
+        if (!best || cost < best.cost - 1e-9) best = { cost, x, r };
+        if (x + w > row.max) break;
+      }
+    });
+    done.push({ it, w, x: best.x, r: best.r });
+  }
+  return new Map(done.map((d) => [d.it, `left:${d.x}%;bottom:${ROWS[d.r].bottom}%;z-index:${ROWS[d.r].z}`]));
+}
 function placeItems(items) {
-  let shelf = 0, floor = 0;
+  let shelf = 0;
+  const onShelf = new Set(items.filter((it) => !it.floor).slice(0, SHELF_SLOTS.length));
+  const floor = layoutFloor(items.filter((it) => !onShelf.has(it)));
   return items.map((it) => {
-    const onShelf = !it.floor && shelf < SHELF_SLOTS.length;
-    const slot = onShelf ? SHELF_SLOTS[shelf++] : FLOOR_SLOTS[floor++ % FLOOR_SLOTS.length];
-    return `<span class="item slot-${slot}" title="${it.name}" data-item="${it.id}">${itemHtml(it)}</span>`;
+    const where = onShelf.has(it) ? `class="item slot-${SHELF_SLOTS[shelf++]}"` : `class="item" style="${floor.get(it)}"`;
+    return `<span ${where} title="${it.name}" data-item="${it.id}">${itemHtml(it)}</span>`;
   }).join('');
 }
 
@@ -1720,7 +1761,8 @@ function cpfTrendChart() {
     ${ticks}${areas}${marks}
     <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg>
     <p class="legend"><span class="k-oa"></span> OA <span class="k-sa"></span> SA <span class="k-ra"></span> RA <span class="k-ma"></span> MediSave</p>
-    <p class="small">From age ${first.age} to ${last.age}, your CPF went from <b>${money(first.cpf)}</b> to <b>${money(last.cpf)}</b>. Hover or tap the chart for any year.</p>`;
+    <p class="small">From age ${first.age} to ${last.age}, your CPF went from <b>${money(first.cpf)}</b> to <b>${money(last.cpf)}</b>. Hover or tap the chart for any year.</p>
+    <p class="small">The accounts are stacked, so each band's thickness is that account. While you work the OA usually grows fastest, even at 2.5%: it gets the biggest share of every contribution (23% of your wage up to 35, against 6% for the SA), unless it's paying for a home.</p>`;
 }
 
 function shortMoney(v) {
@@ -2027,40 +2069,41 @@ async function budgetPanel() {
 }
 
 // Plan trips: once, every year, or a set number of times.
+let holidayTab = 'near';
 async function holidaysPanel() {
   for (;;) {
     const plans = S.holidayPlans || (S.holidayPlans = []);
     const people = sim.travellers(S);
     const trips = S.trips || [];
-    const scroll = modalEl.hidden ? 0 : modalBox.scrollTop;
     const c = await dialog(`
       <h2>✈️ Holidays</h2>
       <p class="small">Prices are per person for flights and a typical stay. ${people > 1 ? `${people} of you travel together${S.spouse ? ' and you pay half' : ''}.` : 'You travel on your own.'} Trips happen during your next turn.</p>
-      ${plans.length ? `<h3>Planned</h3><ul class="plans">${plans.map((p, i) => {
+      ${plans.length ? `<ul class="plans">${plans.map((p, i) => {
         const h = HOLIDAYS.find((x) => x.id === p.id);
         return `<li>${h.icon} <b>${h.name}</b>: ${p.mode === 'yearly' ? 'every year' : p.left === 1 ? 'once' : `${p.left} more times`} · ${money(sim.holidayCost(S, p.id))} a trip ${btn(`cancel:${i}`, 'Cancel')}</li>`;
       }).join('')}</ul>` : ''}
-      <div class="holidays">${HOLIDAYS.map((h) => {
-        const cost = sim.holidayCost(S, h.id);
+      <div class="tabs" role="tablist">${HOLIDAY_GROUPS.map((g) => `<button class="tab ${g.id === holidayTab ? 'on' : ''}" role="tab" aria-selected="${g.id === holidayTab}" data-choice="tab:${g.id}">${g.label}</button>`).join('')}</div>
+      <div class="trips">${HOLIDAYS.filter((h) => h.group === holidayTab).map((h) => {
         const been = trips.filter((t) => t.id === h.id).length;
-        return `<div class="holiday">
+        return `<div class="trip">
           ${postcard(h.id, h.name)}
-          <b>${h.icon} ${h.name}</b><small>${h.place} · ${h.days} days · ${money(h.cost)}/person</small>
-          <small>Your share: <b>${money(cost)}</b> a trip · Joy +${h.joy}${been ? ` · been ${been}×` : ''}</small>
-          <div class="row tight">${btn(`once:${h.id}`, 'Go once')}${btn(`yearly:${h.id}`, 'Every year')}${btn(`times:${h.id}`, 'Go 3 times')}</div>
+          <div class="trip-text"><b>${h.icon} ${h.name}</b>
+            <small>${h.place} · ${h.days} days · Joy +${h.joy}${been ? ` · been ${been}×` : ''}</small>
+            <small>${money(h.cost)}/person · your share <b>${money(sim.holidayCost(S, h.id))}</b></small></div>
+          <div class="trip-go">${btn(`once:${h.id}`, 'Once')}${btn(`yearly:${h.id}`, 'Yearly')}${btn(`times:${h.id}`, '3 times')}</div>
         </div>`;
       }).join('')}</div>
       <p class="small">Going to the same place over and over brings less joy after the third visit.</p>
       ${btn('ok', 'Done', 'primary')}`, { wide: true });
     if (c === 'ok') return;
     const [kind, id] = c.split(':');
-    if (kind === 'cancel') plans.splice(+id, 1);
+    if (kind === 'tab') holidayTab = id;
+    else if (kind === 'cancel') plans.splice(+id, 1);
     else {
       const h = HOLIDAYS.find((x) => x.id === id);
       plans.push({ id, mode: kind === 'yearly' ? 'yearly' : 'times', left: kind === 'times' ? 3 : 1 });
       toast(`${h.icon} ${h.name} planned${kind === 'yearly' ? ' every year' : kind === 'times' ? ' 3 times' : ''}: ${money(sim.holidayCost(S, id))} a trip`);
     }
-    void scroll;
   }
 }
 
@@ -2116,14 +2159,64 @@ async function menuPanel() {
 // ---------- the end ----------
 
 // A recap of the life lived, with questions to reflect on. There is no score.
+// The holidays as a scrapbook: one postcard at a time, like flipping through an album.
+const PARTY = { solo: 'on your own', couple: 'with your partner', family: 'with the family' };
 function holidayRecap() {
   const trips = S.trips || [];
   if (!trips.length) return '<h3>✈️ Holidays</h3><p class="small muted-ink">You never took a planned holiday.</p>';
-  const by = HOLIDAYS.map((h) => ({ h, list: trips.filter((t) => t.id === h.id) })).filter((x) => x.list.length);
-  return `<h3>✈️ Your holidays</h3>
-    <div class="holidays recap">${by.map(({ h, list }) => `<div class="holiday">${postcard(h.id, h.name)}
-      <b>${h.icon} ${h.name} ×${list.length}</b><small>Age ${list.slice(0, 6).map((t) => t.age).join(', ')}${list.length > 6 ? '…' : ''}</small></div>`).join('')}</div>
-    <p class="small">${trips.length} trip${trips.length > 1 ? 's' : ''}, costing you ${money(S.totals?.holidays || 0)} in all.</p>`;
+  const places = new Set(trips.map((t) => t.id)).size;
+  return `<h3>✈️ Your holiday scrapbook</h3>
+    <div class="scrapbook" data-slides="${trips.length}">
+      <div class="pages">${trips.map((t, i) => {
+        const h = HOLIDAYS.find((x) => x.id === t.id) || HOLIDAYS[0];
+        const n = trips.slice(0, i + 1).filter((x) => x.id === t.id).length;
+        return `<figure class="page ${i === 0 ? 'on' : ''}" style="--tilt:${[-3, 2, -1.5, 3, -2.5, 1][i % 6]}deg" aria-hidden="${i !== 0}">
+          <div class="photo">${postcard(h.id, h.name)}<i class="tape l"></i><i class="tape r"></i></div>
+          <figcaption><b>${h.icon} ${h.name}</b><span>Age ${t.age} · ${h.place}${t.party ? ` · ${PARTY[t.party]}` : ''}${n > 1 ? ` · visit ${n}` : ''}</span></figcaption>
+        </figure>`;
+      }).join('')}</div>
+      <div class="sb-nav">
+        <button class="sb-btn" data-sb="-1" aria-label="Previous trip">◀</button>
+        <span class="sb-count" aria-live="polite">1 / ${trips.length}</span>
+        <button class="sb-btn" data-sb="pause" aria-label="Pause slideshow">⏸</button>
+        <button class="sb-btn" data-sb="1" aria-label="Next trip">▶</button>
+      </div>
+    </div>
+    <p class="small">${trips.length} trip${trips.length > 1 ? 's' : ''} to ${places} place${places > 1 ? 's' : ''}, costing you ${money(S.totals?.holidays || 0)} in all.</p>`;
+}
+
+// Turns the scrapbook pages every few seconds; the buttons flip by hand and pause it.
+function startScrapbook(root) {
+  const book = root.querySelector('.scrapbook');
+  if (!book) return;
+  const pages = [...book.querySelectorAll('.page')];
+  const count = book.querySelector('.sb-count');
+  const pauseBtn = book.querySelector('[data-sb="pause"]');
+  let at = 0;
+  let playing = pages.length > 1 && !matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const show = (i) => {
+    pages[at].classList.remove('on'); pages[at].setAttribute('aria-hidden', 'true');
+    at = (i + pages.length) % pages.length;
+    pages[at].classList.add('on'); pages[at].setAttribute('aria-hidden', 'false');
+    count.textContent = `${at + 1} / ${pages.length}`;
+  };
+  const setPlaying = (on) => {
+    playing = on;
+    pauseBtn.textContent = on ? '⏸' : '▶︎▶︎';
+    pauseBtn.setAttribute('aria-label', on ? 'Pause slideshow' : 'Play slideshow');
+  };
+  setPlaying(playing);
+  const timer = setInterval(() => {
+    if (!book.isConnected) return clearInterval(timer);
+    if (playing) show(at + 1);
+  }, 2800);
+  book.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sb]');
+    if (!b) return;
+    e.stopPropagation();
+    if (b.dataset.sb === 'pause') setPlaying(!playing);
+    else { setPlaying(false); show(at + +b.dataset.sb); }
+  });
 }
 
 function kidsCpfRecap() {
@@ -2321,6 +2414,7 @@ async function endScreen() {
       </ul>
       <div class="row">${final ? '' : btn('back', 'Keep playing', 'primary')}${btn('again', 'Start a new life', final ? 'primary' : '')}</div>
     </div>`;
+  startScrapbook(modalBox);
   modalBox.querySelectorAll('[data-feel]').forEach((b) => (b.onclick = () => {
     modalBox.querySelectorAll('[data-feel]').forEach((x) => x.classList.remove('on'));
     b.classList.add('on');

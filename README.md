@@ -4,11 +4,13 @@ A Singapore life simulator about growing up, making life choices and seeing how 
 
 ## Play
 
-It's a static web page with no build step. Serve the folder and open it in a browser:
+Play it at **https://gcwm-play.github.io/flit/** (the landing page; the game itself is `play.html`).
+
+It's a static site with no build step. To run it locally, serve the folder and open it in a browser:
 
 ```sh
 npm start            # or: python3 -m http.server 8080
-# then open http://localhost:8080
+# then open http://localhost:8080 (landing page) or http://localhost:8080/play.html (game)
 ```
 
 Progress is saved in the browser automatically.
@@ -19,9 +21,9 @@ Progress is saved in the browser automatically.
 - **Each turn** you pick an activity (study, play, talk with friends, create, and later part-time jobs, SkillsFuture courses, networking and more). One click plays it out: how well it goes is random and decides how many stat points you gain. (The mini games in js/minigames.js are switched off for now.)
 - **Stats:** Creativity, Fitness, Knowledge and Communication from childhood. Money Sense and Resilience unlock as a teenager, and Career Skills and Health as an adult. **Hybrid stats** (Leadership, Innovation, Teamwork, Artistry, Discipline, Enterprise, Planner and Vitality) unlock when both of their parent stats reach 12.
 - **Your room** is the background. Things you buy in the shop stay in it, and some boost your stats every turn. Your spouse and children appear in it too.
-- **Cash gifts** (festive gift packets, birthday money, bonuses, wedding gifts, the Baby Bonus) let you split the money with sliders between treats, charity, a CPF top-up (your parents do it for you as a child) and your cash savings.
+- **Cash gifts** (festive gift packets, birthday money, bonuses, wedding gifts, the SG Child Support Package Baby Gift) let you split the money with sliders between treats, charity, a CPF top-up (your parents do it for you as a child) and your cash savings.
 - **Money** is one cash account. It earns a bank savings account's base rate (0.05% a year). Overspending goes on credit cards at 25% a year, up to the Singapore credit limit (12 months of income, 2 if you earn under $30,000). Past 12 months of income, the debt becomes a Debt Consolidation Plan (about 7.5%, 10 years). You can repay from the Money panel.
-- **Budget and holidays**: plan hobbies, shopping, monthly CPF top-ups (for yourself and your children) and a regular investment; plan trips once, yearly or several times, with pixel postcards in your life recap. The game warns before a turn if you'll spend more than you earn, and the Menu can rewind to an earlier age.
+- **Budget and holidays**: set a yearly CPF top-up (it stops by itself at the FRS, or the ERS from 55), top-ups for your children and yearly investing (DCA); plan trips once, yearly or several times, with pixel postcards in your life recap. The game warns before a turn if you'll spend more than you earn, and the Menu can rewind to an earlier age.
 - **Career switches**: a stat of 45+ (or a hybrid of 25+) unlocks a matching Singapore career, e.g. Communication → professional speaker.
 - **At 55** the RA is filled to the FRS; you can then move OA savings in up to the ERS, or pledge a flat whose lease reaches age 95 and keep only the BRS.
 - **Investing**: nine fictional companies and funds modelled on real markets (STI, S&P 500, S-REITs, bank, telco, tech, biotech, bonds), bought with cash or with CPF under CPFIS rules (keep $20,000 in the OA and $40,000 in the SA, 35% stock limit, SA only in funds and bonds).
@@ -42,14 +44,18 @@ All figures are 2026 values from the CPF Board, HDB and MAS. They live in `js/cp
 | CPF LIFE | Payouts from 65 calibrated to the CPF Board's estimates ($950 / $1,780 / $3,440), deferral to 70, Standard / Basic / Escalating plans |
 | Top-ups | Retirement Sum Topping-Up (to FRS under 55, ERS from 55), Matched Retirement Savings Scheme |
 | Housing | 75% loan limit, HDB 2.6% loan, bank loans with a 5% cash minimum, MSR 30%, TDSR 55% at a 4% stress rate, Buyer's Stamp Duty, paying from OA or cash, CPF refund with 2.5% accrued interest when selling, Voluntary Housing Refund, Lease Buyback Scheme, Silver Housing Bonus |
-| Family | Baby Bonus Cash Gift and CDA First Step Grant, CPF Education Scheme (40% of OA, repaid over 12 years) |
+| Family | SG Child Support Package (from April 2027: $10,000 Baby Gift, CDA First Step Grant and co-matching, Child Credits, PSEA top-up), newborn MediSave Grant, CPF Education Scheme (40% of OA, repaid over 12 years) |
 
 **Simplifications:** amounts are in today's dollars with no inflation, so pay growth is "real" growth. There are no bonuses or Additional Wages. Home values change only as the lease runs down. CPF LIFE payouts are estimates. Your spouse's own CPF isn't tracked; each partner pays half of shared costs.
 
 ## Code
 
 ```
-index.html          page shell
+index.html          landing page (GitHub Pages home)
+play.html           the game's page shell
+404.html            not-found page for GitHub Pages
+assets/landing/     landing page screenshots and og image (drop hero.webp and hero-mobile.webp here for hero art)
+.github/workflows/  tests, then deploys the site to GitHub Pages on every push to main
 css/style.css       pixel-art styling
 js/cpf.js           CPF rules (pure functions)
 js/housing.js       housing rules (pure functions)
