@@ -164,3 +164,9 @@ test('a whole life runs from 7 to 85 without breaking', () => {
   assert.ok(s.life.monthly > 1000, `CPF LIFE ${s.life.monthly}`);
   for (const v of Object.values(s.cpf)) assert.ok(Number.isFinite(v) && v >= 0);
 });
+
+test('event and data modules load', async () => {
+  const events = await import('../js/events.js');
+  assert.ok(events.PERSONAL_EVENTS.length > 0);
+  assert.ok(events.WORLD_EVENTS.length > 0);
+});
