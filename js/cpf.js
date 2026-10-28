@@ -63,7 +63,9 @@ export function monthlyContribution(age, wage, { selfEmployed = false } = {}) {
   const w = Math.min(wage, ORDINARY_WAGE_CEILING);
   let employeeRaw;
   if (w <= 500) employeeRaw = 0;
-  else if (w <= 750) employeeRaw = 0.6 * (w - 500); // phased in for low wages
+  // Phased in for low wages: 3x the employee rate on the part above $500
+  // (0.6 up to 55, 0.54 at 55 to 60, 0.375 at 60 to 65, 0.225 at 65 to 70, 0.15 above 70).
+  else if (w <= 750) employeeRaw = ((3 * band.employee) / 100) * (w - 500);
   else employeeRaw = w * (band.employee / 100);
   // CPF rounds the total to the nearest dollar and the employee share down.
   const total = Math.round(w * (band.employer / 100) + employeeRaw);
@@ -101,8 +103,11 @@ function overflowMedisave(cpf, age) {
   const extra = cpf.ma - BASIC_HEALTHCARE_SUM;
   if (extra <= 0) return;
   cpf.ma = BASIC_HEALTHCARE_SUM;
-  if (age < 55) cpf.sa += extra;
-  else depositRetirement(cpf, extra);
+  if (age >= 55) return depositRetirement(cpf, extra);
+  // Under 55: to the SA up to the FRS, then to the OA.
+  const toSa = Math.min(extra, Math.max(0, RETIREMENT_SUMS.FRS - cpf.sa));
+  cpf.sa += toSa;
+  cpf.oa += extra - toSa;
 }
 
 // Interest works like CPF's own: it is worked out every month on that month's

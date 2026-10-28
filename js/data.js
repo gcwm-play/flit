@@ -68,7 +68,7 @@ export const STAGES = {
       title: 'Working life: your big saving years',
       body: [
         'Every month you put 20% of your pay into CPF and your employer adds 17%, on wages up to $8,000 a month.',
-        'Interest compounds: the OA earns 2.5% and the SA and MA earn 4%, with an extra 1% on your first $60,000.',
+        'Interest compounds: the OA earns 2.5% and the SA and MA earn 4%, with an extra 1% on your first $60,000 (only $20,000 of it from the OA).',
         'Big choices, like your home and how you spend, decide how much is left for retirement.',
         'New stats unlocked: Career Skills and Health.',
       ],

@@ -513,3 +513,19 @@ test('a yearly CPF top-up plan stops itself when the SA reaches the FRS', () => 
   assert.ok(s.cpfPlanStopped && s.cpfPlanStopped.before55);
   assert.equal(sim.topUpRoom(s), 0);
 });
+
+test('low wages: the employee share phases in at 3x the age band rate', () => {
+  assert.equal(cpf.monthlyContribution(30, 600).employee, 60); // 0.6 x $100
+  assert.equal(cpf.monthlyContribution(62, 600).employee, 37); // 0.375 x $100, rounded down
+  assert.equal(cpf.monthlyContribution(72, 700).employee, 30); // 0.15 x $200
+});
+
+test('MediSave above the BHS goes to the SA, or the OA once the SA is at the FRS', () => {
+  const a = { oa: 0, sa: 100, ma: cpf.BASIC_HEALTHCARE_SUM, ra: 0 };
+  cpf.deposit(a, 40, { ma: 500 });
+  assert.equal(a.sa, 600);
+  const b = { oa: 0, sa: cpf.RETIREMENT_SUMS.FRS - 200, ma: cpf.BASIC_HEALTHCARE_SUM, ra: 0 };
+  cpf.deposit(b, 40, { ma: 500 });
+  assert.equal(b.sa, cpf.RETIREMENT_SUMS.FRS);
+  assert.equal(b.oa, 300);
+});
