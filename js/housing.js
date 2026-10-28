@@ -106,6 +106,14 @@ export function payMonth(home, oaBalance) {
   return { fromOa, fromCash: due - fromOa, oaShort: want - fromOa };
 }
 
+// Months of instalments left on the loan.
+export function monthsLeft(home) {
+  if (home.loanBalance <= 0.01) return 0;
+  const r = home.rate / 12;
+  const n = -Math.log(1 - (home.loanBalance * r) / home.instalment) / Math.log(1 + r);
+  return Number.isFinite(n) ? Math.ceil(n) : (home.years || 25) * 12;
+}
+
 export const oaShareOf = (home) => home.oaShare ?? (home.payWith === 'oa' ? 1 : 0);
 export function setOaShare(home, share) {
   home.oaShare = Math.max(0, Math.min(1, share));

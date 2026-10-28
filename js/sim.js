@@ -3,6 +3,7 @@ import * as cpf from './cpf.js';
 import * as housing from './housing.js';
 import * as invest from './invest.js';
 import * as health from './health.js';
+import * as cars from './car.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, SHOP, LIFESTYLES,
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
@@ -42,7 +43,7 @@ export function newGame(name, look) {
     salary: 0,
     lifestyle: 'simple',
     home: null,
-    car: false,
+    car: null, // { boughtAge, price, down, loan, monthly, monthsLeft } while you own one
     spouse: null,
     children: [],
     eduRefunds: [],
@@ -348,6 +349,7 @@ function oneYear(s, sum, opts) {
       sum.groceries += parts.groceries * costFactor;
       sum.homeSpouse += parts.homeSpouse * costFactor;
       sum.car += parts.car * costFactor;
+      if (s.car) cars.payMonth(s.car);
       sum.allowance += parts.allowance * costFactor;
       if (s.home) {
         // Loan instalments: from the OA first if you chose that, then cash.
@@ -358,6 +360,7 @@ function oneYear(s, sum, opts) {
         // The loan was meant to come from the OA, but the OA ran dry.
         if (paid.oaShort > 0.01) sum.oaRanOut = (sum.oaRanOut || 0) + paid.oaShort;
         out += paid.fromCash;
+        if (s.home.loanBalance <= 0.01 && s.home.paidOffAge == null && s.home.instalment > 0) s.home.paidOffAge = age;
       } else if (age >= 30 || s.spouse) {
         const rent = RENT_MONTHLY * householdShare(s);
         sum.rent += rent;
@@ -487,7 +490,7 @@ export function spendBreakdown(s) {
     const floor = s.lifestyle === 'lavish' ? l.monthly : Math.min(l.monthly, (s.lifestyle === 'simple' ? 0.6 : 0.75) * th);
     m = Math.max(floor, l.share * th);
   }
-  const car = s.car ? 1500 : 0;
+  const car = s.car ? cars.monthlyCost(s.car) : 0;
   const share = householdShare(s);
   let kids = 0, kidsCount = 0, allowance = 0, groceries = 0;
   for (const c of s.children || []) {
@@ -792,13 +795,37 @@ export function payUniversity(s, child, how) {
 
 // ---------- housing ----------
 
+// ---------- cars ----------
+
+export function buyCar(s) {
+  const car = cars.newCar(s.age);
+  coverShortfall(s, car.down);
+  s.car = car;
+  s.joy += 2;
+  s.carsOwned = (s.carsOwned || 0) + 1;
+  s.carSpent = (s.carSpent || 0) + car.down;
+  story(s, 'car', '🚗', `Bought car number ${s.carsOwned}`, { amount: car.down });
+  return car;
+}
+
+// Sell (or scrap) the car: the dealer's price pays off the loan first.
+export function sellCar(s, why = 'Sold') {
+  const q = cars.quote(s.car, s.age);
+  if (q.net >= 0) s.bank += q.net;
+  else coverShortfall(s, -q.net);
+  s.carSpent = (s.carSpent || 0) - q.value;
+  story(s, 'car', '🔑', `${why} your car after ${q.years} years for ${money(q.value)}`, { amount: q.value });
+  s.car = null;
+  return q;
+}
+
 export function grossIncome(s) {
   const own = s.stage === 'adult' || s.stage === 'senior' ? currentWage(s) : 0;
   return own + (s.spouse && !s.spouse.home ? s.spouse.salary : 0);
 }
 
 export function otherDebt(s) {
-  return s.car ? 900 : 0; // car loan instalment counts towards the TDSR
+  return s.car && s.car.monthsLeft > 0 ? s.car.monthly : 0; // car loan instalments count towards the TDSR
 }
 
 export function homeQuotes(s, years = 25) {

@@ -1,7 +1,8 @@
 // Random life events. World events change the coming years (and your stats can
 // soften them); personal events and cash gifts happen to you alone.
 import { rand, pick, FACTS } from './data.js';
-import { money, payFromMedisave, coverShortfall, marry, haveChild, spendCash } from './sim.js';
+import { money, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar } from './sim.js';
+import * as cars from './car.js';
 import * as invest from './invest.js';
 
 // How much your stats protect you: 0 (none) to 0.8 (mostly), plus hybrid bonuses.
@@ -253,13 +254,13 @@ export const PERSONAL_EVENTS = [
     stages: ['adult'],
     weight: 1,
     when: (s) => !s.car && s.age >= 28,
-    run: () => ({
+    run: (s) => ({
       icon: '🚗',
       title: 'Buy a car?',
-      text: 'With COE, loan, parking, petrol and insurance, a car costs about $1,500 a month. Public transport is much cheaper.',
+      text: `A new car costs about ${money(cars.CAR.price)}, most of it for the 10-year COE. You pay ${money(cars.CAR.price * cars.CAR.downPct)} down, then a loan of about ${money(cars.newCar(s.age).monthly)} a month for 7 years, plus about ${money(cars.CAR.running)} a month for petrol, parking, insurance and road tax. Public transport is much cheaper.`,
       choices: [
-        { label: 'Buy the car', run: (s) => { s.car = true; s.joy += 2; return 'Vroom! Joy +2, but $1,500 a month more in costs.'; } },
-        { label: 'Stick to MRT and bus', run: () => 'You save about $18,000 a year.' },
+        { label: 'Buy the car', run: (s) => { buyCar(s); return `Vroom! Joy +2. You paid ${money(s.car.down)} down, and the car now costs you ${money(cars.monthlyCost(s.car))} a month.`; } },
+        { label: 'Stick to MRT and bus', run: () => 'You save about $30,000 a year while the car loan lasts, and $11,000 a year after.' },
       ],
     }),
   },

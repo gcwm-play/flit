@@ -4,6 +4,7 @@ import * as cpf from '../js/cpf.js';
 import * as housing from '../js/housing.js';
 import * as sim from '../js/sim.js';
 import * as health from '../js/health.js';
+import * as cars from '../js/car.js';
 
 const close = (a, b, tol = 1) => assert.ok(Math.abs(a - b) <= tol, `${a} is not within ${tol} of ${b}`);
 
@@ -192,7 +193,7 @@ test('debt stays bounded: credit limits, then a Debt Consolidation Plan', () => 
   s.salary = 2500;
   s.education = 'secondary';
   s.lifestyle = 'lavish';
-  s.car = true;
+  s.car = cars.newCar(s.age);
   for (let i = 0; i < 6; i++) sim.advanceYears(s, 5);
   assert.ok(s.debt < 12 * 2500 * 2, `debt ${s.debt}`);
   assert.ok(Number.isFinite(s.debt) && s.debt >= 0);
@@ -314,11 +315,11 @@ test('job offers: skills unlock better jobs, and a recession lowers what employe
 test('spending breakdown adds up to monthly spending', () => {
   const s = sim.newGame('Spend', { gender: 'female', animal: 'cat', outfit: 0 });
   s.age = 40; s.stage = 'adult'; s.salary = 6000; s.lifestyle = 'comfortable';
-  s.car = true;
+  s.car = cars.newCar(s.age);
   s.children = [{ bornAge: 32 }, { bornAge: 35 }];
   const b = sim.spendBreakdown(s);
   assert.equal(b.kidsCount, 2);
-  assert.equal(b.car, 1500);
+  close(b.car, cars.CAR.running + s.car.monthly, 0.01);
   close(sim.monthlySpend(s), b.living + b.car + b.kids + b.groceries + b.homeSpouse - b.allowance, 0.01);
   // Ages 8 and 5: school and preschool, plus groceries, all paid by you (no spouse).
   close(b.kids, sim.childCost(8) + sim.childCost(5), 0.01);
@@ -413,4 +414,37 @@ test('loan paid part from CPF, part in cash; selling refunds CPF used plus accru
   close(b.principal, q.instalment * 0.4 * 120, 0.5);
   assert.ok(b.accrued > 0);
   close(b.refund, b.principal + b.accrued, 0.01);
+});
+
+test('cars: 30% down, a 7-year loan, PARF rebate by age, and almost nothing left when the COE ends', () => {
+  const car = cars.newCar(30);
+  close(car.down, cars.CAR.price * 0.3, 0.01);
+  assert.equal(cars.parfRebate(4), cars.CAR.arf * 0.3);
+  close(cars.parfRebate(9.5), cars.CAR.arf * 0.05, 0.01);
+  assert.equal(cars.parfRebate(11), 0);
+  const early = cars.quote(car, 33);
+  const late = cars.quote(car, 40);
+  assert.ok(early.value > 80000);
+  assert.ok(late.value < 2000);
+  for (let i = 0; i < 84; i++) cars.payMonth(car);
+  assert.equal(cars.loanLeft(car), 0);
+  close(cars.monthlyCost(car), cars.CAR.running, 0.01);
+  const s = sim.newGame('Car', { gender: 'male', animal: 'dog', outfit: 0 });
+  s.age = 30; s.stage = 'adult'; s.bank = 100000;
+  sim.buyCar(s);
+  s.age = 33;
+  const q = sim.sellCar(s);
+  assert.equal(s.car, null);
+  close(s.bank, 100000 - 54000 + q.value - q.loan, 1);
+});
+
+test('the home loan being paid off is recorded', () => {
+  const flat = housing.HOMES.find((h) => h.id === 'bto3');
+  const q = housing.quote(flat, { share: 1, grossIncome: 8000, oa: 0, cash: 200000, years: 5, age: 30 });
+  const s = sim.newGame('Own', { gender: 'female', animal: 'frog', outfit: 0 });
+  s.age = 30; s.stage = 'adult'; s.salary = 8000; s.bank = 500000; s.cpf.oa = 200000;
+  s.home = housing.newHome(q, 30);
+  sim.advanceYears(s, 6);
+  assert.ok(s.home.loanBalance <= 0.01);
+  assert.equal(s.home.paidOffAge, 34);
 });

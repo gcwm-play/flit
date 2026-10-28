@@ -4,6 +4,7 @@ import * as sim from './sim.js';
 import * as housing from './housing.js';
 import * as invest from './invest.js';
 import * as health from './health.js';
+import * as cars from './car.js';
 import { postcard } from './postcards.js';
 import { characterHtml, itemHtml, lookOf, ANIMALS, GENDERS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS } from './events.js';
@@ -275,6 +276,9 @@ function migrate(s) {
   for (const c of s.children || []) if (!c.gender) Object.assign(c, { gender: Math.random() < 0.5 ? 'male' : 'female', outfit: 1 });
   for (const p of [s.spouse, ...(s.children || [])]) if (p) { p.animal = s.look.animal; delete p.tone; }
   if (!s.insurance) s.insurance = { plan: 'msl', rider: false };
+  // Cars used to be a yes/no: an old car becomes one bought 3 years ago.
+  if (s.car === true) { s.car = cars.newCar(s.age - 3); s.car.monthsLeft -= 36; s.carsOwned = 1; }
+  if (s.car === false) s.car = null;
   if (!s.healthPlan) s.healthPlan = health.planHealthEvents(Math.max(21, s.age + 1));
   return s;
 }
@@ -337,9 +341,11 @@ function actionTiles() {
     tiles.push(['budget', '📋', 'Budget', `${left < 0 ? '−' : '+'}${money(Math.abs(left * 12))} a year`, left < 0]);
     if (S.stage === 'adult') tiles.push(['family', '💞', 'Family', S.spouse ? `${S.children.length ? `${S.children.length} kid${S.children.length > 1 ? 's' : ''}` : 'Married'}${S.spouse.home ? ', 1 income' : ''}` : S.dating != null ? 'Dating' : 'Single']);
     tiles.push(['insurance', '🩺', 'Insurance', health.PLANS[(S.insurance || {}).plan || 'msl'].label.replace(' only', '').replace(' plan', '').replace('Standard (B1 ward)', 'B1 plan')]);
-    tiles.push(['home', '🏠', 'Home', S.home ? S.home.label : S.age >= 30 || S.spouse ? 'Renting' : 'With family']);
+    const loanYrs = S.home ? Math.ceil(housing.monthsLeft(S.home) / 12) : 0;
+    tiles.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label} · ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label} · fully owned 🎉`) : S.age >= 30 || S.spouse ? 'Renting' : 'With family']);
     if (S.stage === 'adult' || (working && S.age < 65)) tiles.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
   }
+  if (grown) tiles.push(['car', '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
   tiles.push(['shop', '🛍️', 'Shop', `${S.room.length} owned`]);
   tiles.push(['money', '💵', S.debt > 0 ? 'Repay debt' : 'CPF top-up', S.debt > 0 ? `−${money(S.debt)}` : 'From your cash', S.debt > 0]);
   return `<h2 class="tiles-head">Before you move on <small>as many as you like</small></h2>
@@ -356,7 +362,7 @@ function outflows(p) {
     ['kids', 'Family groceries', p.parts.groceries, 'Extra food for your children and a stay-at-home spouse.'],
     ['living', 'Allowance for your spouse at home', p.parts.homeSpouse, 'Your spouse stays at home and you cover their spending.'],
     ['debt', 'Health insurance (cash part)', p.insurance, 'Shield plan premiums above what MediSave can pay, and any rider.'],
-    ['car', 'Car', p.parts.car, 'Loan, COE, petrol, parking and insurance.'],
+    ['car', S.car && S.car.monthsLeft > 0 ? 'Car (loan and running costs)' : 'Car (running costs)', p.parts.car, 'Car loan, petrol, parking, insurance, road tax and servicing.'],
     ['home', 'Rent', p.rent, S.spouse ? 'Your half of the rent.' : 'Renting a room or small flat.'],
     ['home', p.loan.fromOa > 0.5 ? 'Home loan (cash part)' : 'Home loan', p.loanCash, p.loan.fromOa > 0.5 ? `The rest, ${money(p.loan.fromOa)} a month, comes from your OA.` : 'Paid in cash. You can switch to your OA in 🏠 Home.'],
     ['debt', 'Debt plan', p.dcp, 'Fixed instalment until your debt is cleared.'],
@@ -552,6 +558,7 @@ async function takeTurn(activityId) {
     await milestones();
     save();
     render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   } finally {
     busy = false;
   }
@@ -602,6 +609,103 @@ async function medicalDialog(e) {
       ${ins.plan === 'msl' ? '<li>A Shield plan (🩺 Insurance) would let you choose a B1, A or private ward, but it costs more every year as you get older.</li>' : '<li>Shield plans cost more every year as you age. Compare what you paid in premiums with what they paid out.</li>'}
     </ul>
     ${btn('ok', 'Get well soon', 'primary')}`, { wide: true });
+}
+
+// ---------- cars ----------
+
+async function carPanel() {
+  for (;;) {
+    const car = S.car;
+    const q = car && cars.quote(car, S.age);
+    const fresh = cars.newCar(S.age);
+    const c = await dialog(`
+      <h2>🚗 Your car</h2>
+      ${car ? `
+        <table class="summary">
+          <tr><td>Bought at</td><td>${car.boughtAge} (${q.years} year${q.years === 1 ? '' : 's'} ago)</td></tr>
+          <tr><td>COE left</td><td>${Math.max(0, cars.CAR.coeYears - q.years)} years</td></tr>
+          <tr><td>Costs you each month</td><td>${money(cars.monthlyCost(car))}${car.monthsLeft > 0 ? ` (loan ${money(car.monthly)} for ${Math.ceil(car.monthsLeft / 12)} more years)` : ''}</td></tr>
+        </table>
+        <h3>A dealer's quote</h3>
+        <table class="summary">
+          <tr><td>Unused COE (${Math.max(0, cars.CAR.coeYears - q.years)} of ${cars.CAR.coeYears} years)</td><td>${money(q.coeRebate)}</td></tr>
+          <tr><td>PARF rebate (part of the registration fee back)</td><td>${money(q.parf)}</td></tr>
+          <tr><td>For the car itself</td><td>${money(q.extra)}</td></tr>
+          <tr><td><b>Offer</b></td><td><b>${money(q.value)}</b></td></tr>
+          ${q.loan > 1 ? `<tr><td>Car loan still to pay off</td><td class="neg">−${money(q.loan)}</td></tr><tr><td><b>Cash to you</b></td><td><b>${money(q.net)}</b></td></tr>` : ''}
+        </table>
+        <p class="small">You paid ${money(car.price)}. In Singapore most of a car's price is the 10-year COE, so its value falls steadily and is close to zero when the COE ends. Cars registered from February 2026 get a smaller PARF rebate (at most 30% of the registration fee).</p>
+        <div class="row">${btn('sell', `Sell for ${money(q.value)}`, 'primary')}</div>`
+      : `
+        <p>You don't own a car. A new one costs about <b>${money(cars.CAR.price)}</b>, mostly for the 10-year COE.</p>
+        <table class="summary">
+          <tr><td>Down payment (cash, 30%)</td><td>${money(fresh.down)}</td></tr>
+          <tr><td>Car loan for 7 years</td><td>${money(fresh.monthly)}/month</td></tr>
+          <tr><td>Petrol, parking, insurance, road tax, servicing</td><td>${money(cars.CAR.running)}/month</td></tr>
+          <tr><td>Over 10 years, about</td><td>${money(fresh.down + fresh.monthly * 84 + cars.CAR.running * 120)}</td></tr>
+        </table>
+        <div class="row">${btn('buy', `Buy a car (${money(fresh.down)} down)`, 'primary')}</div>`}
+      ${btn('ok', 'Close')}`, { wide: true });
+    if (c === 'ok') return;
+    if (c === 'sell') {
+      const r = sim.sellCar(S);
+      logEvent(`🚗 Sold the car for ${money(r.value)}`);
+      toast(`🚗 Sold for ${money(r.value)}${r.loan > 1 ? `; ${money(r.loan)} paid off the loan` : ''}`);
+    }
+    if (c === 'buy') {
+      if (S.bank < fresh.down) { toast(`You need ${money(fresh.down)} in cash for the down payment.`); continue; }
+      sim.buyCar(S);
+      logEvent('🚗 Bought a car');
+      toast('🚗 Vroom! Joy +2');
+    }
+    render();
+  }
+}
+
+// The COE has run out: scrap the car (and get the small PARF rebate), then buy again or not.
+async function coeEndDialog() {
+  const q = cars.quote(S.car, S.age);
+  const fresh = cars.newCar(S.age);
+  const c = await dialog(`<div class="event"><div class="e-icon">🚗</div><p class="eyebrow">Your COE has ended</p>
+    <h2>Your car is 10 years old</h2>
+    <p>A car's Certificate of Entitlement lasts 10 years. Scrapping it now gets you a PARF rebate of only <b>${money(q.parf)}</b>: the car is worth almost nothing. (You could also renew the COE at the current price, but most owners scrap.)</p></div>
+    <table class="summary">
+      <tr><td>A new car: down payment</td><td>${money(fresh.down)}</td></tr>
+      <tr><td>…then each month (loan and running costs)</td><td>${money(cars.monthlyCost(fresh))}</td></tr>
+    </table>
+    <div class="row">${btn('new', 'Buy a new car', 'primary')}${btn('none', 'Go car-free: MRT, bus and Grab')}</div>`);
+  sim.sellCar(S, 'Scrapped');
+  if (c === 'new') {
+    sim.buyCar(S);
+    logEvent('🚗 Scrapped the old car and bought a new one');
+  } else logEvent('🚌 Went car-free');
+}
+
+// Owning your home outright is a big milestone: count down the last 10 years, then celebrate.
+async function homeLoanMilestones() {
+  const h = S.home;
+  if (!h) return;
+  if (h.paidOffAge != null && !h.celebrated) {
+    h.celebrated = true;
+    const years = h.paidOffAge - h.boughtAge + 1;
+    sim.story(S, 'home', '🎉', `Paid off the ${h.label} loan at ${h.paidOffAge} and owned it outright`);
+    logEvent(`🎉 Home loan paid off: you own your ${h.label}`);
+    await dialog(`<div class="event"><div class="e-icon">🎉</div><p class="eyebrow">A big milestone</p>
+      <h2>You own your ${h.label}!</h2>
+      <p>After ${years} years you've made your last loan payment. The home is fully yours, and the ${money(h.instalment)} you paid every month is now yours to keep${housing.oaShareOf(h) > 0 ? ', and your OA can grow again' : ''}.</p></div>
+      ${btn('ok', 'Celebrate! 🥳', 'primary')}`);
+    S.joy += 3;
+    return;
+  }
+  if (h.loanBalance <= 0.01) return;
+  const left = housing.monthsLeft(h) / 12;
+  const mark = left <= 5 ? 5 : left <= 10 ? 10 : 0;
+  if (!mark || (h.countdown || []).includes(mark)) return;
+  h.countdown = [...new Set([...(h.countdown || []), mark, 10])]; // reaching 5 also covers 10
+  await dialog(`<div class="event"><div class="e-icon">🏁</div><p class="eyebrow">Home loan countdown</p>
+    <h2>${Math.ceil(left) <= 1 ? 'Less than a year' : `About ${Math.ceil(left)} years`} to go</h2>
+    <p>Only ${money(h.loanBalance)} left on your ${h.label} loan. ${mark === 5 ? 'The finish line is in sight!' : 'You\'re on the home stretch.'}</p></div>
+    ${btn('ok', 'Keep going', 'primary')}`);
 }
 
 // ---------- family ----------
@@ -1031,6 +1135,8 @@ async function milestones() {
     });
     if (rewound) return 'rewound';
   }
+  if (S.car && cars.carAge(S.car, S.age) >= cars.CAR.coeYears) await coeEndDialog();
+  await homeLoanMilestones();
   const offer = sim.careerSwitchOffer(S);
   if (offer) await careerSwitchDialog(offer);
   for (const child of S.children || []) {
@@ -1246,7 +1352,7 @@ async function chooseHome(title, { leaveLabel } = {}) {
 async function repaymentDialog(first = false) {
   const h = S.home;
   let pctOa = Math.round(housing.oaShareOf(h) * 100);
-  const monthsLeft = Math.max(1, Math.round(Math.log(1 - (h.loanBalance * h.rate / 12) / h.instalment) / -Math.log(1 + h.rate / 12))) || h.years * 12;
+  const monthsLeft = Math.max(1, housing.monthsLeft(h));
   const preview = () => {
     const oa = h.instalment * pctOa / 100;
     // CPF used over the rest of the loan, and what it would grow to with 2.5% accrued interest.
@@ -1376,7 +1482,7 @@ async function cpfLifeDecision() {
 
 async function openPanel(kind) {
   if (busy) return;
-  const panels = { stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel, budget: budgetPanel, holidays: holidaysPanel, job: () => jobHunt('choice'), insurance: insurancePanel, family: familyPanel };
+  const panels = { car: carPanel, stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel, budget: budgetPanel, holidays: holidaysPanel, job: () => jobHunt('choice'), insurance: insurancePanel, family: familyPanel };
   await panels[kind]();
   closeModal();
   save();
@@ -1767,7 +1873,7 @@ async function budgetPanel() {
         <tr><td>Take-home pay${S.spouse && !S.spouse.home ? ' (yours; your spouse covers their half of household costs)' : ''}</td><td class="pos">${money(sim.takeHome(S))}</td></tr>
         ${S.life && S.age >= S.life.startAge ? `<tr><td>CPF LIFE payout</td><td class="pos">${money(S.life.monthly)}</td></tr>` : ''}
         <tr><th colspan="2">Must-pays</th></tr>
-        <tr><td>${ls.icon || '🏠'} Everyday living: ${ls.label}${parts.kids + parts.groceries ? `, incl. ${money(parts.kids + parts.groceries)} for ${kids.length === 1 ? 'your child' : 'your children'}` : ''}${parts.homeSpouse ? `, ${money(parts.homeSpouse + 300)} for your spouse at home` : ''}${S.car ? ', incl. $1,500 for the car' : ''} ${btn('life', 'Change')}</td><td class="neg">−${money(living)}</td></tr>
+        <tr><td>${ls.icon || '🏠'} Everyday living: ${ls.label}${parts.kids + parts.groceries ? `, incl. ${money(parts.kids + parts.groceries)} for ${kids.length === 1 ? 'your child' : 'your children'}` : ''}${parts.homeSpouse ? `, ${money(parts.homeSpouse + 300)} for your spouse at home` : ''}${S.car ? `, incl. ${money(parts.car)} for the car` : ''} ${btn('life', 'Change')}</td><td class="neg">−${money(living)}</td></tr>
         ${insurance ? `<tr><td>Health insurance (cash part)</td><td class="neg">−${money(insurance)}</td></tr>` : ''}
         ${rent ? `<tr><td>Rent</td><td class="neg">−${money(rent)}</td></tr>` : ''}
         ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan ${money(S.home.instalment)}: ${money(loan.fromOa)} from your CPF OA, the rest in cash</td><td class="neg">−${money(loanCash)}</td></tr>` : ''}
@@ -2060,6 +2166,7 @@ function joysRecap() {
       ${places.length ? `<li>✈️ ${trips.length} holiday${trips.length > 1 ? 's' : ''} to ${places.length} place${places.length > 1 ? 's' : ''}; your favourite was <b>${places[0].h.name}</b>${places[0].n > 1 ? ` (${places[0].n} times)` : ''}</li>` : ''}
       ${items.length ? `<li>🛍️ ${items.length} things you bought and loved, costing ${money(items.reduce((a, e) => a + (e.amount || 0), 0))}. Favourites: ${favourites.map((e) => `${e.icon} ${esc(e.text)}`).join(', ')}</li>` : ''}
       ${S.given ? `<li>💝 You gave ${money(S.given)} to charity</li>` : ''}
+      ${S.carsOwned ? `<li>🚗 You owned ${S.carsOwned} car${S.carsOwned > 1 ? 's' : ''}, costing you about ${money((S.carSpent || 0) + (S.totals?.car || 0))} in all (down payments, loans and running costs, less what you sold them for)</li>` : ''}
       ${did.length ? `<li>⏳ How you spent your time most: ${did.map(([k, n]) => `${esc(k)} (${n} turn${n > 1 ? 's' : ''})`).join(', ')}</li>` : ''}
     </ul>
   </div>`;
