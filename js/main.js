@@ -902,8 +902,11 @@ async function adultStart() {
       <button class="career" data-choice="${o.id}" ${o.eligible ? '' : 'disabled'}>
         <span class="c-icon">${o.icon}</span><b>${o.label}</b>
         <span>${money(o.startPay)}/month${o.selfEmployed ? ' (varies)' : ''}</span>
-        <small>${Object.entries(o.needs).map(([k, v]) => `${STATS[k].icon} ${v}`).join(' ') || 'No requirements'}${o.selfEmployed ? ' · Self-employed: no employer CPF, only MediSave' : ''}</small>
-      </button>`).join('')}</div>`, { wide: true });
+        <small>${Object.entries(o.needs).map(([k, v]) => S.stats[k] >= v
+          ? `✓ ${STATS[k].label} ${v}`
+          : `<span class="neg">✗ ${STATS[k].label} ${v} (you have ${Math.round(S.stats[k])})</span>`).join('<br>') || 'No requirements'}${o.selfEmployed ? '<br>Self-employed: no employer CPF, only MediSave' : ''}</small>
+      </button>`).join('')}</div>
+    <p class="small">Locked jobs need a second skill as well as your qualification. You can still switch later: build the skill as an adult, then use "Look for a new job".</p>`, { wide: true });
   sim.chooseCareer(S, c);
   logEvent(`💼 First job: ${opts.find((o) => o.id === c).label}`);
   const career = opts.find((o) => o.id === c);

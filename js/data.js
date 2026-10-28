@@ -136,7 +136,7 @@ export const EDUCATION = {
 
 // Starting monthly pay (for a degree holder) in today's dollars.
 export const CAREERS = [
-  { id: 'engineer', label: 'Engineer', icon: '🛠️', pay: 4800, needs: { knowledge: 22, creativity: 10 } },
+  { id: 'engineer', label: 'Engineer', icon: '🛠️', pay: 4800, needs: { knowledge: 22 } },
   { id: 'teacher', label: 'Teacher', icon: '🧑‍🏫', pay: 4400, needs: { knowledge: 18, communication: 16 } },
   { id: 'nurse', label: 'Nurse', icon: '🩺', pay: 4000, needs: { fitness: 14, communication: 14 } },
   { id: 'designer', label: 'Designer', icon: '🎨', pay: 3900, needs: { creativity: 20 } },
