@@ -1067,7 +1067,7 @@ function workHtml() {
   return `
       <section>
         <h3>💼 Work and pay <span class="ledger-sub">per month</span></h3>
-        <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : sim.isStudying(S) ? `<span>🎓 <b>Studying</b> after NS: first job at ${sim.firstJobAge(S)}</span>` : `<span>🌅 <b>Retired</b>, no salary</span>`}
+        <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : sim.isStudying(S) ? `<span>🎓 <b>At university</b>: first job at ${sim.firstJobAge(S)}</span>` : `<span>🌅 <b>Retired</b>, no salary</span>`}
           ${canHunt ? `<button class="link-btn" data-panel="job">${working ? 'Look for a new job' : 'Find a job'}</button>` : ''}</p>
         <div class="cash-rows">
           ${wage > 0 ? `<span>Pay before CPF</span><b>${money(wage)} <small>(${money(wage * 12)}/yr)</small></b>
@@ -1250,7 +1250,7 @@ async function nsIntro() {
       <li>No CPF is paid on NSF allowances, and they aren't taxed.</li>
       <li>No part-time job during these two years.</li>
       <li>After NS you're an NSman: in-camp training most years until about 40, and NSman Self Relief cuts your income tax ($3,000 in a year with training, $1,500 without).</li>
-      <li>You start working two years later than women, so your CPF has two fewer years to grow.</li>
+      <li>After NS you choose: start work, or go to university if your Knowledge is high enough (which means starting work two years later). Poly and JC come before NS.</li>
     </ul>
     ${btn('ok', 'Report for duty', 'primary')}`);
 }
@@ -1545,23 +1545,51 @@ async function stageIntro(stage) {
     $('#grown-me').innerHTML = person(me(stage), 'walking');
   }));
   await new Promise((r) => (modalBox.onclick = (e) => e.target.closest('[data-choice]') && r()));
+  if (stage === 'adult' && sim.doesNs(S) && !S.postNs) await postNsChoice();
   if (stage === 'adult') await (sim.isStudying(S) ? studyAfterNs() : adultStart());
   if (stage === 'senior') await turning55();
   closeModal();
   render();
 }
 
-// Men: after two years of NS, they finish their studies two years later than women.
+// Men: after NS, start work with what they finished before NS, or go to university if their
+// Knowledge allows. Poly and JC come before NS, so university is the only study left.
+async function postNsChoice() {
+  const uniOk = sim.canGoToUniversity(S);
+  const need = EDUCATION.university.minKnowledge;
+  const k = Math.round(S.stats.knowledge);
+  const workEd = S.stats.knowledge >= EDUCATION.poly.minKnowledge ? EDUCATION.poly : EDUCATION.ite;
+  const c = await dialog(`
+    <p class="eyebrow">After National Service</p>
+    <h2>You've finished NS. What next?</h2>
+    <p>Before NS you finished ${sim.preNsQualification(S)}. Now you can start work, or go to university${uniOk ? '' : ' if your Knowledge is high enough'}.</p>
+    <div class="careers">
+      <button class="career" data-choice="work">
+        <span class="c-icon">💼</span><b>Start work now</b>
+        <span>First job at ${STAGES.adult.startAge}</span>
+        <small>Pay as ${/^[AEIOU]/.test(workEd.label) ? 'an' : 'a'} ${workEd.label} holder (about ${Math.round(workEd.pay * 100)}% of a graduate's starting pay). Your CPF starts growing now.</small>
+      </button>
+      <button class="career" data-choice="uni" ${uniOk ? '' : 'disabled'}>
+        <span class="c-icon">🎓</span><b>Go to university</b>
+        <span>First job at ${STAGES.adult.startAge + sim.NS.years}</span>
+        <small>${uniOk ? `✓ Knowledge ${need} (you have ${k})` : `<span class="neg">✗ Needs Knowledge ${need} (you have ${k})</span>`}<br>A degree pays the most to start, but your pay and CPF start later.</small>
+      </button>
+    </div>
+    <p class="small">Either way is fine: starting earlier gives your CPF more years to grow, while a degree usually means higher pay for the rest of your career.</p>`, { wide: true });
+  S.postNs = c === 'uni' && uniOk ? 'uni' : 'work';
+  sim.story(S, 'job', S.postNs === 'uni' ? '🎓' : '💼', S.postNs === 'uni' ? 'Went to university after NS' : 'Started work after NS');
+}
+
 async function studyAfterNs() {
   S.education = sim.educationFor(S);
   const ed = EDUCATION[S.education];
   const start = sim.firstJobAge(S);
-  logEvent(`🎓 Studying for a ${ed.label} until ${start}`);
+  logEvent(`🎓 At university until ${start}`);
   await dialog(`
     <p class="eyebrow">After National Service</p>
-    <h2>Back to studying for your ${ed.label}</h2>
-    <p>NS took two years, so you finish your studies and start your first job at <b>${start}</b>, about two years later than women who studied the same course.</p>
-    <p class="small">Those two years matter for retirement too: your CPF starts later, so it has less time to grow. Your parents support you until then, and you can still pick activities to build your skills.</p>
+    <h2>Off to university</h2>
+    <p>You study for your ${ed.label} and start your first job at <b>${start}</b>.</p>
+    <p class="small">Your CPF starts later, so it has less time to grow, but graduates usually start on higher pay. Your parents support you until then, and you can still pick activities to build your skills.</p>
     ${btn('ok', 'OK', 'primary')}`);
 }
 
@@ -1571,7 +1599,7 @@ async function adultStart() {
   const opts = sim.careerOptions(S);
   const c = await dialog(`
     <p class="eyebrow">Your education</p>
-    <h2>You finished with a ${ed.label}</h2>
+    <h2>You finished with ${/^[AEIOU]/.test(ed.label) ? 'an' : 'a'} ${ed.label}</h2>
     <p class="small">Knowledge ${Math.round(S.stats.knowledge)}: University needs ${EDUCATION.university.minKnowledge}, Polytechnic ${EDUCATION.poly.minKnowledge}. Your qualification sets your starting pay.</p>
     <h3>Choose your first job</h3>
     <div class="careers">${opts.map((o) => `
