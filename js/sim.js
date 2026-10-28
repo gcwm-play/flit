@@ -1147,8 +1147,10 @@ export function topUpCpf(s, amount, account = 'ret') {
   if (account === 'ma') {
     s.cpf.ma += want;
     accepted = want;
-    relief = want; // MediSave top-ups get relief (shared with RSTU), employees and self-employed alike
     rec.vc += want;
+    // Employees get CPF cash top-up relief (shared with RSTU); for the self-employed it counts as CPF relief.
+    if (s.selfEmployed) rec.selfVc = (rec.selfVc || 0) + want;
+    else relief = want;
   } else if (account === 'all') {
     // Split in the same shares as the monthly contribution at your age.
     const band = cpf.rateBand(s.age);

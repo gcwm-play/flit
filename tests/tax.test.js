@@ -92,3 +92,16 @@ test('giving cuts the tax estimate', () => {
   const b = sim.taxEstimate(s, { extraDonation: 2000 }).tax;
   close(a - b, 5000 * 0.115, 0.01); // chargeable about $84,800, in the 11.5% band
 });
+
+test('self-employed MediSave: nothing to $6,000, half rate to $12,000, phased to $18,000, full rate capped at $96,000', () => {
+  assert.equal(cpf.selfEmployedMedisave(30, 6000), 0);
+  close(cpf.selfEmployedMedisave(30, 10000), 400, 0.01);
+  close(cpf.selfEmployedMedisave(30, 15000), 600 + 0.12 * 3000, 0.01);
+  close(cpf.selfEmployedMedisave(30, 18000), 1440, 0.01);
+  close(cpf.selfEmployedMedisave(35, 60000), 5400, 0.01);
+  close(cpf.selfEmployedMedisave(52, 200000), 10080, 0.01);
+  close(cpf.selfEmployedMedisave(67, 50000), 4000, 0.01);
+  const c = cpf.monthlyContribution(30, 5000, { selfEmployed: true });
+  close(c.ma * 12, 4800, 0.01);
+  assert.equal(c.oa + c.sa, 0);
+});

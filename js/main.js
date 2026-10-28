@@ -346,6 +346,12 @@ function render() {
   if (endBtn) endBtn.onclick = endScreen;
 }
 
+// Self-employed: no employer CPF and no OA or SA contributions, so each turn the top-up tile
+// asks whether to set money aside for retirement, until there's a yearly plan or they decide.
+function selfEmployedTopUpPending() {
+  return !!(S.selfEmployed && sim.isWorking(S) && S.age < 65 && !sim.cpfTopUpPerYear(S) && S.sepTopUpDecided !== S.age && sim.topUpRoom(S) > 0);
+}
+
 // Things you can do as often as you like before you pick this turn's activity.
 function actionTiles() {
   const grown = S.stage === 'adult' || S.stage === 'senior';
@@ -368,7 +374,8 @@ function actionTiles() {
   if (grown) tiles.push(['donate', '💝', 'Give', sim.donationsThisYear(S) ? `${money(sim.donationsThisYear(S))} this year` : (S.budget || {}).donateYearly ? `${money(S.budget.donateYearly)} a year` : 'Help others']);
   if (grown) tiles.push(['car', '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
   tiles.push(['shop', '🛍️', 'Shop', `${S.room.length} owned`]);
-  tiles.push(['money', '💵', S.debt > 0 ? 'Repay debt' : 'CPF top-up', S.debt > 0 ? `−${money(S.debt)}` : 'From your cash', S.debt > 0]);
+  const sepAsk = selfEmployedTopUpPending();
+  tiles.push(['money', '💵', S.debt > 0 ? 'Repay debt' : sepAsk ? 'CPF top-up ❗' : 'CPF top-up', S.debt > 0 ? `−${money(S.debt)}` : sepAsk ? 'Self-employed: your call' : 'From your cash', S.debt > 0 || sepAsk]);
   return `<h2 class="tiles-head">Before you move on <small>as many as you like</small></h2>
     <div class="tiles">${tiles.map(([panel, icon, label, note, warn]) => `
       <button class="tile" data-panel="${panel}"><span class="t-icon">${icon}</span><span class="t-label">${label}</span><span class="t-note ${warn ? 'neg' : ''}">${note}</span></button>`).join('')}</div>`;
@@ -1863,6 +1870,8 @@ async function moneyPanel() {
         <div class="pay-row">${amountControl('repay', Math.min(S.debt, S.bank), 'Repay debt')}${btn('repay', 'Repay', 'primary')}</div>
         ${S.bank < 1 ? '<p class="small">You need cash to repay. Cutting your lifestyle or selling investments frees some up.</p>' : ''}` : ''}
       <h3>🏛️ Top up your CPF</h3>
+      ${S.selfEmployed && sim.isWorking(S) ? `<div class="limit-box sep-box"><p>${selfEmployedTopUpPending() ? '❗ ' : ''}<b>You're self-employed.</b> The only CPF you must pay is MediSave: about <b>${money(cpf.monthlyContribution(S.age, sim.currentWage(S), { selfEmployed: true }).ma * 12)}</b> a year at your income, taken automatically. No one pays into your OA or SA for you, so your retirement savings and CPF LIFE payouts only grow if you put money in yourself. Setting some aside each year is your choice: a yearly top-up to your SA (tax relief up to $8,000) or to all three accounts (counts for CPF relief, as you're self-employed).</p>
+        <div class="row">${btn('sep-plan', '📋 Set a yearly top-up')}${selfEmployedTopUpPending() ? btn('sep-skip', 'Not this time') : ''}</div></div>` : ''}
       ${accounts.length > 1 ? `<div class="seg" role="group" aria-label="Top up which account">${accounts.map((k) => `<button class="seg-btn ${topUpAccount === k ? 'on' : ''}" data-choice="acct:${k}">${topUpAccountInfo(k, 0).label}</button>`).join('')}</div>` : ''}
       <div class="pay-row">${amountControl('topup', Math.min(S.bank, room), 'CPF top-up')}${btn('topup', 'Top up')}</div>
       ${topUpAccount === 'ret' && S.age >= 55 ? `<p class="gain-note" id="topup-gain">${S.life && S.age >= S.life.startAge ? `CPF LIFE pays you ${money(S.life.monthly)}/month now. Top-ups after payouts start buy extra CPF LIFE, so your payout rises from next year.` : 'Top-ups to your RA raise your CPF LIFE payouts.'} Drag the slider to see by how much.</p>` : ''}
@@ -1888,6 +1897,8 @@ async function moneyPanel() {
     if (choice === 'life') await lifestyleDialog();
     if (choice === 'invest') await investPanel();
     if (choice.startsWith('acct:')) { topUpAccount = choice.slice(5); continue; }
+    if (choice === 'sep-skip') { S.sepTopUpDecided = S.age; render(); continue; }
+    if (choice === 'sep-plan') { S.sepTopUpDecided = S.age; await budgetPanel(); render(); continue; }
     if (choice === 'repay' && repay > 0) {
       const paid = sim.repayDebt(S, repay);
       toast(S.debt > 0 ? `💳 Repaid ${money(paid)}. ${money(S.debt)} still to go.` : `🎉 Repaid ${money(paid)}. You're debt-free!`);
@@ -1895,6 +1906,7 @@ async function moneyPanel() {
     }
     if (choice === 'topup' && topUp > 0) {
       sim.spendCash(S, topUp);
+      S.sepTopUpDecided = S.age;
       const reliefBefore = sim.topUpReliefThisYear(S);
       const r = sim.topUpCpf(S, topUp, topUpAccount);
       S.bank += topUp - r.accepted;
