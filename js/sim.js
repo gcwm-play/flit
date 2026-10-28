@@ -11,13 +11,13 @@ export const DEBT_INTEREST = 0.25; // typical credit card interest (it compounds
 export const DCP_INTEREST = 0.08; // after a debt crisis: a Debt Consolidation Plan at a lower rate
 export const INVEST_RETURN = 0.05; // long-run average for a diversified fund (not guaranteed!)
 
-export function newGame(name, sprite) {
+export function newGame(name, look) {
   const s = {
     version: 1,
     name,
     age: STAGES.child.startAge,
     stage: 'child',
-    sprites: { child: sprite, teen: 0, adult: 0, senior: 0 },
+    look: { gender: look.gender, tone: look.tone, outfit: look.outfit },
     stats: Object.fromEntries(Object.keys(STATS).map((k) => [k, 0])),
     hybrids: {},
     wallet: 20,
@@ -418,7 +418,13 @@ export function retirementIncome(s) {
 }
 
 export function record(s) {
-  s.history.push({ age: s.age, cpf: Math.round(cpf.cpfTotal(s.cpf)), cash: Math.round(s.bank + s.wallet + s.invest - s.debt) });
+  const c = s.cpf;
+  s.history.push({
+    age: s.age,
+    cpf: Math.round(cpf.cpfTotal(c)),
+    cash: Math.round(s.bank + s.wallet + s.invest - s.debt),
+    oa: Math.round(c.oa), sa: Math.round(c.sa), ma: Math.round(c.ma), ra: Math.round(c.ra),
+  });
 }
 
 export function netWorth(s) {
@@ -438,9 +444,12 @@ function round1(n) {
 
 export function marry(s, weddingCost) {
   const ratio = 0.7 + Math.random() * 0.5;
+  // Your spouse is the opposite gender and shares your skin tone.
   s.spouse = {
     salary: Math.max(2500, (s.salary || 3500) * ratio),
-    sprite: Math.floor(Math.random() * 10),
+    gender: s.look.gender === 'male' ? 'female' : 'male',
+    tone: s.look.tone,
+    outfit: (s.look.outfit + 2) % 6,
   };
   coverShortfall(s, weddingCost / 2);
   s.log.push(`Age ${s.age}: got married`);
@@ -454,7 +463,13 @@ export function babySupport(birthOrder) {
 }
 
 export function haveChild(s) {
-  s.children.push({ bornAge: s.age, sprite: Math.floor(Math.random() * 6), uni: null });
+  s.children.push({
+    bornAge: s.age,
+    gender: Math.random() < 0.5 ? 'male' : 'female',
+    tone: s.look.tone,
+    outfit: Math.floor(Math.random() * 6),
+    uni: null,
+  });
   s.joy += 4;
   s.log.push(`Age ${s.age}: welcomed child number ${s.children.length}`);
   return babySupport(s.children.length);
@@ -549,10 +564,27 @@ export function leaseBuyback(s) {
 
 // ---------- CPF top-ups ----------
 
+// Only the first $8,000 of cash top-ups to your own SA/RA each year gets income tax relief.
+export const TOP_UP_TAX_RELIEF_CAP = 8000;
+
+// Compulsory contributions plus Voluntary Contributions in a year can't go above this.
+export const CPF_ANNUAL_LIMIT = 37740;
+
+export function topUpsThisYear(s) {
+  return s.topUps && s.topUps.age === s.age ? s.topUps.amount : 0;
+}
+
+// How much more cash you can top up: the SA up to the FRS before 55, the RA up to the ERS after.
+export function topUpRoom(s) {
+  return cpf.topUpRoom(s.cpf, s.age);
+}
+
 // Cash top-up. From 55, if your RA is below the BRS, the Matched Retirement
 // Savings Scheme matches it dollar for dollar, up to $2,000 a year.
 export function topUpCpf(s, amount) {
   const accepted = cpf.cashTopUp(s.cpf, s.age, amount);
+  const before = topUpsThisYear(s);
+  s.topUps = { age: s.age, amount: before + accepted };
   let matched = 0;
   if (s.age >= 55 && accepted > 0 && s.cpf.ra - accepted < cpf.RETIREMENT_SUMS.BRS) {
     const usedThisYear = s.mrss && s.mrss.age === s.age ? s.mrss.amount : 0;

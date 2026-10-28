@@ -1,6 +1,6 @@
 // Random life events. World events change the coming years (and your stats can
 // soften them); personal events and cash gifts happen to you alone.
-import { rand, pick } from './data.js';
+import { rand, pick, FACTS } from './data.js';
 import { money, payFromMedisave, coverShortfall, marry, haveChild } from './sim.js';
 
 // How much your stats protect you: 0 (none) to 0.8 (mostly), plus hybrid bonuses.
@@ -158,6 +158,7 @@ export const PERSONAL_EVENTS = [
       icon: '💞',
       title: 'You’ve met someone special',
       text: 'After a few years together, you talk about getting married. Married couples can apply for a BTO flat together, and you would share household costs.',
+      fact: FACTS.marriage,
       choices: [
         { label: 'Simple wedding ($15,000)', run: (s) => wedding(s, 15000) },
         { label: 'Big wedding ($50,000)', run: (s) => wedding(s, 50000) },
@@ -174,6 +175,7 @@ export const PERSONAL_EVENTS = [
       icon: '🍼',
       title: s.children.length ? 'Another baby?' : 'Start a family?',
       text: `A child costs a household about $1,200 a month until they're grown up (you pay half). The Government helps with a Baby Bonus.`,
+      fact: FACTS.fertility,
       choices: [
         { label: 'Have a baby', run: (s) => {
           const b = haveChild(s);

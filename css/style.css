@@ -347,3 +347,53 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 @media (prefers-reduced-motion: reduce) {
   .ledger.fresh { animation: none; }
 }
+
+/* ---------- characters ---------- */
+/* Each sprite is sized from its pixel height (--h) times a per-context pixel size (--px). */
+.person { height: calc(var(--h) * var(--px, 4px)); width: auto; }
+.people { --px: clamp(3.5px, 0.6vw, 6px); }
+.people .player, .people .family-member, .people .family-member.kid, .people .family-member.kid.baby { height: calc(var(--h) * var(--px)); }
+.who img.mini { --px: 1.3px; height: calc(var(--h) * var(--px)); }
+.title-sprites { --px: 4px; }
+.title-sprites img { height: calc(var(--h) * var(--px)); }
+.end img.big { --px: 5px; height: calc(var(--h) * var(--px)); }
+.grown { display: flex; align-items: flex-end; gap: 16px; margin: 12px 0; --px: 4px; }
+.pick-label { font-weight: 800; margin: 14px 0 6px; }
+.pick-label small { font-weight: 400; color: var(--muted); }
+.seg { display: flex; gap: 0; }
+.seg-btn { font: 700 15px 'Nunito', sans-serif; background: #fff; color: var(--ink); border: 3px solid var(--line); padding: 8px 18px; cursor: pointer; }
+.seg-btn + .seg-btn { border-left: 0; }
+.seg-btn.on { background: var(--accent); color: var(--accent-ink); }
+.swatches { display: flex; flex-wrap: wrap; gap: 8px; }
+.swatch { width: 36px; height: 36px; border: 3px solid var(--line); cursor: pointer; padding: 0; }
+.swatch.on { outline: 3px solid var(--accent); outline-offset: 2px; }
+.swatch:focus-visible, .seg-btn:focus-visible { outline: 3px solid #ffd25e; outline-offset: 2px; }
+
+/* Ledger: clickable CPF and stats sections */
+.ledger-link { all: unset; display: block; width: 100%; cursor: pointer; border-radius: 6px; box-sizing: border-box; }
+.ledger-link:hover, .ledger-link:focus-visible { background: rgba(63, 127, 217, 0.08); outline: 2px dashed var(--line); outline-offset: 2px; }
+.ledger-hint { display: block; font-size: 12px; color: var(--muted); margin-top: 4px; font-weight: 700; }
+.mini-stats { display: grid; grid-template-columns: auto 1fr 28px; gap: 3px 6px; align-items: center; font-size: 13px; }
+.mini-stats .bar { height: 8px; display: block; }
+.mini-stats .bar > span { display: block; height: 100%; background: var(--accent, #3f7fd9); }
+.mini-stats b { text-align: right; }
+.mini-hybrids { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; margin: 6px 0 0; }
+
+/* CPF growth chart */
+.chart.trend .a-oa { fill: var(--oa); } .chart.trend .a-sa { fill: var(--sa); }
+.chart.trend .a-ma { fill: var(--ma); } .chart.trend .a-ra { fill: var(--ra); }
+.chart.trend path { stroke: none; opacity: 0.9; }
+.chart .grid { stroke: #e6ddcf; stroke-width: 1; }
+.chart .mark { stroke: var(--ink, #2a2433); stroke-width: 1.5; stroke-dasharray: 4 3; }
+.chart .hit { fill: transparent; }
+.chart .hit:hover { fill: rgba(0, 0, 0, 0.06); }
+.k-oa { background: var(--oa); } .k-sa { background: var(--sa); } .k-ma { background: var(--ma); } .k-ra { background: var(--ra); }
+
+/* "Did you know?" facts and limits */
+.fact { background: #fff7d6; border: 2px solid #e0a23a; border-radius: 8px; padding: 8px 12px; margin: 10px 0; text-align: left; }
+.fact p { margin: 4px 0; }
+.fact small { color: var(--muted); }
+.limit-box { background: #eef4ff; border: 2px solid var(--line); border-radius: 8px; padding: 4px 12px; margin: 8px 0; }
+.table-scroll { overflow-x: auto; }
+.summary.rates th, .summary.rates td { padding: 4px 6px; text-align: center; font-size: 13px; }
+.journal li.muted-ink { display: block; }

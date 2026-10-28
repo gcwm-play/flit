@@ -3,10 +3,11 @@ import * as cpf from './cpf.js';
 import * as sim from './sim.js';
 import * as housing from './housing.js';
 import { playMiniGame } from './minigames.js';
+import { characterSrc, lookOf, spriteHeight, SKIN_TONES, GENDERS, OUTFITS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent } from './events.js';
 import {
-  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, SPRITES, spriteUrl, EDUCATION,
-  LIFESTYLES, RETIREMENT_LIFESTYLES, RENT_MONTHLY,
+  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION,
+  LIFESTYLES, RETIREMENT_LIFESTYLES, RENT_MONTHLY, FACTS,
 } from './data.js';
 
 const SAVE_KEY = 'flit-save-v1';
@@ -74,65 +75,74 @@ function toast(text) {
 }
 
 const btn = (choice, label, cls = '') => `<button class="btn ${cls}" data-choice="${choice}">${label}</button>`;
-const sprite = (stage, i, cls = '') => `<img class="pixel ${cls}" src="${spriteUrl(stage, i)}" alt="">`;
+const person = (look, cls = '', alt = '') =>
+  `<img class="pixel person ${cls}" style="--h:${spriteHeight(look.stage)}" src="${characterSrc(look)}" alt="${alt}">`;
+const me = (stage = S.stage) => lookOf(S.look, stage);
 
-function spritePicker(stage, selected) {
-  return `<div class="picker">${Array.from({ length: SPRITES[stage] }, (_, i) =>
-    `<button class="pick ${i === selected ? 'on' : ''}" data-pick="${i}" aria-label="Look ${i + 1}">${sprite(stage, i)}</button>`).join('')}</div>`;
-}
-
-function wirePicker(onPick) {
-  modalBox.querySelectorAll('[data-pick]').forEach((b) => {
-    b.onclick = () => {
-      modalBox.querySelectorAll('.pick').forEach((x) => x.classList.remove('on'));
-      b.classList.add('on');
-      onPick(+b.dataset.pick);
-    };
-  });
+// Outfit colour swatches, used when you grow into a new life stage.
+function outfitPicker(selected) {
+  return `<div class="swatches" role="group" aria-label="Outfit colour">${OUTFITS.map((c, i) =>
+    `<button class="swatch ${i === selected ? 'on' : ''}" data-outfit="${i}" style="background:${c}" aria-label="Outfit colour ${i + 1}"></button>`).join('')}</div>`;
 }
 
 // ---------- title screen ----------
 
 function titleScreen() {
   const saved = loadSave();
-  let pickIdx = Math.floor(Math.random() * SPRITES.child);
+  const look = { gender: Math.random() < 0.5 ? 'male' : 'female', tone: Math.floor(Math.random() * SKIN_TONES.length), outfit: 0 };
   app.innerHTML = `
     <div class="title-screen">
       <h1 class="logo">FLIT</h1>
       <p class="tagline">Life &amp; CPF: a Singapore life simulator</p>
-      <div class="title-sprites">${['child', 'teen', 'adult', 'senior'].map((st, i) => sprite(st, i % SPRITES[st], 'bob')).join('')}</div>
+      <div class="title-sprites" id="preview"></div>
       <div class="card start-card">
         <p>Grow up, build your skills, make money choices and see where they lead when you retire.</p>
         <label class="field">Your name <input id="name" maxlength="16" placeholder="Alex" autocomplete="off"></label>
-        <p class="small">Choose your look</p>
-        ${spritePicker('child', pickIdx)}
+        <p class="pick-label">You are</p>
+        <div class="seg" role="group" aria-label="Gender">${Object.entries(GENDERS).map(([k, l]) => `<button class="seg-btn" data-gender="${k}">${l}</button>`).join('')}</div>
+        <p class="pick-label">Skin tone <small>(your partner and children will share it)</small></p>
+        <div class="swatches" role="group" aria-label="Skin tone">${SKIN_TONES.map((t, i) => `<button class="swatch" data-tone="${i}" style="background:${t.skin}" aria-label="${t.label}"></button>`).join('')}</div>
+        <p class="pick-label">Outfit colour</p>
+        ${outfitPicker(look.outfit)}
         <div class="row">
           <button class="btn primary" id="start">Start a new life</button>
-          ${saved ? `<button class="btn" id="continue">Continue (${saved.name}, age ${saved.age})</button>` : ''}
+          ${saved ? `<button class="btn" id="continue">Continue (${esc(saved.name)}, age ${saved.age})</button>` : ''}
         </div>
       </div>
       <p class="small muted">CPF figures use the 2026 rates from cpf.gov.sg, simplified for a game. Amounts are in today's dollars.</p>
     </div>`;
-  app.querySelectorAll('[data-pick]').forEach((b) => {
-    b.onclick = () => {
-      app.querySelectorAll('.pick').forEach((x) => x.classList.remove('on'));
-      b.classList.add('on');
-      pickIdx = +b.dataset.pick;
-    };
-  });
+  const refresh = () => {
+    $('#preview').innerHTML = ['child', 'teen', 'adult', 'senior'].map((st) => person(lookOf(look, st), 'bob')).join('');
+    app.querySelectorAll('[data-gender]').forEach((b) => b.classList.toggle('on', b.dataset.gender === look.gender));
+    app.querySelectorAll('[data-tone]').forEach((b) => b.classList.toggle('on', +b.dataset.tone === look.tone));
+    app.querySelectorAll('[data-outfit]').forEach((b) => b.classList.toggle('on', +b.dataset.outfit === look.outfit));
+  };
+  app.querySelectorAll('[data-gender]').forEach((b) => (b.onclick = () => { look.gender = b.dataset.gender; refresh(); }));
+  app.querySelectorAll('[data-tone]').forEach((b) => (b.onclick = () => { look.tone = +b.dataset.tone; refresh(); }));
+  app.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => { look.outfit = +b.dataset.outfit; refresh(); }));
+  refresh();
   $('#start').onclick = async () => {
     const name = $('#name').value.trim() || 'Alex';
-    S = sim.newGame(name, pickIdx);
+    S = sim.newGame(name, look);
     render();
     await stageIntro('child');
     save();
     render();
   };
   if (saved) $('#continue').onclick = () => {
-    S = saved;
+    S = migrate(saved);
     render();
     milestones();
   };
+}
+
+// Saves from before the character picker used numbered sprites.
+function migrate(s) {
+  if (!s.look) s.look = { gender: 'female', tone: 2, outfit: 0 };
+  delete s.sprites;
+  if (s.spouse && !s.spouse.gender) Object.assign(s.spouse, { gender: s.look.gender === 'male' ? 'female' : 'male', tone: s.look.tone, outfit: 2 });
+  for (const c of s.children || []) if (!c.gender) Object.assign(c, { gender: Math.random() < 0.5 ? 'male' : 'female', tone: s.look.tone, outfit: 1 });
+  return s;
 }
 
 // ---------- main screen ----------
@@ -143,7 +153,7 @@ function render() {
   const cpfTotal = cpf.cpfTotal(S.cpf);
   app.innerHTML = `
     <header class="hud">
-      <div class="who">${sprite(S.stage, S.sprites[S.stage], 'mini')}<div><b>${esc(S.name)}</b><span>Age ${S.age} · ${st.label}</span></div></div>
+      <div class="who">${person(me(), 'mini')}<div><b>${esc(S.name)}</b><span>Age ${S.age} · ${st.label}</span></div></div>
       <div class="chips">
         <button class="chip" data-panel="money" title="Spending fund">👛 ${money(S.wallet)}</button>
         <button class="chip" data-panel="money" title="Bank savings">🏦 ${money(S.bank)}</button>
@@ -208,11 +218,11 @@ function roomHtml() {
   const grown = S.stage === 'adult' || S.stage === 'senior';
   const spouseStage = S.stage === 'senior' ? 'senior' : 'adult';
   const family = grown ? [
-    S.spouse ? `<img class="pixel family-member" src="${spriteUrl(spouseStage, S.spouse.sprite % SPRITES[spouseStage])}" alt="Your spouse">` : '',
+    S.spouse ? person(lookOf(S.spouse, spouseStage), 'family-member', 'Your spouse') : '',
     ...(S.children || []).map((c) => {
       const age = S.age - c.bornAge;
-      const st = age < 13 ? 'child' : age < 21 ? 'teen' : 'adult';
-      return `<img class="pixel family-member kid ${age < 4 ? 'baby' : ''}" src="${spriteUrl(st, c.sprite % SPRITES[st])}" alt="Your child, age ${age}">`;
+      const st = age < 3 ? 'baby' : age < 13 ? 'child' : age < 21 ? 'teen' : 'adult';
+      return person(lookOf(c, st), `family-member kid ${st === 'baby' ? 'baby' : ''}`, `Your child, age ${age}`);
     }),
   ].join('') : '';
   return `
@@ -225,7 +235,7 @@ function roomHtml() {
       <div class="floor"></div>
       <div class="bed"><div class="pillow"></div><div class="blanket"></div></div>
       <div class="items">${placeItems(items)}</div>
-      <div class="people"><img class="pixel player bob" src="${spriteUrl(S.stage, S.sprites[S.stage])}" alt="${esc(S.name)}">${family}</div>
+      <div class="people">${person(me(), 'player bob', esc(S.name))}${family}</div>
     </div>`;
 }
 
@@ -283,6 +293,7 @@ async function takeTurn(activityId) {
     if (S.stage === 'adult' || S.stage === 'senior') S.joy += LIFESTYLES[S.lifestyle].joy;
     recordTurn(startAge, years, sum, opts, activity, gains);
     S.ledgerFresh = true;
+    await rateChangeNotice(startAge, S.age);
 
     // Personal events and gifts.
     const personal = rollPersonalEvent(S);
@@ -297,6 +308,27 @@ async function takeTurn(activityId) {
   } finally {
     busy = false;
   }
+}
+
+// CPF contribution and allocation rates change at set ages. Tell the player when they cross one.
+async function rateChangeNotice(fromAge, toAge) {
+  if (toAge < 21 || !S.cpfWorked) return;
+  const from = cpf.rateBand(fromAge);
+  const to = cpf.rateBand(toAge);
+  if (from === to) return;
+  const total = (b) => b.employer + b.employee;
+  const changedTotal = total(from) !== total(to);
+  const row = (b, label) => `<tr><td>${label}</td><td>${b.employee}%</td><td>${b.employer}%</td><td><b>${total(b)}%</b></td><td>${b.oa}%</td><td>${b.sa}%</td><td>${b.ma}%</td></tr>`;
+  logEvent(`📉 CPF rates changed at ${toAge}: now ${total(to)}% of pay (OA ${to.oa}%)`);
+  await dialog(`<div class="event"><div class="e-icon">🏛️</div><p class="eyebrow">CPF rates change with age</p>
+    <h2>${changedTotal ? `Your CPF contribution rate is now ${total(to)}%` : 'Your CPF money is split differently now'}</h2>
+    <p>${changedTotal
+      ? `From above ${from.maxAge}, you and your employer pay less into CPF (it was ${total(from)}%). You take home a little more pay, but less goes into your retirement savings.`
+      : `Above ${from.maxAge}, the same ${total(to)}% of your pay goes into CPF, but less goes to your OA (for housing) and more to your ${toAge > 55 ? 'RA' : 'SA'} and MediSave, as retirement and healthcare get closer.`}</p></div>
+    <div class="table-scroll"><table class="summary rates"><tr><th></th><th>You</th><th>Employer</th><th>Total</th><th>OA</th><th>${toAge > 55 ? 'RA' : 'SA'}</th><th>MA</th></tr>
+    ${row(from, `Up to ${from.maxAge}`)}${row(to, to.maxAge === Infinity ? `Above ${from.maxAge}` : `${from.maxAge + 1} to ${to.maxAge}`)}</table></div>
+    <p class="small">2026 rates, as % of monthly wages up to ${money(cpf.ORDINARY_WAGE_CEILING)}.</p>
+    ${btn('ok', 'OK', 'primary')}`, { wide: true });
 }
 
 function addTotals(t = {}, sum) {
@@ -348,9 +380,18 @@ function ledgerHtml() {
   return `
     <aside class="ledger ${S.ledgerFresh ? 'fresh' : ''}" aria-label="Your money and life log">
       <section>
+        <button class="ledger-link" data-panel="cpf" title="See how your CPF has grown">
         <h3>🏛️ CPF <span class="ledger-total">${money(total)}</span></h3>
         ${cpfBars()}
+        <span class="ledger-hint">📈 Tap to see your CPF growth</span>
+        </button>
         ${S.life ? `<p class="small">CPF LIFE ${S.age >= S.life.startAge ? `pays <b>${money(S.life.monthly)}</b>/month` : `starts at ${S.life.startAge}`}</p>` : ''}
+      </section>
+      <section>
+        <button class="ledger-link" data-panel="stats" title="See all your stats">
+        <h3>📊 Stats <span class="ledger-sub">😊 Joy ${Math.round(S.joy)}</span></h3>
+        ${ledgerStats()}
+        </button>
       </section>
       <section>
         <h3>💵 Cash</h3>
@@ -374,11 +415,28 @@ function ledgerHtml() {
     </aside>`;
 }
 
+function ledgerStats() {
+  const unlocked = sim.unlockedStats(S);
+  const max = Math.max(30, ...unlocked.map((k) => S.stats[k]));
+  const hybrids = Object.entries(HYBRIDS).filter(([k]) => S.hybrids[k]);
+  return `<div class="mini-stats">${unlocked.map((k) => `
+    <span class="ms-name">${STATS[k].icon} ${STATS[k].label}</span>
+    <span class="bar"><span style="width:${(S.stats[k] / max) * 100}%"></span></span>
+    <b>${Math.round(S.stats[k])}</b>`).join('')}</div>
+    ${hybrids.length ? `<p class="mini-hybrids">${hybrids.map(([k, h]) => `<span>${h.icon} ${h.label} <b>${sim.hybridValue(S, k)}</b></span>`).join('')}</p>` : ''}`;
+}
+
+// A "Did you know?" box with a real Singapore figure.
+function factBox(fact) {
+  return fact ? `<aside class="fact"><b>💡 Did you know?</b><p>${fact.text}</p><small>Source: ${fact.source}</small></aside>` : '';
+}
+
 async function runPersonalEvent(e) {
   logEvent(`${e.icon} ${e.title}${e.gift ? ` (${money(e.gift)})` : ''}`);
   if (e.gift) return giftDialog(e);
   if (e.choices) {
     const c = await dialog(`<div class="event"><div class="e-icon">${e.icon}</div><h2>${e.title}</h2><p>${e.text}</p></div>
+      ${factBox(e.fact)}
       <div class="row">${e.choices.map((c, i) => btn(i, c.label, i === 0 ? 'primary' : '')).join('')}</div>`);
     // A choice returns text, or { text, gift } to follow up with a gift to split.
     const result = e.choices[+c].run(S);
@@ -388,7 +446,7 @@ async function runPersonalEvent(e) {
     if (r.gift) await giftDialog(r.gift);
     return;
   }
-  await dialog(`<div class="event"><div class="e-icon">${e.icon}</div><h2>${e.title}</h2><p>${e.text}</p></div>${btn('ok', 'OK', 'primary')}`);
+  await dialog(`<div class="event"><div class="e-icon">${e.icon}</div><h2>${e.title}</h2><p>${e.text}</p></div>${factBox(e.fact)}${btn('ok', 'OK', 'primary')}`);
 }
 
 async function giftDialog(e) {
@@ -400,12 +458,14 @@ async function giftDialog(e) {
     buckets.push({ key: 'invest', icon: '📈', label: 'Invest', note: 'About 5% a year on average, but it can crash.' });
   }
   const cpfOk = sim.canTopUpCpf(S);
+  const room = cpfOk ? sim.topUpRoom(S) : 0;
+  const reliefLeft = Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S));
   buckets.push({
     key: 'cpf',
     icon: '🏛️',
     label: S.age < 55 ? 'CPF top-up (to SA)' : 'CPF top-up (to RA)',
     note: cpfOk
-      ? 'Earns 4% or more and can lower your income tax, but stays locked for retirement.'
+      ? `Earns 4% or more, but stays locked for retirement. ${topUpLimitNote(room, reliefLeft)}`
       : 'Locked: you can top up your own CPF once you start working. (Your CPF account opened with your MediSave Grant at birth!)',
     locked: !cpfOk,
   });
@@ -425,7 +485,7 @@ async function giftDialog(e) {
           <span class="al-ctrl">
             <button class="btn tiny" data-dec="${b.key}" ${b.locked || !parts[b.key] ? 'disabled' : ''}>−</button>
             <span class="al-val">${money((e.gift * parts[b.key]) / 10)}</span>
-            <button class="btn tiny" data-inc="${b.key}" ${b.locked || used >= 10 ? 'disabled' : ''}>+</button>
+            <button class="btn tiny" data-inc="${b.key}" ${b.locked || used >= 10 || (b.key === 'cpf' && (e.gift * (parts.cpf + 1)) / 10 > room) ? 'disabled' : ''}>+</button>
           </span>
         </div>`).join('')}</div>
       <p class="small">${used < 10 ? `${money((e.gift * (10 - used)) / 10)} still to place.` : 'All placed!'}</p>
@@ -450,6 +510,14 @@ async function giftDialog(e) {
   const { matched } = alloc;
   if (split.cpf) toast(`🏛️ ${money(split.cpf - refused)} added to your CPF ${S.age < 55 ? 'SA' : 'RA'}${matched ? `, plus ${money(matched)} matched by the Government (MRSS)` : ''}`);
   if (refused) toast(`Your CPF is already at the top-up limit, so ${money(refused)} went to the bank.`);
+  if (split.cpf && sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP) toast('Top-ups this year are above $8,000: the extra still grows, but gets no tax relief.');
+}
+
+// Explains the two limits on cash top-ups (RSTU).
+function topUpLimitNote(room, reliefLeft) {
+  const cap = S.age < 55 ? `your SA reaches the FRS (${money(cpf.RETIREMENT_SUMS.FRS)})` : `your RA reaches the ERS (${money(cpf.RETIREMENT_SUMS.ERS)})`;
+  if (room <= 0) return `Limit reached: you can only top up until ${cap}.`;
+  return `Limit: ${money(room)} more until ${cap}. Tax relief on the first ${money(sim.TOP_UP_TAX_RELIEF_CAP)} a year (${money(reliefLeft)} left this year).`;
 }
 
 // ---------- stage changes and milestones ----------
@@ -506,14 +574,17 @@ async function universityDecision(child) {
 
 async function stageIntro(stage) {
   const st = STAGES[stage];
-  if (stage !== 'child') S.sprites[stage] = Math.floor(Math.random() * SPRITES[stage]);
   dialog(`
     <p class="eyebrow">${st.label} · age ${S.age}</p>
     <h2>${st.intro.title}</h2>
     ${st.intro.body.map((p) => `<p>${p}</p>`).join('')}
-    ${stage !== 'child' ? `<p class="small">You've grown up! Choose your new look.</p>${spritePicker(stage, S.sprites[stage])}` : ''}
+    ${stage !== 'child' ? `<div class="grown"><span id="grown-me">${person(me(stage), 'bob')}</span><div><p class="small">You've grown up! Pick a new outfit colour.</p>${outfitPicker(S.look.outfit)}</div></div>` : ''}
     ${btn('ok', "Let's go", 'primary')}`, { wide: true });
-  wirePicker((i) => (S.sprites[stage] = i));
+  modalBox.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => {
+    S.look.outfit = +b.dataset.outfit;
+    modalBox.querySelectorAll('[data-outfit]').forEach((x) => x.classList.toggle('on', x === b));
+    $('#grown-me').innerHTML = person(me(stage), 'bob');
+  }));
   await new Promise((r) => (modalBox.onclick = (e) => e.target.closest('[data-choice]') && r()));
   if (stage === 'adult') await adultStart();
   if (stage === 'senior') await turning55();
@@ -663,6 +734,7 @@ async function cpfLifeDecision() {
       <tr><td>Start now (Standard plan)</td><td><b>${money(now)}</b>/month</td></tr>
       <tr><td>Defer to 70 (up to 7% more for each year you wait)</td><td>about <b>${money(later)}</b>/month</td></tr>
     </table>
+    ${factBox(FACTS.lifeExpectancy)}
     <div class="row">${btn('65', 'Start now', 'primary')}${btn('70', 'Defer to 70')}</div>`);
   const plan = await dialog(`
     <h2>Choose your CPF LIFE plan</h2>
@@ -819,16 +891,55 @@ function historyChart() {
     <p class="legend"><span class="k-cpf"></span> CPF <span class="k-cash"></span> Cash, bank and investments</p>`;
 }
 
+// Stacked chart of each CPF account by age, with markers for big moments.
+function cpfTrendChart() {
+  const h = S.history.filter((p) => p.oa !== undefined);
+  if (h.length < 2) return '<p class="small muted-ink">Your CPF growth chart appears after a couple of turns.</p>';
+  const W = 560, H = 220, L = 54, R = 12, T = 14, B = 26;
+  const keys = ['ma', 'sa', 'ra', 'oa'];
+  const maxV = Math.max(1, ...h.map((p) => p.oa + p.sa + p.ma + p.ra));
+  const a0 = h[0].age, a1 = h[h.length - 1].age;
+  const x = (a) => L + ((a - a0) / Math.max(1, a1 - a0)) * (W - L - R);
+  const y = (v) => H - B - (v / maxV) * (H - T - B);
+  let base = h.map(() => 0);
+  const areas = keys.map((k) => {
+    const top = h.map((p, i) => base[i] + p[k]);
+    const d = h.map((p, i) => `${i ? 'L' : 'M'}${x(p.age).toFixed(1)},${y(top[i]).toFixed(1)}`).join(' ')
+      + ' ' + h.slice().reverse().map((p, j) => `L${x(p.age).toFixed(1)},${y(base[h.length - 1 - j]).toFixed(1)}`).join(' ') + ' Z';
+    base = top;
+    return `<path d="${d}" class="a-${k}"/>`;
+  }).join('');
+  const ticks = [0, 0.5, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${y(maxV * f)}" y2="${y(maxV * f)}" class="grid"/><text x="${L - 6}" y="${y(maxV * f) + 4}" text-anchor="end">${shortMoney(maxV * f)}</text>`).join('');
+  const marks = [55, 65].filter((a) => a > a0 && a < a1).map((a) => `<line x1="${x(a)}" x2="${x(a)}" y1="${T}" y2="${H - B}" class="mark"/><text x="${x(a) + 4}" y="${T + 10}">${a === 55 ? '55: RA formed' : '65: CPF LIFE'}</text>`).join('');
+  const hits = h.map((p, i) => {
+    const w = (W - L - R) / Math.max(1, h.length - 1);
+    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit"><title>Age ${p.age}: CPF ${money(p.cpf)} (OA ${money(p.oa)}, SA ${money(p.sa)}, MA ${money(p.ma)}, RA ${money(p.ra)})</title></rect>`;
+  }).join('');
+  const first = h[0], last = h[h.length - 1];
+  return `<svg class="chart trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="CPF balances by account from age ${a0} to ${a1}">
+    ${ticks}${areas}${marks}
+    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg>
+    <p class="legend"><span class="k-oa"></span> OA <span class="k-sa"></span> SA <span class="k-ra"></span> RA <span class="k-ma"></span> MediSave</p>
+    <p class="small">From age ${first.age} to ${last.age}, your CPF went from <b>${money(first.cpf)}</b> to <b>${money(last.cpf)}</b>. Hover or tap the chart for any year.</p>`;
+}
+
+function shortMoney(v) {
+  return v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `$${Math.round(v / 1000)}k` : money(v);
+}
+
 function cpfPanel() {
   const band = cpf.rateBand(S.age);
   const t = S.totals || {};
   return dialog(`
     <h2>🏛️ Your CPF</h2>
+    <h3>📈 How your CPF has grown</h3>
+    ${cpfTrendChart()}
+    <h3>Today</h3>
     ${cpfBars()}
     <p class="total">Total: <b>${money(cpf.cpfTotal(S.cpf))}</b>${S.life ? ` · CPF LIFE ${S.age >= S.life.startAge ? `pays <b>${money(S.life.monthly)}</b>/month` : `starts at ${S.life.startAge}`}` : ''}</p>
-    ${historyChart()}
     <h3>At your age (${S.age})</h3>
     <ul class="facts">
+      <li>Rates change with age: the total drops after 55, 60, 65 and 70, and the OA's share drops after 35, 45 and 50.</li>
       <li>If you work: you pay <b>${band.employee}%</b> of your wage, your employer pays <b>${band.employer}%</b> (on wages up to ${money(cpf.ORDINARY_WAGE_CEILING)} a month).</li>
       <li>Split: OA ${band.oa}% · ${S.age < 55 ? 'SA' : 'RA'} ${band.sa}% · MA ${band.ma}% of your wage.</li>
       <li>Interest: OA 2.5%, SA/MA/RA 4%, plus 1% extra on your first $60,000${S.age >= 55 ? ' and another 1% on the first $30,000' : ''}.</li>
@@ -858,7 +969,8 @@ async function moneyPanel() {
         ${adult ? steps.map((n) => btn(`i+${n}`, `Bank → Invest ${money(n)}`)).join('') + steps.map((n) => btn(`i-${n}`, `Invest → Bank ${money(n)}`)).join('') : ''}
         ${sim.canTopUpCpf(S) ? steps.map((n) => btn(`c+${n}`, `Bank → CPF top-up ${money(n)}`)).join('') : ''}
       </div>
-      ${sim.canTopUpCpf(S) ? `<p class="small">Cash top-ups go to your ${S.age < 55 ? 'SA (up to the FRS)' : 'RA (up to the ERS)'} under the Retirement Sum Topping-Up Scheme, and can lower your income tax. ${S.age >= 55 ? 'If your RA is below the BRS, the Matched Retirement Savings Scheme adds $1 for every $1, up to $2,000 a year.' : ''}</p>` : ''}
+      ${sim.canTopUpCpf(S) ? `<div class="limit-box"><p class="small"><b>CPF top-up limits.</b> Cash top-ups go to your ${S.age < 55 ? 'SA' : 'RA'} under the Retirement Sum Topping-Up Scheme (RSTU). ${topUpLimitNote(sim.topUpRoom(S), Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S)))} Topped up this year: <b>${money(sim.topUpsThisYear(S))}</b>.</p>
+        <p class="small">Separately, the CPF Annual Limit caps your compulsory contributions plus any Voluntary Contributions at ${money(sim.CPF_ANNUAL_LIMIT)} a year; RSTU top-ups don't count towards it. ${S.age >= 55 ? 'If your RA is below the BRS, the Matched Retirement Savings Scheme adds $1 for every $1, up to $2,000 a year.' : ''}</p></div>` : ''}
       ${S.stage === 'adult' ? `<h3>Lifestyle</h3><p>${LIFESTYLES[S.lifestyle].icon} ${LIFESTYLES[S.lifestyle].label}: about ${money(sim.monthlySpend(S))}/month in total ${btn('life', 'Change')}</p>` : ''}
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
     if (c === 'ok') return;
@@ -876,7 +988,13 @@ async function moneyPanel() {
     if (kind === 'c') {
       const r = sim.topUpCpf(S, Math.min(n, S.bank));
       S.bank -= r.accepted;
-      toast(r.accepted ? `🏛️ Topped up ${money(r.accepted)} to your ${S.age < 55 ? 'SA' : 'RA'}${r.matched ? `, and the Government matched ${money(r.matched)}` : ''}` : 'Your CPF is at its top-up limit.');
+      if (!r.accepted) {
+        await dialog(`<h2>🏛️ Top-up limit reached</h2><p>${topUpLimitNote(0, 0)}</p><p class="small">The limit keeps your retirement top-ups in line with the retirement sums. Your cash stays in the bank.</p>${btn('ok', 'OK', 'primary')}`);
+      } else {
+        toast(`🏛️ Topped up ${money(r.accepted)} to your ${S.age < 55 ? 'SA' : 'RA'}${r.matched ? `, and the Government matched ${money(r.matched)}` : ''}`);
+        if (r.accepted < Math.min(n, S.bank + r.accepted)) toast(`Only ${money(r.accepted)} fit under your top-up limit.`);
+        if (sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP && sim.topUpsThisYear(S) - r.accepted <= sim.TOP_UP_TAX_RELIEF_CAP) toast('You are past $8,000 of top-ups this year: more is allowed, but gets no extra tax relief.');
+      }
     }
     render();
   }
@@ -955,7 +1073,7 @@ async function endScreen() {
   modalEl.hidden = false;
   modalBox.innerHTML = `
     <div class="end">
-      ${sprite(S.stage, S.sprites[S.stage], 'big')}
+      ${person(me(), 'big')}
       <p class="eyebrow">${final ? 'A life well lived' : 'Your story so far'}</p>
       <h2>${esc(S.name)}, age ${S.age}</h2>
       <ul class="moments">${moments.map((m) => `<li>${m}</li>`).join('')}</ul>

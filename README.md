@@ -53,7 +53,8 @@ js/events.js        world events, personal events, cash gifts
 js/data.js          stages, stats, activities, careers, shop items, quizzes
 js/minigames.js     the four mini games
 js/main.js          screens, dialogs and game flow
-assets/sprites/     character sprites, sliced from assets/character-sheet-source.jpg
+js/sprites.js       characters: placeholder pixel art drawn in code (see assets/sprites/README.md)
+assets/sprites/     drop-in folder for custom character art
 tests/              node --test unit tests for the CPF and housing rules
 ```
 

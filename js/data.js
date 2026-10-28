@@ -172,7 +172,7 @@ export const RENT_MONTHLY = 1400; // renting a room or small flat
 export const SHOP = {
   child: [
     { id: 'comics', name: 'Comic books', icon: '📚', price: 20, joy: 1, perTurn: { knowledge: 0.5 } },
-    { id: 'ball', name: 'Football', icon: '⚽', price: 25, joy: 1, perTurn: { fitness: 0.5, floor: true } },
+    { id: 'ball', name: 'Football', icon: '⚽', price: 25, joy: 1, floor: true, perTurn: { fitness: 0.5 } },
     { id: 'boardgame', name: 'Board game', icon: '🎲', price: 35, joy: 1, perTurn: { communication: 0.5 } },
     { id: 'crayons', name: 'Art set', icon: '🖍️', price: 30, joy: 1, perTurn: { creativity: 0.5 } },
     { id: 'plush', name: 'Teddy bear', icon: '🧸', price: 25, joy: 2 },
@@ -181,29 +181,29 @@ export const SHOP = {
   ],
   teen: [
     { id: 'posters', name: 'Posters', icon: '🖼️', price: 30, joy: 1 },
-    { id: 'desk', name: 'Study desk lamp', icon: '💡', price: 60, joy: 1, perTurn: { knowledge: 0.5, floor: true } },
-    { id: 'guitar', name: 'Guitar', icon: '🎸', price: 250, joy: 2, perTurn: { creativity: 1, floor: true } },
-    { id: 'bike', name: 'Bicycle', icon: '🚲', price: 300, joy: 2, perTurn: { fitness: 1, floor: true } },
+    { id: 'desk', name: 'Study desk lamp', icon: '💡', price: 60, joy: 1, perTurn: { knowledge: 0.5 } },
+    { id: 'guitar', name: 'Guitar', icon: '🎸', price: 250, joy: 2, floor: true, perTurn: { creativity: 1 } },
+    { id: 'bike', name: 'Bicycle', icon: '🚲', price: 300, joy: 2, floor: true, perTurn: { fitness: 1 } },
     { id: 'headphones', name: 'Headphones', icon: '🎧', price: 180, joy: 2 },
     { id: 'phone', name: 'New smartphone', icon: '📱', price: 1200, joy: 3, perTurn: { communication: 0.5 } },
     { id: 'gamingpc', name: 'Gaming PC', icon: '🖥️', price: 2000, joy: 4, floor: true },
   ],
   adult: [
     { id: 'plants', name: 'House plants', icon: '🪴', price: 80, joy: 1, floor: true },
-    { id: 'bookshelf', name: 'Bookshelf', icon: '📚', price: 400, joy: 1, perTurn: { knowledge: 1, floor: true } },
+    { id: 'bookshelf', name: 'Bookshelf', icon: '📚', price: 400, joy: 1, floor: true, perTurn: { knowledge: 1 } },
     { id: 'coffee', name: 'Coffee machine', icon: '☕', price: 600, joy: 2 },
-    { id: 'treadmill', name: 'Treadmill', icon: '🏃', price: 1800, joy: 1, perTurn: { health: 1, floor: true } },
+    { id: 'treadmill', name: 'Treadmill', icon: '🏃', price: 1800, joy: 1, floor: true, perTurn: { health: 1 } },
     { id: 'sofa', name: 'Sofa', icon: '🛋️', price: 1500, joy: 2, floor: true },
     { id: 'tv', name: 'Big-screen TV', icon: '📺', price: 2500, joy: 3, floor: true },
-    { id: 'piano', name: 'Piano', icon: '🎹', price: 6000, joy: 3, perTurn: { creativity: 1, floor: true } },
+    { id: 'piano', name: 'Piano', icon: '🎹', price: 6000, joy: 3, floor: true, perTurn: { creativity: 1 } },
     { id: 'watch', name: 'Luxury watch', icon: '⌚', price: 12000, joy: 3 },
   ],
   senior: [
-    { id: 'garden', name: 'Balcony garden', icon: '🌻', price: 100, joy: 2, perTurn: { health: 0.5, floor: true } },
-    { id: 'chess', name: 'Chess table', icon: '♟️', price: 300, joy: 2, perTurn: { knowledge: 0.5, floor: true } },
+    { id: 'garden', name: 'Balcony garden', icon: '🌻', price: 100, joy: 2, floor: true, perTurn: { health: 0.5 } },
+    { id: 'chess', name: 'Chess table', icon: '♟️', price: 300, joy: 2, floor: true, perTurn: { knowledge: 0.5 } },
     { id: 'tablet', name: 'Tablet', icon: '📲', price: 600, joy: 2, perTurn: { communication: 0.5 } },
     { id: 'karaoke', name: 'Karaoke set', icon: '🎤', price: 900, joy: 3, floor: true },
-    { id: 'massage', name: 'Massage chair', icon: '💺', price: 3500, joy: 3, perTurn: { health: 0.5, floor: true } },
+    { id: 'massage', name: 'Massage chair', icon: '💺', price: 3500, joy: 3, floor: true, perTurn: { health: 0.5 } },
   ],
 };
 
@@ -296,5 +296,19 @@ export function shuffle(arr) {
   return arr;
 }
 
-export const SPRITES = { child: 6, teen: 7, adult: 10, senior: 9 };
-export const spriteUrl = (stage, i) => `assets/sprites/${stage}-${i}.png`;
+
+// Real Singapore figures shown as "Did you know?" notes. Update when new data is out.
+export const FACTS = {
+  marriage: {
+    text: 'In 2024 the median age at first marriage in Singapore was <b>31.1 for grooms</b> and <b>29.6 for brides</b>, up from 30.2 and 28.2 ten years earlier. There were 26,328 marriages that year.',
+    source: 'SingStat, Statistics on Marriages and Divorces 2024',
+  },
+  fertility: {
+    text: 'Singapore\'s resident total fertility rate fell to <b>0.87 births per woman</b> in 2025, a record low (0.97 in 2024). About 2.1 is needed for a population to replace itself.',
+    source: 'Preliminary 2025 figures, reported February 2026',
+  },
+  lifeExpectancy: {
+    text: 'A Singapore resident born in 2025 can expect to live to <b>83.9</b> on average. Many people will spend 20 years or more in retirement, which is why CPF LIFE pays for as long as you live.',
+    source: 'SingStat, Complete Life Tables 2024-2025',
+  },
+};

@@ -129,7 +129,7 @@ test('Silver Housing Bonus: $1 for every $2 topped up, up to $30,000', () => {
 });
 
 test('a whole life runs from 7 to 85 without breaking', () => {
-  const s = sim.newGame('Test', 0);
+  const s = sim.newGame('Test', { gender: 'female', tone: 2, outfit: 0 });
   // MediSave Grant at birth: 4% a year, plus 1% extra interest paid into the SA.
   close(cpf.cpfTotal(s.cpf), 4000 * Math.pow(1.05, 7), 30);
   s.stats.knowledge = 40;
