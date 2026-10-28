@@ -955,8 +955,10 @@ function budgetTransfers(s, sum) {
   if (b.kidsCpf > 0 && kids.length) {
     for (const c of kids) {
       // Your share: couples split it.
-      const a = take(b.kidsCpf * 12);
-      if (a <= 0) break;
+      // A child's SA also takes top-ups only up to the FRS.
+      const room = Math.max(0, (cpf.RETIREMENT_SUMS.FRS - (c.cpfSa || 0)) * householdShare(s));
+      const a = take(Math.min(b.kidsCpf * 12, room));
+      if (a <= 0) continue;
       spendCash(s, a);
       c.cpfSa = (c.cpfSa || 0) + a / householdShare(s);
       c.cpfGiven = (c.cpfGiven || 0) + a;
@@ -1000,7 +1002,10 @@ export function topUpsThisYear(s) {
 }
 
 // How much more cash you can top up: the SA up to the FRS before 55, the RA up to the ERS after.
+// Before 55, SA savings you've invested through CPFIS-SA still count towards the FRS.
+// There's no yearly cap on RSTU top-ups; only the first $8,000 a year gets tax relief.
 export function topUpRoom(s) {
+  if (s.age < 55) return Math.max(0, cpf.topUpRoom(s.cpf, s.age) - invest.costOf(s, 'sa'));
   return cpf.topUpRoom(s.cpf, s.age, s.life ? s.life.premium : 0);
 }
 
@@ -1016,7 +1021,7 @@ export function lifePayoutGain(s, amount) {
 // Cash top-up. From 55, if your RA is below the BRS, the Matched Retirement
 // Savings Scheme matches it dollar for dollar, up to $2,000 a year.
 export function topUpCpf(s, amount) {
-  const accepted = cpf.cashTopUp(s.cpf, s.age, amount, s.life ? s.life.premium : 0);
+  const accepted = cpf.cashTopUp(s.cpf, s.age, Math.min(amount, topUpRoom(s)), s.life ? s.life.premium : 0);
   const before = topUpsThisYear(s);
   s.topUps = { age: s.age, amount: before + accepted };
   s.lifeTopUps = (s.lifeTopUps || 0) + accepted;

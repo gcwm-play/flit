@@ -1100,7 +1100,9 @@ const pctText = (r) => `${(r * 100).toFixed(Math.abs(r) < 0.001 ? 2 : 1).replace
 // Explains the two limits on cash top-ups (RSTU).
 function topUpLimitNote(room, reliefLeft) {
   const cap = S.age < 55 ? `your SA reaches the FRS (${money(cpf.RETIREMENT_SUMS.FRS)})` : `your RA reaches the ERS (${money(cpf.RETIREMENT_SUMS.ERS)})`;
-  if (room <= 0) return `Limit reached: you can only top up until ${cap}.`;
+  if (room <= 0) return S.age < 55
+    ? `Your SA has reached the FRS (${money(cpf.RETIREMENT_SUMS.FRS)}), so CPF won't take more cash top-ups until you turn 55. At 55 your SA closes and you can top up your RA instead, up to the ERS.`
+    : `Limit reached: you can only top up until ${cap}.`;
   return `Limit: ${money(room)} more until ${cap}. Tax relief on the first ${money(sim.TOP_UP_TAX_RELIEF_CAP)} a year (${money(reliefLeft)} left this year).`;
 }
 

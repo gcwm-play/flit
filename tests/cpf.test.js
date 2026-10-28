@@ -448,3 +448,18 @@ test('the home loan being paid off is recorded', () => {
   assert.ok(s.home.loanBalance <= 0.01);
   assert.equal(s.home.paidOffAge, 34);
 });
+
+test('cash top-ups stop at the FRS before 55, counting SA money invested', () => {
+  const s = sim.newGame('T', { gender: 'female', animal: 'cat', outfit: 0 });
+  s.age = 40; s.stage = 'adult';
+  s.cpf.sa = cpf.RETIREMENT_SUMS.FRS - 10000;
+  assert.equal(sim.topUpRoom(s), 10000);
+  s.holdings = [{ id: 'world', src: 'sa', value: 5000, cost: 4000 }];
+  assert.equal(sim.topUpRoom(s), 6000);
+  const r = sim.topUpCpf(s, 9000);
+  assert.equal(r.accepted, 6000);
+  assert.equal(sim.topUpRoom(s), 0);
+  s.age = 55; // SA closed: top-ups now go to the RA, up to the ERS
+  s.cpf.ra = 200000;
+  assert.equal(sim.topUpRoom(s), cpf.RETIREMENT_SUMS.ERS - 200000);
+});
