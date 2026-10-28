@@ -6,7 +6,7 @@ import * as invest from './invest.js';
 import * as health from './health.js';
 import * as cars from './car.js';
 import { postcard } from './postcards.js';
-import { characterHtml, itemHtml, lookOf, ANIMALS, GENDERS } from './sprites.js';
+import { characterHtml, itemHtml, itemWidth, lookOf, ANIMALS, GENDERS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS } from './events.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, CAREERS, CAREER_SWITCHES,
@@ -485,14 +485,44 @@ function roomHtml() {
 
 // Small things go on top of the low cabinet, big things on the floor.
 const SHELF_SLOTS = [0, 1, 2, 3, 4];
-// The left of the room fills first, keeping the cabinet on the right clear for as long as possible.
-const FLOOR_SLOTS = [5, 6, 7, 15, 13, 11, 17, 10, 12, 16, 14, 8, 9];
+// Floor items go against the wall first (left of the cabinet), then in a front row across the
+// room. Each one takes the free spot that overlaps least with what's already there, keeps
+// clear of the bed where it can, and stays as far from its neighbours as possible, so big
+// pieces spread out instead of piling up on one side.
+const BED = [27, 44];
+const ROWS = [{ max: 62, bottom: 22, z: 1, cost: 0 }, { max: 99, bottom: 3, z: 3, cost: 4 }];
+const overlap = (a0, a1, b0, b1) => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0));
+function layoutFloor(items) {
+  const done = [];
+  const order = [...items].sort((a, b) => itemWidth(b) - itemWidth(a));
+  for (const it of order) {
+    const w = itemWidth(it);
+    let best = null;
+    ROWS.forEach((row, r) => {
+      for (let x = 1; x + w <= row.max || x === 1; x++) {
+        let cost = row.cost;
+        let near = Infinity;
+        for (const d of done) {
+          cost += overlap(x, x + w, d.x, d.x + d.w) * (d.r === r ? 3 : 1);
+          near = Math.min(near, Math.abs(x + w / 2 - (d.x + d.w / 2)));
+        }
+        if (r === 0) cost += overlap(x, x + w, ...BED) * 0.5;
+        cost -= Math.min(near, 40) * 0.05;
+        if (!best || cost < best.cost - 1e-9) best = { cost, x, r };
+        if (x + w > row.max) break;
+      }
+    });
+    done.push({ it, w, x: best.x, r: best.r });
+  }
+  return new Map(done.map((d) => [d.it, `left:${d.x}%;bottom:${ROWS[d.r].bottom}%;z-index:${ROWS[d.r].z}`]));
+}
 function placeItems(items) {
-  let shelf = 0, floor = 0;
+  let shelf = 0;
+  const onShelf = new Set(items.filter((it) => !it.floor).slice(0, SHELF_SLOTS.length));
+  const floor = layoutFloor(items.filter((it) => !onShelf.has(it)));
   return items.map((it) => {
-    const onShelf = !it.floor && shelf < SHELF_SLOTS.length;
-    const slot = onShelf ? SHELF_SLOTS[shelf++] : FLOOR_SLOTS[floor++ % FLOOR_SLOTS.length];
-    return `<span class="item slot-${slot}" title="${it.name}" data-item="${it.id}">${itemHtml(it)}</span>`;
+    const where = onShelf.has(it) ? `class="item slot-${SHELF_SLOTS[shelf++]}"` : `class="item" style="${floor.get(it)}"`;
+    return `<span ${where} title="${it.name}" data-item="${it.id}">${itemHtml(it)}</span>`;
   }).join('');
 }
 

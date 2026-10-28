@@ -87,6 +87,16 @@ const ITEM_HEIGHT = {
   desk: 0.45, coffee: 0.4, posters: 0.45, console: 0.3, plush: 0.35, tablet: 0.35, phone: 0.28,
   ball: 0.25, boardgame: 0.28, comics: 0.28, crayons: 0.3, headphones: 0.3, watch: 0.3,
 };
+// Width ÷ height of each item picture, so the room can lay items out without overlaps.
+const ITEM_ASPECT = { ball: 0.97, bike: 1.54, boardgame: 1.29, bookshelf: 0.72, chess: 1.43, coffee: 0.78, comics: 1.12, console: 1.33, crayons: 1.05,
+  desk: 0.71, fishtank: 1.02, gamingpc: 2.11, garden: 2, guitar: 0.44, headphones: 0.97, karaoke: 1.21, massage: 0.94, phone: 0.85, piano: 0.99,
+  plants: 0.97, plush: 0.78, posters: 1.14, sofa: 1.43, tablet: 0.8, treadmill: 1.03, tv: 1.01, watch: 0.79 };
+// Roughly how wide an item is drawn, as a % of the room's width (pictures are 24cqw tall at --s: 1).
+export function itemWidth(item) {
+  // Sized as its picture even while the picture is still loading, so the layout doesn't change when it arrives.
+  return ITEM_ASPECT[item.id] ? 24 * (ITEM_HEIGHT[item.id] || 0.3) * ITEM_ASPECT[item.id] : 7;
+}
+
 export function itemHtml(item) {
   return probe(itemUrl(item.id))
     ? `<img class="pixel item-art" src="${itemUrl(item.id)}" alt="" style="--s:${ITEM_HEIGHT[item.id] || 0.3}">`
