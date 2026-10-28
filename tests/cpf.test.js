@@ -501,3 +501,15 @@ test('SG Child Support Package: same Baby Gift for every child, Child Credits fr
   sim.payUniversity(s, s.children[1], 'cash');
   assert.equal(s.children[1].pseaUsed, 10000);
 });
+
+test('a yearly CPF top-up plan stops itself when the SA reaches the FRS', () => {
+  const s = sim.newGame('Plan', { gender: 'female', animal: 'cat', outfit: 0 });
+  s.age = 40; s.stage = 'adult'; s.salary = 6000; s.bank = 500000;
+  s.cpf.sa = cpf.RETIREMENT_SUMS.FRS - 15000;
+  s.budget = { ...sim.newBudget(), cpfSelf: 1000 }; // an old monthly plan becomes $12,000 a year
+  assert.equal(sim.cpfTopUpPerYear(s), 12000);
+  sim.advanceYears(s, 3);
+  assert.equal(s.budget.cpfYearly, 0);
+  assert.ok(s.cpfPlanStopped && s.cpfPlanStopped.before55);
+  assert.equal(sim.topUpRoom(s), 0);
+});

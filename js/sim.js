@@ -69,7 +69,7 @@ export function newGame(name, look) {
 }
 
 export function newBudget() {
-  return { hobbies: 0, shopping: 0, cpfSelf: 0, kidsCpf: 0, investAmt: 0, investId: 'world' };
+  return { hobbies: 0, shopping: 0, cpfSelf: 0, cpfYearly: 0, kidsCpf: 0, investAmt: 0, investId: 'world' };
 }
 
 export function unlockedStats(s) {
@@ -973,6 +973,14 @@ function takeHolidays(s, sum) {
   s.holidayPlans = (s.holidayPlans || []).filter((p) => p.mode === 'yearly' || p.left > 0);
 }
 
+// The yearly CPF top-up plan. Older saves planned it per month.
+export function cpfTopUpPerYear(s) {
+  const b = s.budget;
+  if (!b) return 0;
+  if (b.cpfSelf > 0) { b.cpfYearly = (b.cpfYearly || 0) + b.cpfSelf * 12; b.cpfSelf = 0; }
+  return b.cpfYearly || 0;
+}
+
 // Planned saving each year, only from cash you actually have (never borrowed).
 function budgetTransfers(s, sum) {
   const b = s.budget || newBudget();
@@ -980,13 +988,20 @@ function budgetTransfers(s, sum) {
     const a = Math.max(0, Math.min(want, s.bank));
     return a;
   };
-  if (b.cpfSelf > 0) {
-    const a = take(Math.min(b.cpfSelf * 12, topUpRoom(s)));
+  // Regular yearly CPF top-up. It stops by itself once the SA reaches the FRS (or the RA the ERS).
+  const yearly = cpfTopUpPerYear(s);
+  if (yearly > 0) {
+    const a = take(Math.min(yearly, topUpRoom(s)));
     if (a > 0) {
       spendCash(s, a);
       const r = topUpCpf(s, a);
       s.bank += a - r.accepted;
       sum.cpfSaved += r.accepted;
+    }
+    if (topUpRoom(s) <= 0) {
+      b.cpfYearly = 0;
+      s.budget = b;
+      s.cpfPlanStopped = { age: s.age + 1, before55: s.age < 55 };
     }
   }
   const kids = (s.children || []).filter((c) => s.age - c.bornAge < 21);
