@@ -356,19 +356,20 @@ function roomHtml() {
     <div class="room room-${kind.cls} stage-${S.stage}">
       <div class="wall">
         <div class="window"><div class="sky"></div><div class="hdb"></div></div>
-        <div class="shelf"></div>
         <span class="room-label">${kind.label}</span>
       </div>
       <div class="floor"></div>
       <div class="bed"><div class="pillow"></div><div class="blanket"></div></div>
+      <div class="cabinet"></div>
       <div class="items">${placeItems(items)}</div>
       <div class="people">${family.map(([look, cls, alt], i) => walker(look, cls, alt, i, family.length)).join('')}</div>
     </div>`;
 }
 
-// Small things go on the shelf, big things on the floor.
+// Small things go on top of the low cabinet, big things on the floor.
 const SHELF_SLOTS = [0, 1, 2, 3, 4];
-const FLOOR_SLOTS = [5, 8, 6, 9, 7, 10, 11, 12, 15, 16, 14, 13, 17];
+// The left of the room fills first, keeping the cabinet on the right clear for as long as possible.
+const FLOOR_SLOTS = [5, 6, 7, 15, 13, 11, 17, 10, 12, 16, 14, 8, 9];
 function placeItems(items) {
   let shelf = 0, floor = 0;
   return items.map((it) => {
@@ -594,7 +595,7 @@ function workHtml() {
   return `
       <section>
         <h3>💼 Work and money <span class="ledger-sub">per month</span></h3>
-        <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : `🌅 <b>Retired</b>, no salary`}
+        <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : `<span>🌅 <b>Retired</b>, no salary</span>`}
           ${canHunt ? `<button class="link-btn" data-panel="job">${working ? 'Look for a new job' : 'Find a job'}</button>` : ''}</p>
         <div class="cash-rows">
           ${wage > 0 ? `<span>Pay before CPF</span><b>${money(wage)} <small>(${money(wage * 12)}/yr)</small></b>

@@ -129,21 +129,28 @@ p { margin: 0.5em 0; }
     repeating-linear-gradient(0deg, #f4b65f 0 6px, #e59f45 6px 8px);
   clip-path: polygon(0 30%, 30% 30%, 30% 0, 62% 0, 62% 45%, 80% 45%, 80% 20%, 100% 20%, 100% 100%, 0 100%);
 }
-.shelf { position: absolute; right: 6%; top: 34%; width: 34%; height: 8px; background: #8a5a35; border: 3px solid var(--line); }
+/* a low cabinet against the wall; small items stand on top of it */
+.cabinet {
+  position: absolute; right: 5%; bottom: 24%; width: 32%; height: 12%;
+  background: linear-gradient(90deg, transparent calc(50% - 2px), var(--line) calc(50% - 2px) calc(50% + 1px), transparent calc(50% + 1px)), #b07a4a;
+  border: 3px solid var(--line); box-shadow: inset 0 7px 0 #c99260;
+}
+.cabinet::before, .cabinet::after { content: ''; position: absolute; top: 55%; width: 6px; height: 6px; background: var(--line); }
+.cabinet::before { left: calc(50% - 12px); } .cabinet::after { left: calc(50% + 7px); }
 .room-label {
   position: absolute; left: 50%; top: 10px; transform: translateX(-50%);
   font-family: var(--pixel); font-size: 10px; background: rgba(255,255,255,.85); border: 2px solid var(--line); padding: 4px 8px; white-space: nowrap;
 }
 .items { position: absolute; inset: 0; pointer-events: none; }
 .item { position: absolute; font-size: clamp(22px, 4.2vw, 40px); filter: drop-shadow(2px 2px 0 rgba(0,0,0,.25)); }
-/* shelf slots, then floor slots left and right of the player */
-.slot-0 { right: 33%; bottom: 65.5%; } .slot-1 { right: 26%; bottom: 65.5%; } .slot-2 { right: 19%; bottom: 65.5%; }
-.slot-3 { right: 12%; bottom: 65.5%; } .slot-4 { right: 6%; bottom: 65.5%; }
+/* slots on the cabinet, then floor slots left and right of the player */
+.slot-0 { right: 30%; bottom: 36%; } .slot-1 { right: 24%; bottom: 36%; } .slot-2 { right: 18%; bottom: 36%; }
+.slot-3 { right: 12%; bottom: 36%; } .slot-4 { right: 6%; bottom: 36%; }
 .slot-5 { left: 4%; bottom: 8%; } .slot-6 { left: 13%; bottom: 14%; } .slot-7 { left: 22%; bottom: 6%; }
 .slot-8 { right: 4%; bottom: 8%; } .slot-9 { right: 13%; bottom: 14%; } .slot-10 { right: 22%; bottom: 6%; }
 .slot-11 { left: 31%; bottom: 16%; } .slot-12 { right: 31%; bottom: 16%; }
-.slot-13 { left: 2%; bottom: 40%; } .slot-14 { right: 2%; bottom: 40%; } .slot-15 { left: 8%; bottom: 26%; }
-.slot-16 { right: 8%; bottom: 26%; } .slot-17 { right: 30%; bottom: 2%; }
+.slot-13 { left: 2%; bottom: 20%; } .slot-14 { right: 40%; bottom: 20%; } .slot-15 { left: 10%; bottom: 18%; }
+.slot-16 { right: 36%; bottom: 10%; } .slot-17 { right: 30%; bottom: 2%; }
 .people { position: absolute; left: 3%; right: 3%; bottom: 3%; height: 50%; }
 .bob { animation: bob 1.6s steps(2) infinite; }
 @keyframes bob { 50% { transform: translateY(-4px); } }
