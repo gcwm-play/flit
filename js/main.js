@@ -3,11 +3,13 @@ import * as cpf from './cpf.js';
 import * as sim from './sim.js';
 import * as housing from './housing.js';
 import * as invest from './invest.js';
+import * as health from './health.js';
+import * as cars from './car.js';
 import { postcard } from './postcards.js';
 import { characterHtml, itemHtml, lookOf, ANIMALS, GENDERS } from './sprites.js';
-import { rollWorldEvent, rollPersonalEvent } from './events.js';
+import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS } from './events.js';
 import {
-  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION,
+  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, CAREERS, CAREER_SWITCHES,
   LIFESTYLES, RETIREMENT_LIFESTYLES, RENT_MONTHLY, FACTS, HOLIDAYS,
 } from './data.js';
 
@@ -97,31 +99,34 @@ async function rewindDialog(reason = '') {
 function loanSplit() {
   const h = S.home;
   if (!h || h.loanBalance <= 1) return { fromOa: 0, fromCash: 0 };
-  if (h.payWith !== 'oa') return { fromOa: 0, fromCash: h.instalment };
+  const share = housing.oaShareOf(h);
+  if (share <= 0) return { fromOa: 0, fromCash: h.instalment };
   const wage = sim.currentWage(S);
   const oaIn = wage > 0 ? cpf.monthlyContribution(S.age, wage, { selfEmployed: S.selfEmployed }).oa : 0;
-  const fromOa = Math.min(h.instalment, oaIn + S.cpf.oa / 12);
+  const fromOa = Math.min(h.instalment * share, oaIn + S.cpf.oa / 12);
   return { fromOa, fromCash: h.instalment - fromOa };
 }
 
 function monthlyPlan() {
   const b = { ...sim.newBudget(), ...(S.budget || {}) };
-  const share = S.spouse ? 0.5 : 1;
+  const share = sim.householdShare(S);
   const payout = S.life && S.age >= S.life.startAge ? S.life.monthly : 0;
   const pay = sim.takeHome(S);
   const income = pay + payout;
   const parts = sim.spendBreakdown(S);
   const living = parts.total;
-  const rent = !S.home && (S.age >= 30 || S.spouse) ? RENT_MONTHLY * share : 0;
+  const rent = sim.isRenting(S) ? RENT_MONTHLY * share : 0;
   const loan = loanSplit();
   const loanCash = loan.fromCash;
   const dcp = S.dcp ? S.dcp.monthly : 0;
   const holidays = sim.holidayMonthly(S);
   const fun = b.hobbies + b.shopping + holidays;
   const kids = (S.children || []).filter((c) => S.age - c.bornAge < 21).length;
-  const saving = b.cpfSelf + b.kidsCpf * kids + b.investAmt;
-  const out = living + rent + loanCash + dcp + fun;
-  return { pay, payout, income, parts, living, rent, loan, loanCash, dcp, holidays, b, kids, fun, saving, out, left: income - out };
+  const saving = sim.cpfTopUpPerYear(S) / 12 + b.kidsCpf * kids + sim.dcaCashPerYear(S) / 12;
+  // Health insurance premiums: the part MediSave can't pay comes from cash.
+  const insurance = sim.insurancePremiums(S).cash / 12;
+  const out = living + rent + loanCash + dcp + fun + insurance;
+  return { pay, payout, income, parts, living, rent, loan, loanCash, dcp, holidays, insurance, b, kids, fun, saving, out, left: income - out };
 }
 
 // Warns before a turn if the plan spends more than comes in.
@@ -161,6 +166,9 @@ async function overspendCheck(years) {
 function dialog(html, { wide = false } = {}) {
   modalBox.className = `modal-box${wide ? ' wide' : ''}`;
   modalBox.innerHTML = html;
+  // Panels you close get a close button that stays in the corner while you scroll.
+  const closer = [...modalBox.querySelectorAll('[data-choice="ok"]')].find((x) => /^(Close|Done|Back|Cancel)$/.test(x.textContent.trim()));
+  if (closer) modalBox.insertAdjacentHTML('afterbegin', '<button class="modal-x" data-choice="ok" aria-label="Close" title="Close">✕</button>');
   modalEl.hidden = false;
   modalBox.scrollTop = 0;
   return new Promise((resolve) => {
@@ -189,12 +197,12 @@ function toast(text) {
 const btn = (choice, label, cls = '') => `<button class="btn ${cls}" data-choice="${choice}">${label}</button>`;
 const person = (look, cls = '', alt = '') => characterHtml(look, cls, alt);
 // A character strolling left and right across the room. `lane` spreads the family out.
-const walker = (look, cls, alt, lane, count) => {
+const walker = (look, cls, alt, lane, count, tag = '') => {
   const span = 100 / count;
   const from = Math.round(lane * span * 0.85);
   const to = Math.round(Math.min(78, from + span * 0.85 + 18));
   const dur = 9 + ((lane * 3.7) % 5);
-  return `<span class="walker lane-${lane}" style="--from:${from}%;--to:${to}%;--dur:${dur.toFixed(1)}s;--delay:-${(lane * 2.3).toFixed(1)}s">${person(look, `walking ${cls}`, alt)}</span>`;
+  return `<span class="walker lane-${lane}" style="--from:${from}%;--to:${to}%;--dur:${dur.toFixed(1)}s;--delay:-${(lane * 2.3).toFixed(1)}s">${tag ? `<span class="age-tag">${tag}</span>` : ''}${person(look, `walking ${cls}`, alt)}</span>`;
 };
 const me = (stage = S.stage) => lookOf(S.look, stage);
 
@@ -251,6 +259,9 @@ function titleScreen() {
 
 // Saves from before the character picker used numbered sprites.
 function migrate(s) {
+  if (s.budget) { s.budget.hobbies = 0; s.budget.shopping = 0; } // no longer in the budget
+  if (s.spouse && s.spouse.ageGap === undefined) s.spouse.ageGap = sim.spouseAgeGap();
+  if (s.renting === undefined) s.renting = !s.home && (s.age >= 30 || !!s.spouse);
   if (!s.look) s.look = { gender: 'female', outfit: 0 };
   // People became animals: older saves become capybaras, family included.
   if (!s.look.animal) s.look.animal = 'capybara';
@@ -267,6 +278,11 @@ function migrate(s) {
   if (s.spouse && !s.spouse.gender) Object.assign(s.spouse, { gender: s.look.gender === 'male' ? 'female' : 'male', outfit: 2 });
   for (const c of s.children || []) if (!c.gender) Object.assign(c, { gender: Math.random() < 0.5 ? 'male' : 'female', outfit: 1 });
   for (const p of [s.spouse, ...(s.children || [])]) if (p) { p.animal = s.look.animal; delete p.tone; }
+  if (!s.insurance) s.insurance = { plan: 'msl', rider: false };
+  // Cars used to be a yes/no: an old car becomes one bought 3 years ago.
+  if (s.car === true) { s.car = cars.newCar(s.age - 3); s.car.monthsLeft -= 36; s.carsOwned = 1; }
+  if (s.car === false) s.car = null;
+  if (!s.healthPlan) s.healthPlan = health.planHealthEvents(Math.max(21, s.age + 1));
   return s;
 }
 
@@ -289,18 +305,17 @@ function render() {
       <nav class="menu">
         <button class="btn small-btn" data-panel="stats">📊 Stats</button>
         <button class="btn small-btn" data-panel="cpf">🏛️ CPF</button>
-        <button class="btn small-btn" data-panel="money">💵 Money</button>
-        ${S.stage === 'adult' || S.stage === 'senior' ? '<button class="btn small-btn" data-panel="invest">📈 Invest</button>' : ''}
-        ${S.stage === 'adult' || S.stage === 'senior' ? '<button class="btn small-btn" data-panel="budget">📋 Budget</button><button class="btn small-btn" data-panel="holidays">✈️ Holidays</button>' : ''}
-        <button class="btn small-btn" data-panel="shop">🛍️ Shop</button>
-        ${S.stage === 'adult' || S.stage === 'senior' ? '<button class="btn small-btn" data-panel="home">🏠 Home</button>' : ''}
         <button class="btn small-btn" data-panel="menu">☰</button>
       </nav>
     </header>
     <div class="play">
     <div class="play-main">
-    <main class="scene">${roomHtml()}</main>
+    <div class="top-row">
+      <main class="scene">${roomHtml()}</main>
+      ${cashboardHtml()}
+    </div>
     <section class="actions">
+      ${S.done ? '' : actionTiles()}
       <h2>${S.done ? 'Your life story is complete' : `Age ${S.age}: ${turnPrompt()}`}</h2>
       <div class="cards">${S.done ? btn('end', 'See your life summary', 'primary') : activityCards()}</div>
     </section>
@@ -309,11 +324,108 @@ function render() {
     </div>`;
   if (S.ledgerFresh) S.ledgerFresh = false;
   app.querySelectorAll('[data-panel]').forEach((b) => (b.onclick = () => openPanel(b.dataset.panel)));
-  const spend = app.querySelector('details.spend');
-  if (spend) spend.ontoggle = () => (spendOpen = spend.open);
   app.querySelectorAll('[data-activity]').forEach((b) => (b.onclick = () => takeTurn(b.dataset.activity)));
   const endBtn = app.querySelector('[data-choice="end"]');
   if (endBtn) endBtn.onclick = endScreen;
+}
+
+// Things you can do as often as you like before you pick this turn's activity.
+function actionTiles() {
+  const grown = S.stage === 'adult' || S.stage === 'senior';
+  const working = sim.isWorking(S);
+  const job = sim.careerInfo(S);
+  const plans = S.holidayPlans || [];
+  const tiles = [];
+  if (grown) {
+    tiles.push(['holidays', '✈️', 'Holidays', plans.length ? `${plans.length} planned` : 'None planned']);
+    tiles.push(['invest', '📈', 'Invest', invest.total(S) > 0 ? money(invest.total(S)) : 'None yet']);
+    const p = monthlyPlan();
+    const left = p.left - p.saving;
+    tiles.push(['budget', '📋', 'Budget', `${left < 0 ? '−' : '+'}${money(Math.abs(left * 12))} a year`, left < 0]);
+    if (S.stage === 'adult') tiles.push(['family', '💞', 'Family', S.spouse ? `${S.children.length ? `${S.children.length} kid${S.children.length > 1 ? 's' : ''}` : 'Married'}${S.spouse.home ? ', 1 income' : ''}` : S.dating != null ? 'Dating' : 'Single']);
+    tiles.push(['insurance', '🩺', 'Insurance', health.PLANS[(S.insurance || {}).plan || 'msl'].label.replace(' only', '').replace(' plan', '').replace('Standard (B1 ward)', 'B1 plan')]);
+    const loanYrs = S.home ? Math.ceil(housing.monthsLeft(S.home) / 12) : 0;
+    tiles.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label} · ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label} · fully owned 🎉`) : sim.isRenting(S) ? 'Renting' : 'With your parents']);
+    if (S.stage === 'adult' || (working && S.age < 65)) tiles.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
+  }
+  if (grown) tiles.push(['car', '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
+  tiles.push(['shop', '🛍️', 'Shop', `${S.room.length} owned`]);
+  tiles.push(['money', '💵', S.debt > 0 ? 'Repay debt' : 'CPF top-up', S.debt > 0 ? `−${money(S.debt)}` : 'From your cash', S.debt > 0]);
+  return `<h2 class="tiles-head">Before you move on <small>as many as you like</small></h2>
+    <div class="tiles">${tiles.map(([panel, icon, label, note, warn]) => `
+      <button class="tile" data-panel="${panel}"><span class="t-icon">${icon}</span><span class="t-label">${label}</span><span class="t-note ${warn ? 'neg' : ''}">${note}</span></button>`).join('')}</div>`;
+}
+
+// What you spend money on, for one month, from your current budget.
+function outflows(p) {
+  const ls = S.stage === 'senior' && S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle] : LIFESTYLES[S.lifestyle];
+  return [
+    ['living', `Everyday living (${ls.label})`, p.parts.living, 'Food, transport, bills and phone. Change your lifestyle to change this.'],
+    ['kids', `Children (${p.parts.kidsCount})`, p.parts.kids, `Childcare, school, tuition and pocket money until 22${S.spouse && !S.spouse.home ? ', split with your spouse' : ''}.`],
+    ['kids', 'Family groceries', p.parts.groceries, 'Extra food for your children and a stay-at-home spouse.'],
+    ['living', 'Allowance for your spouse at home', p.parts.homeSpouse, 'Your spouse stays at home and you cover their spending.'],
+    ['debt', 'Health insurance (cash part)', p.insurance, 'Shield plan premiums above what MediSave can pay, and any rider.'],
+    ['car', S.car && S.car.monthsLeft > 0 ? 'Car (loan and running costs)' : 'Car (running costs)', p.parts.car, 'Car loan, petrol, parking, insurance, road tax and servicing.'],
+    ['home', 'Rent', p.rent, S.spouse && sim.householdShare(S) < 1 ? 'Your half of the rent.' : 'Renting a room or small flat.'],
+    ['home', p.loan.fromOa > 0.5 ? 'Home loan (cash part)' : 'Home loan', p.loanCash, p.loan.fromOa > 0.5 ? `The rest, ${money(p.loan.fromOa)} a month, comes from your OA.` : 'Paid in cash. You can switch to your OA in 🏠 Home.'],
+    ['debt', 'Debt plan', p.dcp, 'Fixed instalment until your debt is cleared.'],
+    ['fun', 'Hobbies', p.b.hobbies, ''],
+    ['fun', 'Shopping and treats', p.b.shopping, ''],
+    ['trip', 'Holidays', p.holidays, 'Your planned trips, spread over the year.'],
+  ].filter((r) => r[2] > 0.5);
+}
+
+function cashboardHtml() {
+  const grown = S.stage === 'adult' || S.stage === 'senior';
+  const t = S.lastTurn;
+  const change = t && t.cash ? t.cash[1] - t.cash[0] : null;
+  const cashCard = `
+      <div class="cb-cash">
+        <span class="cb-label">💵 Cash you can spend</span>
+        <b class="cb-big">${money(S.bank)}</b>
+        ${change !== null ? `<span class="cb-change">Last turn <b class="${change < 0 ? 'neg' : 'pos'}">${change < 0 ? '−' : '+'}${money(Math.abs(change))}</b>${t.years > 1 ? ` over ${t.years} years (${change < 0 ? '−' : '+'}${money(Math.abs(change / t.years))} a year)` : ''}</span>` : ''}
+        <div class="cb-mini">
+          ${invest.total(S, 'cash') > 0 ? `<span>📈 Invested</span><b>${money(invest.total(S, 'cash'))}</b>` : ''}
+          ${S.debt > 0 ? `<span class="neg">💳 Debt</span><b class="neg">−${money(S.debt)}</b>` : ''}
+          ${grown && S.home && S.home.loanBalance > 1 ? `<span>🏠 Loan left</span><b>${money(S.home.loanBalance)}</b>` : ''}
+        </div>
+      </div>`;
+  if (!grown) {
+    const st = STAGES[S.stage];
+    return `<section class="cashboard young">${cashCard}
+      <p class="small">Pocket money: about <b>${money(st.yearlyAllowance)}</b> a year. You spend about half, and your parents bank the rest for you.</p></section>`;
+  }
+  const p = monthlyPlan();
+  const items = outflows(p);
+  const allowance = p.parts.allowance;
+  const inMonth = p.income + allowance;
+  const outMonth = items.reduce((a, r) => a + r[2], 0);
+  const left = inMonth - outMonth - p.saving;
+  const years = sim.yearsThisTurn(S);
+  const top = Math.max(1, ...items.map((r) => r[2]));
+  const yr = (v) => money(v * 12);
+  return `<section class="cashboard">
+      ${cashCard}
+      <div class="cb-year">
+        <h3>Your year in money <span>at today's pay and budget</span></h3>
+        <div class="cb-flow">
+          <div><span>In</span><b class="pos">${yr(inMonth)}</b><small>${money(inMonth)}/mo</small></div>
+          <div><span>Spent</span><b class="neg">${yr(outMonth)}</b><small>${money(outMonth)}/mo</small></div>
+          ${p.saving ? `<div><span>Saved</span><b>${yr(p.saving)}</b><small>${money(p.saving)}/mo</small></div>` : ''}
+          <div><span>${left < 0 ? 'Short' : 'Spare'}</span><b class="${left < 0 ? 'neg' : 'pos'}">${left < 0 ? '−' : ''}${yr(Math.abs(left))}</b><small>${left < 0 ? '−' : ''}${money(Math.abs(left))}/mo</small></div>
+        </div>
+        <div class="cb-split" aria-hidden="true">${items.map((r) => `<span class="k-${r[0]}" style="flex:${r[2]}" title="${r[1]}"></span>`).join('')}${p.saving ? `<span class="k-save" style="flex:${p.saving}" title="Saving"></span>` : ''}${left > 0 ? `<span class="k-spare" style="flex:${left}" title="Spare"></span>` : ''}</div>
+        <div class="cb-out">
+          <span class="cb-h">Where it goes</span><span class="cb-h num">a month</span><span class="cb-h num">a year</span>
+          ${items.sort((a, b) => b[2] - a[2]).map((r) => `
+          <span class="cb-item" title="${r[3]}"><i class="k-${r[0]}"></i>${r[1]}<em style="width:${(r[2] / top) * 100}%" class="k-${r[0]}"></em></span><b class="num">${money(r[2])}</b><b class="num">${yr(r[2])}</b>`).join('')}
+          ${p.loan.fromOa > 0.5 ? `<span class="cb-item muted-ink" title="Paid from your CPF Ordinary Account, so it doesn't come out of your cash."><i></i>Home loan from your OA (not cash)</span><b class="num muted-ink">${money(p.loan.fromOa)}</b><b class="num muted-ink">${yr(p.loan.fromOa)}</b>` : ''}
+          ${allowance ? `<span class="cb-item"><i class="k-spare"></i>Allowance from your children</span><b class="num pos">+${money(allowance)}</b><b class="num pos">+${yr(allowance)}</b>` : ''}
+          ${p.saving ? `<span class="cb-item"><i class="k-save"></i>Saving: ${[sim.cpfTopUpPerYear(S) && 'CPF top-ups', p.b.kidsCpf && p.kids && "kids' CPF", sim.dcaCashPerYear(S) && 'investing'].filter(Boolean).join(', ')}</span><b class="num">${money(p.saving)}</b><b class="num">${yr(p.saving)}</b>` : ''}
+        </div>
+        <p class="small muted-ink">${years > 1 ? `Your next turn is ${years} years: about <b class="${left < 0 ? 'neg' : ''}">${left < 0 ? '−' : ''}${money(Math.abs(left * 12 * years))}</b> ${left < 0 ? 'short' : 'spare'} in all. ` : ''}${left < 0 && S.bank > 0 ? `Shortfalls come out of your cash${S.age >= 55 ? ', then your OA' : ''}, then credit cards. ` : ''}<button class="link-btn" data-panel="budget">Change my budget</button></p>
+      </div>
+    </section>`;
 }
 
 function turnPrompt() {
@@ -334,7 +446,7 @@ function activityCards() {
 function roomKind() {
   if (S.stage === 'adult' || S.stage === 'senior') {
     if (S.home) return { cls: 'home', label: `Your ${S.home.label}` };
-    if (S.age >= 30) return { cls: 'rental', label: 'Rented flat' };
+    if (sim.isRenting(S)) return { cls: 'rental', label: 'Rented flat' };
     return { cls: 'family', label: 'Room at your family’s flat' };
   }
   return { cls: S.stage, label: S.stage === 'child' ? 'Your bedroom' : 'Your room' };
@@ -345,24 +457,29 @@ function roomHtml() {
   const items = sim.ownedItems(S);
   const grown = S.stage === 'adult' || S.stage === 'senior';
   const spouseStage = S.stage === 'senior' ? 'senior' : 'adult';
-  const family = [[me(), 'player', esc(S.name)]];
-  if (grown && S.spouse) family.push([lookOf(S.spouse, spouseStage), 'family-member', 'Your spouse']);
+  // Each animal carries a small tag with its age.
+  const family = [[me(), 'player', esc(S.name), `<b>You</b> ${S.age}`]];
+  if (grown && S.spouse) {
+    const age = S.age + (S.spouse.ageGap || 0);
+    family.push([lookOf(S.spouse, spouseStage), 'family-member', `Your spouse, age ${age}`, `${age}`]);
+  }
   if (grown) for (const c of S.children || []) {
     const age = S.age - c.bornAge;
     const st = age < 3 ? 'baby' : age < 13 ? 'child' : age < 21 ? 'teen' : 'adult';
-    family.push([lookOf(c, st), 'family-member kid', `Your child, age ${age}`]);
+    family.push([lookOf(c, st), 'family-member kid', `Your child, age ${age}`, age < 1 ? '👶' : `${age}`]);
   }
   return `
     <div class="room room-${kind.cls} stage-${S.stage}">
       <div class="wall">
         <div class="window"><div class="sky"></div><div class="hdb"></div></div>
         <span class="room-label">${kind.label}</span>
+        <span class="age-box"><b>Age ${S.age}</b>${S.done ? '' : `<small>${(() => { const y = sim.yearsThisTurn(S); return y > 1 ? `This turn: ${S.age} to ${S.age + y - 1}` : 'This turn: 1 year'; })()}</small>`}</span>
       </div>
       <div class="floor"></div>
       <div class="bed"><div class="pillow"></div><div class="blanket"></div></div>
       <div class="cabinet"></div>
       <div class="items">${placeItems(items)}</div>
-      <div class="people">${family.map(([look, cls, alt], i) => walker(look, cls, alt, i, family.length)).join('')}</div>
+      <div class="people">${family.map(([look, cls, alt, tag], i) => walker(look, cls, alt, i, family.length, tag)).join('')}</div>
     </div>`;
 }
 
@@ -386,6 +503,7 @@ async function takeTurn(activityId) {
   busy = true;
   try {
     const activity = ACTIVITIES[S.stage].find((a) => a.id === activityId);
+    (S.did ||= {})[activity.label] = (S.did[activity.label] || 0) + 1;
     pushSnapshot(`${activity.icon} ${activity.label}`);
     await overspendCheck(sim.yearsThisTurn(S));
     // One click: how well it went is random (mini games are switched off for now).
@@ -412,7 +530,10 @@ async function takeTurn(activityId) {
       opts = { ...opts, ...(w.opts || {}) };
       logEvent(`${w.icon} ${w.title}`);
       await dialog(`<div class="event world"><div class="e-icon">${w.icon}</div><p class="eyebrow">World event</p><h2>${w.title}</h2><p>${w.text}</p></div>${btn('ok', w.opts?.retrenched ? 'Look for a job' : 'OK', 'primary')}`);
-      if (w.opts?.retrenched) await jobHunt('retrenched', 'recession');
+      if (w.opts?.retrenched) {
+        sim.story(S, 'job', '📉', `Retrenched in a recession at ${S.age}`);
+        await jobHunt('retrenched', 'recession');
+      }
     }
 
     const before = { stats: { ...S.stats } };
@@ -426,6 +547,14 @@ async function takeTurn(activityId) {
     await rateChangeNotice(startAge, S.age);
     if (sum.oaRanOut) await oaRanOutNotice(sum);
 
+    // Illnesses and accidents planned for this life, at the ages they happen.
+    for (const e of S.healthPlan || []) {
+      if (!e.done && e.age >= startAge && e.age < S.age) {
+        e.done = true;
+        await medicalDialog(e);
+      }
+    }
+
     // Personal events and gifts.
     const personal = rollPersonalEvent(S);
     if (personal) await runPersonalEvent(personal.run(S));
@@ -436,8 +565,259 @@ async function takeTurn(activityId) {
     await milestones();
     save();
     render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   } finally {
     busy = false;
+  }
+}
+
+// ---------- health ----------
+
+// A hospital ward, drawn small: more beds in the cheaper wards, and you in the middle one.
+function wardHtml(ward) {
+  const w = health.WARDS[ward];
+  const beds = Math.min(w.beds, 6);
+  const mine = Math.floor((beds - 1) / 2);
+  return `<div class="ward ward-${ward}" aria-hidden="true">
+    <div class="ward-wall">${ward === 'C' || ward === 'B2' ? '<span class="fan"></span>' : '<span class="aircon"></span>'}${ward === 'B1' || ward === 'A' || ward === 'private' ? '<span class="tv"></span>' : ''}${ward === 'private' ? '<span class="sofa"></span><span class="plant">🪴</span>' : ''}</div>
+    <div class="ward-beds">${Array.from({ length: beds }, (_, i) => `<div class="ward-bed ${i === mine ? 'me' : ''}">${i === mine ? person(me(), 'patient') : ''}<span class="sheet"></span></div>`).join('')}</div>
+  </div>`;
+}
+
+async function medicalDialog(e) {
+  const { c, b } = sim.treat(S, e.id);
+  const ins = S.insurance || { plan: 'msl' };
+  const plan = health.PLANS[ins.plan];
+  const row = (label, v, cls = '') => (v > 0.5 ? `<tr class="${cls}"><td>${label}</td><td>${cls === 'pay' ? '' : '−'}${money(v)}</td></tr>` : '');
+  logEvent(`${c.icon} In hospital with ${c.label}`);
+  await dialog(`
+    <div class="event"><div class="e-icon">${c.icon}</div><p class="eyebrow">${c.kind === 'major' ? 'A serious illness' : 'A trip to hospital'}</p>
+    <h2>You're recovering from ${c.label}</h2></div>
+    ${wardHtml(b.ward)}
+    <p class="ward-caption">${c.days} days in ${b.wardInfo.desc}: a <b>${b.wardInfo.label}</b>${c.icu ? `, including ${c.icu} day${c.icu > 1 ? 's' : ''} in intensive care` : ''}. ${ins.plan === 'msl' ? 'With MediShield Life only, you stay in a subsidised ward.' : `Your ${plan.label} covers this ward.`}</p>
+    <h3>Who paid the bill</h3>
+    <table class="summary bill">
+      <tr><td><b>Hospital bill</b></td><td><b>${money(b.gross)}</b></td></tr>
+      ${row(`Government subsidy (${Math.round(b.subsidyPct * 100)}%, means-tested on household income of ${money(sim.pchi(S))} a person a month)`, b.subsidy)}
+      ${b.wardInfo.subsidised ? '' : '<tr><td class="muted-ink">No Government subsidy in B1, A or private wards</td><td></td></tr>'}
+      ${row(`MediShield Life (after the ${money(b.deductible)} deductible and co-insurance)`, b.msl)}
+      ${b.msl < 0.5 ? `<tr><td class="muted-ink">MediShield Life pays nothing below the ${money(b.deductible)} deductible</td><td></td></tr>` : ''}
+      ${row(`Your ${plan.label}`, b.ip)}
+      ${row('Your rider', b.rider)}
+      <tr><td><b>Left for you to pay</b></td><td><b>${money(b.owed)}</b></td></tr>
+      ${row(`from your MediSave (limit for this stay ${money(b.medisaveLimit)})`, b.fromMedisave, 'pay')}
+      ${row('in cash', b.fromCash, 'pay')}
+      ${row('MediFund (help for those who still can\'t pay)', b.medifund, 'pay')}
+    </table>
+    ${factBox(FACTS.healthcare)}
+    <ul class="facts small">
+      <li>MediShield Life covers everyone for life, including existing illnesses, but it pays for subsidised B2 and C wards.</li>
+      <li>MediSave is your own savings for healthcare; it can also pay your family's hospital bills.</li>
+      ${ins.plan === 'msl' ? '<li>A Shield plan (🩺 Insurance) would let you choose a B1, A or private ward, but it costs more every year as you get older.</li>' : '<li>Shield plans cost more every year as you age. Compare what you paid in premiums with what they paid out.</li>'}
+    </ul>
+    ${btn('ok', 'Get well soon', 'primary')}`, { wide: true });
+}
+
+// ---------- cars ----------
+
+async function carPanel() {
+  for (;;) {
+    const car = S.car;
+    const q = car && cars.quote(car, S.age);
+    const fresh = cars.newCar(S.age);
+    const c = await dialog(`
+      <h2>🚗 Your car</h2>
+      ${car ? `
+        <table class="summary">
+          <tr><td>Bought at</td><td>${car.boughtAge} (${q.years} year${q.years === 1 ? '' : 's'} ago)</td></tr>
+          <tr><td>COE left</td><td>${Math.max(0, cars.CAR.coeYears - q.years)} years</td></tr>
+          <tr><td>Costs you each month</td><td>${money(cars.monthlyCost(car))}${car.monthsLeft > 0 ? `<small>incl. loan ${money(car.monthly)} for ${Math.ceil(car.monthsLeft / 12)} more years</small>` : ''}</td></tr>
+        </table>
+        <h3>A dealer's quote</h3>
+        <table class="summary">
+          <tr><td>Unused COE (${Math.max(0, cars.CAR.coeYears - q.years)} of ${cars.CAR.coeYears} years)</td><td>${money(q.coeRebate)}</td></tr>
+          <tr><td>PARF rebate (part of the registration fee back)</td><td>${money(q.parf)}</td></tr>
+          <tr><td>For the car itself</td><td>${money(q.extra)}</td></tr>
+          <tr><td><b>Offer</b></td><td><b>${money(q.value)}</b></td></tr>
+          ${q.loan > 1 ? `<tr><td>Car loan still to pay off</td><td class="neg">−${money(q.loan)}</td></tr><tr><td><b>Cash to you</b></td><td><b>${money(q.net)}</b></td></tr>` : ''}
+        </table>
+        <p class="small">You paid ${money(car.price)}. In Singapore most of a car's price is the 10-year COE, so its value falls steadily and is close to zero when the COE ends. Cars registered from February 2026 get a smaller PARF rebate (at most 30% of the registration fee).</p>
+        <div class="row">${btn('sell', `Sell for ${money(q.value)}`, 'primary')}</div>`
+      : `
+        <p>You don't own a car. A new one costs about <b>${money(cars.CAR.price)}</b>, mostly for the 10-year COE.</p>
+        <table class="summary">
+          <tr><td>Down payment (cash, 30%)</td><td>${money(fresh.down)}</td></tr>
+          <tr><td>Car loan for 7 years</td><td>${money(fresh.monthly)}/month</td></tr>
+          <tr><td>Petrol, parking, insurance, road tax, servicing</td><td>${money(cars.CAR.running)}/month</td></tr>
+          <tr><td>Over 10 years, about</td><td>${money(fresh.down + fresh.monthly * 84 + cars.CAR.running * 120)}</td></tr>
+        </table>
+        <div class="row">${btn('buy', `Buy a car (${money(fresh.down)} down)`, 'primary')}</div>`}
+      ${btn('ok', 'Close')}`, { wide: true });
+    if (c === 'ok') return;
+    if (c === 'sell') {
+      const r = sim.sellCar(S);
+      logEvent(`🚗 Sold the car for ${money(r.value)}`);
+      toast(`🚗 Sold for ${money(r.value)}${r.loan > 1 ? `; ${money(r.loan)} paid off the loan` : ''}`);
+    }
+    if (c === 'buy') {
+      if (S.bank < fresh.down) { toast(`You need ${money(fresh.down)} in cash for the down payment.`); continue; }
+      sim.buyCar(S);
+      logEvent('🚗 Bought a car');
+      toast('🚗 Vroom! Joy +2');
+    }
+    render();
+  }
+}
+
+// The COE has run out: scrap the car (and get the small PARF rebate), then buy again or not.
+async function coeEndDialog() {
+  const q = cars.quote(S.car, S.age);
+  const fresh = cars.newCar(S.age);
+  const c = await dialog(`<div class="event"><div class="e-icon">🚗</div><p class="eyebrow">Your COE has ended</p>
+    <h2>Your car is 10 years old</h2>
+    <p>A car's Certificate of Entitlement lasts 10 years. Scrapping it now gets you a PARF rebate of only <b>${money(q.parf)}</b>: the car is worth almost nothing. (You could also renew the COE at the current price, but most owners scrap.)</p></div>
+    <table class="summary">
+      <tr><td>A new car: down payment</td><td>${money(fresh.down)}</td></tr>
+      <tr><td>…then each month (loan and running costs)</td><td>${money(cars.monthlyCost(fresh))}</td></tr>
+    </table>
+    <div class="row">${btn('new', 'Buy a new car', 'primary')}${btn('none', 'Go car-free: MRT, bus and Grab')}</div>`);
+  sim.sellCar(S, 'Scrapped');
+  if (c === 'new') {
+    sim.buyCar(S);
+    logEvent('🚗 Scrapped the old car and bought a new one');
+  } else logEvent('🚌 Went car-free');
+}
+
+// The yearly CPF top-up stopped because the SA reached the FRS (or the RA the ERS).
+async function cpfPlanStoppedNotice() {
+  const st = S.cpfPlanStopped;
+  if (!st || st.told) return;
+  st.told = true;
+  await dialog(`<div class="event"><div class="e-icon">🏛️</div><p class="eyebrow">CPF top-ups</p>
+    <h2>${st.before55 ? 'Your SA has reached the FRS' : 'Your RA has reached the ERS'}</h2>
+    <p>${st.before55
+      ? `Your Special Account now holds the Full Retirement Sum (${money(cpf.RETIREMENT_SUMS.FRS)}), the most cash top-ups can take. Your yearly top-up has stopped. Your SA keeps earning 4% or more. At 55 your SA closes and you can top up your Retirement Account again, up to the ERS.`
+      : `Your Retirement Account now holds the Enhanced Retirement Sum (${money(cpf.RETIREMENT_SUMS.ERS)}), the most it can take. Your yearly top-up has stopped.`}</p></div>
+    ${btn('ok', 'OK', 'primary')}`);
+  logEvent('🏛️ Yearly CPF top-up stopped: limit reached');
+}
+
+// Owning your home outright is a big milestone: count down the last 10 years, then celebrate.
+async function homeLoanMilestones() {
+  const h = S.home;
+  if (!h) return;
+  if (h.paidOffAge != null && !h.celebrated) {
+    h.celebrated = true;
+    const years = h.paidOffAge - h.boughtAge + 1;
+    sim.story(S, 'home', '🎉', `Paid off the ${h.label} loan at ${h.paidOffAge} and owned it outright`);
+    logEvent(`🎉 Home loan paid off: you own your ${h.label}`);
+    await dialog(`<div class="event"><div class="e-icon">🎉</div><p class="eyebrow">A big milestone</p>
+      <h2>You own your ${h.label}!</h2>
+      <p>After ${years} years you've made your last loan payment. The home is fully yours, and the ${money(h.instalment)} you paid every month is now yours to keep${housing.oaShareOf(h) > 0 ? ', and your OA can grow again' : ''}.</p></div>
+      ${btn('ok', 'Celebrate! 🥳', 'primary')}`);
+    S.joy += 3;
+    return;
+  }
+  if (h.loanBalance <= 0.01) return;
+  const left = housing.monthsLeft(h) / 12;
+  const mark = left <= 5 ? 5 : left <= 10 ? 10 : 0;
+  if (!mark || (h.countdown || []).includes(mark)) return;
+  h.countdown = [...new Set([...(h.countdown || []), mark, 10])]; // reaching 5 also covers 10
+  await dialog(`<div class="event"><div class="e-icon">🏁</div><p class="eyebrow">Home loan countdown</p>
+    <h2>${Math.ceil(left) <= 1 ? 'Less than a year' : `About ${Math.ceil(left)} years`} to go</h2>
+    <p>Only ${money(h.loanBalance)} left on your ${h.label} loan. ${mark === 5 ? 'The finish line is in sight!' : 'You\'re on the home stretch.'}</p></div>
+    ${btn('ok', 'Keep going', 'primary')}`);
+}
+
+// ---------- family ----------
+
+async function familyPanel() {
+  for (;;) {
+    const sp = S.spouse;
+    const kids = S.children || [];
+    const lastKid = kids.at(-1);
+    const canBaby = sp && kids.length < 4 && S.age <= 45 && (!lastKid || S.age - lastKid.bornAge >= 1);
+    const parts = sim.spendBreakdown(S);
+    const shown = dialog(`
+      <h2>💞 Relationship and family</h2>
+      ${!sp ? `
+        <p>${S.dating != null ? `You've been seeing someone special since ${S.dating}.` : 'You\'re single.'} Married couples can apply for a BTO flat together and share household costs.</p>
+        ${factBox(FACTS.marriage)}
+        <div class="careers">
+          ${S.dating == null
+            ? `<button class="career" data-choice="date" ${S.age < 21 ? 'disabled' : ''}><b>💞 Start a relationship</b><small>Meet someone and see where it goes.</small></button>`
+            : `<button class="career" data-choice="propose"><b>💍 Get married</b><small>Pick a simple or a big wedding. You can apply for a flat right after.</small></button>
+               <button class="career" data-choice="split"><b>💔 Go your separate ways</b><small>Back to single life.</small></button>`}
+        </div>`
+      : `
+        <p>You're married${kids.length ? ` with ${kids.length} ${kids.length === 1 ? 'child' : 'children'}` : ''}.</p>
+        <h3>Your spouse's work</h3>
+        <div class="careers">
+          <button class="career ${!sp.home ? 'on' : ''}" data-choice="dual"><b>👥 Dual income</b><small>Your spouse works and earns about ${money(sp.salary)} a month. You split household costs half and half.</small></button>
+          <button class="career ${sp.home ? 'on' : ''}" data-choice="home"><b>🏠 Stay-at-home spouse</b><small>Your spouse looks after the home and children. You pay all household costs, their groceries and a monthly allowance. Their CPF stops growing, though you can top it up.</small></button>
+        </div>
+        ${sp.home ? `<div class="alloc-row"><span class="al-icon">💵</span><span class="al-text"><b>Monthly allowance for your spouse</b><small>Their personal spending: phone, transport, clothes, meals out.</small></span>${amountControl('allow', 2000, 'Spouse allowance', sp.allowance || 0)}</div>` : ''}
+        <h3>Children</h3>
+        <table class="summary">
+          ${sim.CHILD_COSTS.map(([max, cost, what], i) => `<tr><td>Age ${i ? sim.CHILD_COSTS[i - 1][0] + 1 : 0} to ${max}: ${what}</td><td>${money(cost)}/month</td></tr>`).join('')}
+          <tr><td>Groceries for each child</td><td>${money(sim.GROCERIES.child)}/month</td></tr>
+        </table>
+        <p class="small">2026 estimates after Government subsidies, before university.${!sp.home ? ' You pay half; your spouse pays the other half.' : ''} Your family now costs you <b>${money(parts.kids + parts.groceries + parts.homeSpouse)}</b> a month. Each child gets the SG Child Support Package: a ${money(sim.CHILD_SUPPORT.babyGift)} Baby Gift, ${money(sim.CHILD_SUPPORT.childCredit)} of Child Credits a year from 1 to 16 (they help with these costs), a CDA grant and ${money(sim.CHILD_SUPPORT.psea)} for their education at 17.</p>
+        ${factBox(FACTS.fertility)}
+        <div class="row">${canBaby ? btn('baby', kids.length ? '👶 Have another baby' : '👶 Have a baby', 'primary') : `<span class="small muted-ink">${kids.length >= 4 ? 'Your family is complete.' : S.age > 45 ? 'Past 45, the game stops offering babies.' : 'A new baby can come a year after the last.'}</span>`}</div>`}
+      ${btn('ok', 'Close', 'primary')}`, { wide: true });
+    // Wire the slider before waiting for a choice, or it can't be dragged.
+    if (sp && sp.home) wireAmount(modalBox, 'allow', (v) => Math.min(v, 2000), (v) => (sp.allowance = v));
+    const c = await shown;
+    if (c === 'ok') return;
+    if (c === 'date') { S.dating = S.age; logEvent('💞 Started a relationship'); toast('💞 You\'re seeing someone special'); }
+    if (c === 'split') { S.dating = null; logEvent('💔 Broke up'); }
+    if (c === 'propose') await runPersonalEvent(PERSONAL_EVENTS.find((e) => e.id === 'partner').run(S));
+    if (c === 'baby') await runPersonalEvent(PERSONAL_EVENTS.find((e) => e.id === 'baby').run(S));
+    if ((c === 'dual' || c === 'home') && sp.home !== (c === 'home')) {
+      sp.home = c === 'home';
+      // Only the last change in a year goes in your life story.
+      S.story = (S.story || []).filter((e) => !(e.spouseWork && e.age === S.age));
+      sim.story(S, 'family', sp.home ? '🏠' : '👥', sp.home ? 'Your spouse became a stay-at-home parent' : 'Your spouse went back to work', { spouseWork: true });
+    }
+    if (S.spouse && !S.home && S.homeAskedMarried == null && S.stage === 'adult') { closeModal(); await homeDecision(); }
+    render();
+  }
+}
+
+async function insurancePanel() {
+  for (;;) {
+    const ins = S.insurance || (S.insurance = { plan: 'msl', rider: false });
+    const ages = [S.age, 50, 65, 75, 85].filter((a, i, all) => a >= S.age && all.indexOf(a) === i).slice(0, 4);
+    const paid = (S.totals?.insuranceCash || 0) + (S.totals?.insuranceMa || 0);
+    const claims = (S.illnesses || []).length;
+    const c = await dialog(`
+      <h2>🩺 Health insurance</h2>
+      <p>Everyone in Singapore has <b>MediShield Life</b>, paid from MediSave. On top of it you can buy an <b>Integrated Shield Plan</b> from a private insurer for a better ward, and a <b>rider</b> that pays most of what's left of the bill. Premiums rise steeply with age.</p>
+      <div class="table-scroll"><table class="summary rates">
+        <tr><th>Yearly premium</th>${ages.map((a) => `<th>Age ${a}</th>`).join('')}</tr>
+        ${Object.entries(health.PLANS).map(([id, p]) => `
+          <tr class="${ins.plan === id && !ins.rider ? 'on' : ''}"><td>${p.icon} ${p.label}</td>${ages.map((a) => { const r = health.premiums(a, id); return `<td>${money(r.total)}<br><small>${money(r.cash)} cash</small></td>`; }).join('')}</tr>
+          ${p.rider ? `<tr class="${ins.plan === id && ins.rider ? 'on' : ''}"><td>&nbsp;&nbsp;+ rider</td>${ages.map((a) => { const r = health.premiums(a, id, true); return `<td>${money(r.total)}<br><small>${money(r.cash)} cash</small></td>`; }).join('')}</tr>` : ''}`).join('')}
+      </table></div>
+      <p class="small">MediSave pays MediShield Life plus up to ${money(health.awl(S.age))} a year of a Shield plan (the Additional Withdrawal Limit: $300 up to 40, $600 from 41 to 70, $900 from 71). The rest, and all rider premiums, are paid in cash. Typical 2026 premiums, rounded; real quotes differ by insurer. Buying a plan later in life can be harder: insurers can exclude illnesses you already had.</p>
+      <h3>Your cover: ${health.PLANS[ins.plan].icon} ${health.PLANS[ins.plan].label}${ins.rider ? ' + rider' : ''}</h3>
+      <p class="small">Premiums paid so far: ${money(paid)}. Hospital stays so far: ${claims}.</p>
+      <div class="careers">${Object.entries(health.PLANS).map(([id, p]) => `
+        <button class="career ${ins.plan === id ? 'on' : ''}" data-choice="plan:${id}"><span class="c-icon">${p.icon}</span><b>${p.label}</b><span>${money(health.premiums(S.age, id).total)} a year now</span><small>${p.desc} Ward: ${health.WARDS[p.ward].label}.</small></button>`).join('')}</div>
+      ${ins.plan !== 'msl' ? `<div class="row">${btn('rider', ins.rider ? 'Drop the rider' : `Add a rider (+${money(health.premiums(S.age, ins.plan, true).rider)} a year, cash)`)}</div>` : ''}
+      ${btn('ok', 'Close', 'primary')}`, { wide: true });
+    if (c === 'ok') return;
+    if (c === 'rider') ins.rider = !ins.rider;
+    if (c.startsWith('plan:')) {
+      const id = c.slice(5);
+      if (id !== ins.plan) {
+        ins.plan = id;
+        if (id === 'msl') ins.rider = false;
+        logEvent(`🩺 Health cover: ${health.PLANS[id].label}`);
+        sim.story(S, 'cpf', '🩺', id === 'msl' ? `Kept to MediShield Life only at ${S.age}` : `Bought a ${health.PLANS[id].label} at ${S.age}`);
+      }
+    }
   }
 }
 
@@ -487,7 +867,7 @@ async function rateChangeNotice(fromAge, toAge) {
 
 function addTotals(t = {}, sum) {
   const out = { ...t };
-  for (const [k, v] of Object.entries(sum)) out[k] = (out[k] || 0) + v;
+  for (const [k, v] of Object.entries(sum)) if (k !== 'cashStart' && k !== 'cashEnd') out[k] = (out[k] || 0) + v;
   return out;
 }
 
@@ -502,31 +882,44 @@ function scoreWord(score) {
 function recordTurn(startAge, years, sum, opts, activity, gains) {
   const young = S.stage === 'child' || S.stage === 'teen' || startAge < 21;
   const span = years > 1 ? `Ages ${startAge} to ${startAge + years - 1}` : `Age ${startAge}`;
+  // Each row: label, amount over the whole turn, and whether it's money in, money out, or a CPF/saving move.
   const rows = [];
+  const add = (label, v, kind) => { if (Math.abs(v) > 0.5) rows.push([label, v, kind]); };
   if (young) {
-    rows.push(['Pocket money and earnings', money(sum.income), 'in']);
-    if (sum.cpfIn) rows.push([`Into CPF from your job (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn), 'in']);
+    add('Pocket money and earnings', sum.income, 'in');
+    add(`Into CPF from your job (employer paid ${money(sum.employerIn)})`, sum.cpfIn, 'cpf');
   } else {
-    if (sum.income - sum.payouts > 0.5) rows.push(['Take-home pay', money(sum.income - sum.payouts), 'in']);
-    rows.push(['Living costs (incl. housing and kids)', `−${money(sum.spend - (sum.fun || 0))}`, 'out']);
-    if (sum.cpfIn) rows.push([`Into CPF (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn), 'in']);
-    if (sum.housingOa) rows.push(['Home loan paid from OA', `−${money(sum.housingOa)}`, 'out']);
-    if (sum.oaRanOut) rows.push(['Home loan paid in cash because your OA ran out', `−${money(sum.oaRanOut)}`, 'out']);
-    if (sum.payouts) rows.push(['CPF LIFE payouts', money(sum.payouts), 'in']);
-    if (sum.fun) rows.push(['Hobbies and shopping', `−${money(sum.fun)}`, 'out']);
-    if (sum.holidays) rows.push(['Holidays', `−${money(sum.holidays)}`, 'out']);
-    if (sum.cpfSaved) rows.push(['Your planned CPF top-ups', money(sum.cpfSaved), 'in']);
-    if (sum.kidsCpf) rows.push(['Topped up your children\'s CPF', money(sum.kidsCpf), 'in']);
-    if (sum.invested) rows.push(['Regular investing', money(sum.invested), 'in']);
-    if (sum.investReturn) rows.push(['Investment returns', money(sum.investReturn), sum.investReturn < 0 ? 'out' : 'in']);
-    if (sum.borrowed) rows.push(['Borrowed on credit cards', money(sum.borrowed), 'out']);
-    if (sum.debtInterest) rows.push([S.dcp ? 'Debt plan interest' : 'Card interest (25% a year)', `−${money(sum.debtInterest)}`, 'out']);
-    if (sum.debtPaid) rows.push(['Debt repaid', money(sum.debtPaid), 'in']);
-    if (sum.wentWithout) rows.push(['Bills you couldn\'t pay (you went without)', money(sum.wentWithout), 'out']);
+    add('Take-home pay', sum.income - sum.payouts, 'in');
+    add('CPF LIFE payouts', sum.payouts, 'in');
+    add('Allowance from your children', sum.allowance, 'in');
+    add('Child Credits (SG Child Support Package)', sum.childCredits || 0, 'in');
+    add('Everyday living', -sum.living, 'out');
+    add('Children', -sum.kids, 'out');
+    add('Family groceries', -(sum.groceries || 0), 'out');
+    add('Allowance for your spouse at home', -(sum.homeSpouse || 0), 'out');
+    add('Health insurance premiums (cash)', -(sum.insuranceCash || 0), 'out');
+    add('Car', -sum.car, 'out');
+    add('Rent', -sum.rent, 'out');
+    add(sum.oaRanOut ? 'Home loan in cash (your OA ran out)' : 'Home loan in cash', -(sum.housingCash || 0), 'out');
+    add('Debt plan instalments', -sum.dcpPaid, 'out');
+    add('Hobbies and shopping', -sum.fun, 'out');
+    add('Holidays', -sum.holidays, 'out');
+    add('Your planned CPF top-ups', sum.cpfSaved, 'save');
+    add('Topped up your children\'s CPF', sum.kidsCpf, 'save');
+    add('Regular investing', sum.invested, 'save');
+    add('Investment returns', sum.investReturn, sum.investReturn < 0 ? 'out' : 'in');
+    add('Borrowed on credit cards', sum.borrowed, 'warn');
+    add(S.dcp ? 'Debt plan interest' : 'Card interest (25% a year)', -sum.debtInterest, 'out');
+    add('Bills you couldn\'t pay (you went without)', sum.wentWithout, 'warn');
+    add(`Into CPF (employer paid ${money(sum.employerIn)})`, sum.cpfIn, 'cpf');
+    add('Home loan paid from OA', -sum.housingOa, 'cpf');
+    add('Health insurance premiums from MediSave', -(sum.insuranceMa || 0), 'cpf');
   }
-  rows.push(['Interest earned (CPF and savings)', money(sum.interest), 'in']);
-  if (opts.noPayMonths) rows.push([`Months without pay`, String(opts.noPayMonths), 'out']);
-  S.lastTurn = { span, rows, years };
+  if (sum.cpfInterest != null) {
+    add('Interest on your CPF', sum.cpfInterest, 'cpf');
+    add(`Interest on your cash (bank, ${pctText(sim.SAVINGS_RATE)})`, sum.bankInterest, 'in');
+  } else add('Interest earned (CPF and savings)', sum.interest, 'in');
+  S.lastTurn = { span, rows, years, cash: [sum.cashStart, sum.cashEnd], noPayMonths: opts.noPayMonths || 0 };
   const g = Object.entries(gains).map(([k, v]) => `${STATS[k].icon}+${v}`).join(' ');
   logEvent(`${activity.icon} ${activity.label} ${g}`, startAge);
 }
@@ -570,9 +963,8 @@ function ledgerHtml() {
         ${S.debt > 0 && S.bank > 1000 ? `<button class="tip" data-panel="money">💡 You have ${money(S.bank)} in cash but owe ${money(S.debt)} at ${pctText(S.dcp ? sim.DCP.rate : sim.DEBT_INTEREST)}. Repaying is like earning that rate risk-free. Tap to repay.</button>` : ''}
       </section>
       <section>
-        <h3>⏳ Last turn${t ? ` <span class="ledger-sub">${t.span}${t.years > 1 ? ', totals' : ''}</span>` : ''}</h3>
-        ${t ? `<div class="turn-rows">${t.rows.map(([a, b, k]) => `<span>${a}</span><b class="${k === 'out' ? 'neg' : 'pos'}">${b}</b>`).join('')}</div>`
-          : '<p class="small muted-ink">Pick an activity below to start. What happens to your money each turn shows up here.</p>'}
+        <h3>⏳ Last turn${t ? ` <span class="ledger-sub">${t.span}${t.years > 1 ? ', a year on average' : ''}</span>` : ''}</h3>
+        ${t ? lastTurnHtml(t) : '<p class="small muted-ink">Pick an activity below to start. What happens to your money each turn shows up here.</p>'}
       </section>
       <section>
         <h3>📖 Life log</h3>
@@ -581,8 +973,23 @@ function ledgerHtml() {
     </aside>`;
 }
 
-// Your job and a month of money: what comes in, where it goes, what's left.
-let spendOpen = false;
+// Last turn's money, a year at a time, so turns of different lengths compare.
+function lastTurnHtml(t) {
+  const per = t.years || 1;
+  const fmt = (v) => (typeof v === 'string' ? v : `${v < 0 ? '−' : ''}${money(Math.abs(v) / per)}`);
+  const cls = (v, k) => (k === 'cpf' || k === 'save' ? '' : k === 'warn' || k === 'out' || v < 0 ? 'neg' : 'pos');
+  const group = (kinds, title) => {
+    const rows = t.rows.filter((r) => kinds.includes(r[2]));
+    return rows.length ? `<span class="tr-h">${title}</span><span></span>${rows.map(([a, v, k]) => `<span>${a}</span><b class="${cls(v, k)}">${fmt(v)}</b>`).join('')}` : '';
+  };
+  const old = t.rows.some((r) => typeof r[1] === 'string');
+  const cashLine = t.cash ? `<p class="small">Cash went from <b>${money(t.cash[0])}</b> to <b>${money(t.cash[1])}</b>${per > 1 ? ` over the ${per} years` : ''}.</p>` : '';
+  if (old) return `<div class="turn-rows">${t.rows.map(([a, b, k]) => `<span>${a}</span><b class="${k === 'out' ? 'neg' : 'pos'}">${b}</b>`).join('')}</div>`;
+  return `<div class="turn-rows">${group(['in'], 'Money in')}${group(['out', 'warn'], 'Money out')}${group(['save'], 'Saved')}${group(['cpf'], 'CPF')}</div>
+    ${t.noPayMonths ? `<p class="small neg">${t.noPayMonths} months without pay.</p>` : ''}${cashLine}`;
+}
+
+// Your job and what it pays a month.
 function workHtml() {
   const p = monthlyPlan();
   const job = sim.careerInfo(S);
@@ -590,11 +997,9 @@ function workHtml() {
   const wage = sim.currentWage(S);
   const c = wage > 0 ? cpf.monthlyContribution(S.age, wage, { selfEmployed: S.selfEmployed }) : null;
   const canHunt = S.stage === 'adult' || (working && S.age < 65);
-  const ls = S.stage === 'senior' && S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle] : LIFESTYLES[S.lifestyle];
-  const line = (label, v, cls = 'neg') => (v > 0.5 ? `<span>${label}</span><b class="${cls}">${cls === 'neg' ? '−' : ''}${money(v)}</b>` : '');
   return `
       <section>
-        <h3>💼 Work and money <span class="ledger-sub">per month</span></h3>
+        <h3>💼 Work and pay <span class="ledger-sub">per month</span></h3>
         <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : `<span>🌅 <b>Retired</b>, no salary</span>`}
           ${canHunt ? `<button class="link-btn" data-panel="job">${working ? 'Look for a new job' : 'Find a job'}</button>` : ''}</p>
         <div class="cash-rows">
@@ -604,28 +1009,6 @@ function workHtml() {
           ${p.payout ? `<span>CPF LIFE payout</span><b class="pos">${money(p.payout)}</b>` : ''}
           ${!p.income ? '<span>Money coming in</span><b>$0</b>' : ''}
         </div>
-        <details class="spend" ${spendOpen ? 'open' : ''}>
-          <summary><span>Spending</span><b class="neg">−${money(p.out)}</b></summary>
-          <div class="cash-rows sub">
-            ${line(`Everyday living (${ls.label})`, p.parts.living)}
-            ${line(`Children (${p.parts.kidsCount})`, p.parts.kids)}
-            ${line('Car', p.parts.car)}
-            ${p.parts.allowance ? `<span>Allowance from grown-up children</span><b class="pos">+${money(p.parts.allowance)}</b>` : ''}
-            ${line('Rent', p.rent)}
-            ${line(p.loan.fromOa > 0.5 ? 'Home loan (the part your OA can\'t cover)' : 'Home loan', p.loanCash)}
-            ${p.loan.fromOa > 0.5 ? `<span class="muted-ink">Home loan from your OA (not cash)</span><b class="muted-ink">${money(p.loan.fromOa)}</b>` : ''}
-            ${line('Debt plan', p.dcp)}
-            ${line('Hobbies', p.b.hobbies)}
-            ${line('Shopping and treats', p.b.shopping)}
-            ${line('Holidays (averaged)', p.holidays)}
-          </div>
-          <button class="link-btn" data-panel="budget">Change my budget</button>
-        </details>
-        <div class="cash-rows">
-          ${p.saving ? `<span>Planned saving and investing</span><b>${money(p.saving)}</b>` : ''}
-          <span><b>${p.left - p.saving < 0 ? 'Short each month' : 'Left over'}</b></span><b class="${p.left - p.saving < 0 ? 'neg' : 'pos'}">${p.left - p.saving < 0 ? '−' : ''}${money(Math.abs(p.left - p.saving))}</b>
-        </div>
-        ${p.left - p.saving < 0 && S.bank > 0 ? `<p class="small muted-ink">Taken from your ${money(S.bank)} cash savings${S.age >= 55 ? ', then your OA' : ''}.</p>` : ''}
       </section>`;
 }
 
@@ -664,11 +1047,12 @@ async function runPersonalEvent(e) {
 }
 
 // A slider you can drag, plus a box to type an exact amount.
-function amountControl(key, max, label) {
+function amountControl(key, max, label, value = 0) {
   const m = Math.max(0, Math.floor(max));
+  const v = Math.min(m, Math.round(value));
   return `<span class="amt" data-amt="${key}">
-    <input type="range" min="0" max="${m}" step="1" value="0" aria-label="${label}" ${m ? '' : 'disabled'}>
-    <label class="amt-box">$<input type="number" min="0" max="${m}" step="1" value="0" inputmode="numeric" aria-label="${label} amount" ${m ? '' : 'disabled'}></label>
+    <input type="range" min="0" max="${m}" step="1" value="${v}" aria-label="${label}" ${m ? '' : 'disabled'}>
+    <label class="amt-box">$<input type="number" min="0" max="${m}" step="1" value="${v}" inputmode="numeric" aria-label="${label} amount" ${m ? '' : 'disabled'}></label>
   </span>`;
 }
 
@@ -692,9 +1076,8 @@ async function giftDialog(e) {
   const young = S.stage === 'child' || S.stage === 'teen';
   const room = sim.topUpRoom(S);
   const reliefLeft = Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S));
+  // Keep it as cash or top up CPF; grown-ups can also give some to charity.
   const buckets = [
-    { key: 'treat', icon: '🎉', label: young ? 'Treat yourself' : 'Spend on something fun', note: 'Spend it now on something you enjoy. Joy goes up.' },
-    { key: 'charity', icon: '💝', label: 'Give to charity', note: 'Help others. Joy and Communication go up a little.' },
     {
       key: 'cpf',
       icon: '🏛️',
@@ -705,12 +1088,13 @@ async function giftDialog(e) {
       cap: room,
     },
   ];
-  const parts = { treat: 0, charity: 0, cpf: 0 };
-  const placed = () => parts.treat + parts.charity + parts.cpf;
+  if (!young) buckets.push({ key: 'charity', icon: '💝', label: 'Give to charity', note: 'Help others. Joy and Communication go up a little.' });
+  const parts = { charity: 0, cpf: 0 };
+  const placed = () => parts.charity + parts.cpf;
   const done = dialog(`
     <div class="event"><div class="e-icon">${e.icon}</div><h2>${e.title}</h2><p>${e.text}</p>
     <p class="gift-amount">${money(e.gift)}</p></div>
-    <p class="small">Drag a slider or type an amount. Whatever you don't place stays in your cash savings.</p>
+    <p class="small">It all stays in your cash unless you move some${young ? ' to your CPF' : ''}. Drag a slider or type an amount.</p>
     <div class="alloc">${buckets.map((b) => `
       <div class="alloc-row">
         <span class="al-icon">${b.icon}</span>
@@ -719,7 +1103,7 @@ async function giftDialog(e) {
       </div>`).join('')}
       <div class="alloc-row cash-row">
         <span class="al-icon">💵</span>
-        <span class="al-text"><b>Cash savings</b><small>Spend it anywhere. Left untouched for a year, it earns ${pctText(sim.SAVINGS_INTEREST.untouched)} interest.</small></span>
+        <span class="al-text"><b>Cash savings</b><small>Spend it anywhere. A bank savings account pays about ${pctText(sim.SAVINGS_RATE)} interest a year.</small></span>
         <b class="al-val" id="gift-cash">${money(e.gift)}</b>
       </div>
     </div>
@@ -732,7 +1116,7 @@ async function giftDialog(e) {
   await done;
   const alloc = sim.allocateGift(S, { ...parts, cash: e.gift - placed() });
   if (parts.cpf) toast(`🏛️ ${money(parts.cpf - alloc.refused)} added to your CPF ${S.age < 55 ? 'SA' : 'RA'}${alloc.matched ? `, plus ${money(alloc.matched)} matched by the Government (MRSS)` : ''}`);
-  if (parts.treat || parts.charity) toast(`😊 ${parts.treat ? `Spent ${money(parts.treat)} on fun` : ''}${parts.treat && parts.charity ? ' and ' : ''}${parts.charity ? `gave ${money(parts.charity)} to charity` : ''}`);
+  if (parts.charity) toast(`💝 Gave ${money(parts.charity)} to charity`);
   if (alloc.refused) toast(`Your CPF is already at the top-up limit, so ${money(alloc.refused)} went to your cash.`);
   if (parts.cpf && !young && sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP) toast('Top-ups this year are above $8,000: the extra still grows, but gets no tax relief.');
 }
@@ -742,7 +1126,9 @@ const pctText = (r) => `${(r * 100).toFixed(Math.abs(r) < 0.001 ? 2 : 1).replace
 // Explains the two limits on cash top-ups (RSTU).
 function topUpLimitNote(room, reliefLeft) {
   const cap = S.age < 55 ? `your SA reaches the FRS (${money(cpf.RETIREMENT_SUMS.FRS)})` : `your RA reaches the ERS (${money(cpf.RETIREMENT_SUMS.ERS)})`;
-  if (room <= 0) return `Limit reached: you can only top up until ${cap}.`;
+  if (room <= 0) return S.age < 55
+    ? `Your SA has reached the FRS (${money(cpf.RETIREMENT_SUMS.FRS)}), so CPF won't take more cash top-ups until you turn 55. At 55 your SA closes and you can top up your RA instead, up to the ERS.`
+    : `Limit reached: you can only top up until ${cap}.`;
   return `Limit: ${money(room)} more until ${cap}. Tax relief on the first ${money(sim.TOP_UP_TAX_RELIEF_CAP)} a year (${money(reliefLeft)} left this year).`;
 }
 
@@ -762,7 +1148,7 @@ async function milestones() {
     logEvent(`🎉 New life stage: ${STAGES[stage].label}`);
     await stageIntro(stage);
   }
-  if (S.stage === 'adult' && !S.home && S.age >= 27 && (S.homeAskedAt == null || S.age - S.homeAskedAt >= 6)) {
+  if (S.stage === 'adult' && !S.home && ((S.spouse && S.homeAskedMarried == null) || (S.age >= 27 && (S.homeAskedAt == null || S.age - S.homeAskedAt >= 6)))) {
     await homeDecision();
   }
   if (S.dcpNew) {
@@ -777,6 +1163,9 @@ async function milestones() {
     });
     if (rewound) return 'rewound';
   }
+  if (S.car && cars.carAge(S.car, S.age) >= cars.CAR.coeYears) await coeEndDialog();
+  await homeLoanMilestones();
+  await cpfPlanStoppedNotice();
   const offer = sim.careerSwitchOffer(S);
   if (offer) await careerSwitchDialog(offer);
   for (const child of S.children || []) {
@@ -785,6 +1174,7 @@ async function milestones() {
   if (S.stage === 'senior' && S.age >= 65 && !S.life) await cpfLifeDecision();
   if (S.stage === 'senior' && S.age >= 70 && S.workMode !== 'retired') {
     S.workMode = 'retired';
+    sim.story(S, 'job', '🌅', `Retired at ${S.age}`);
     await dialog(`<div class="event"><div class="e-icon">🎉</div><h2>Happy retirement!</h2><p>At 70 you stop working for good. From now on your income is CPF LIFE plus whatever you saved.</p></div>${btn('ok', 'OK', 'primary')}`);
   }
   closeModal();
@@ -854,11 +1244,12 @@ async function careerSwitchDialog(c) {
 }
 
 async function universityDecision(child) {
-  const fees = sim.UNI_FEES * (S.spouse ? 0.5 : 1);
+  const net = sim.uniFeesAfterPsea(child);
+  const fees = net * sim.householdShare(S);
   const oaMax = S.cpf.oa * 0.4;
   const c = await dialog(`
     <div class="event"><div class="e-icon">🎓</div><h2>Your child is going to university!</h2>
-    <p>Four years of subsidised fees come to about ${money(sim.UNI_FEES)}${S.spouse ? `, so your half is <b>${money(fees)}</b>` : ''}. How will you pay?</p></div>
+    <p>Four years of subsidised fees come to about ${money(sim.UNI_FEES)}.${child.psea ? ` The ${money(child.psea)} the Government put in their Post-Secondary Education Account at 17 pays part, leaving ${money(net)}.` : ''}${fees < net ? ` Your half is <b>${money(fees)}</b>.` : ''} How will you pay?</p></div>
     <div class="careers">
       <button class="career" data-choice="cash"><b>Pay in cash</b><small>Your CPF stays untouched.</small></button>
       <button class="career" data-choice="oa"><b>CPF Education Scheme</b><small>Use up to 40% of your OA (${money(oaMax)} now). Your child repays it to your OA, with 2.5% interest, over 12 years after graduating.</small></button>
@@ -866,6 +1257,7 @@ async function universityDecision(child) {
     </div>`);
   const r = sim.payUniversity(S, child, c);
   if (c === 'oa') toast(`🎓 ${money(r.used)} from your OA${r.cash ? `, ${money(r.cash)} in cash` : ''}`);
+  if (c === 'oa') sim.story(S, 'cpf', '🎓', `Used ${money(r.used)} of your OA for your child's university (CPF Education Scheme)`, { amount: r.used });
   if (c === 'loan') S.joy -= 1;
 }
 
@@ -902,8 +1294,11 @@ async function adultStart() {
       <button class="career" data-choice="${o.id}" ${o.eligible ? '' : 'disabled'}>
         <span class="c-icon">${o.icon}</span><b>${o.label}</b>
         <span>${money(o.startPay)}/month${o.selfEmployed ? ' (varies)' : ''}</span>
-        <small>${Object.entries(o.needs).map(([k, v]) => `${STATS[k].icon} ${v}`).join(' ') || 'No requirements'}${o.selfEmployed ? ' · Self-employed: no employer CPF, only MediSave' : ''}</small>
-      </button>`).join('')}</div>`, { wide: true });
+        <small>${Object.entries(o.needs).map(([k, v]) => S.stats[k] >= v
+          ? `✓ ${STATS[k].label} ${v}`
+          : `<span class="neg">✗ ${STATS[k].label} ${v} (you have ${Math.round(S.stats[k])})</span>`).join('<br>') || 'No requirements'}${o.selfEmployed ? '<br>Self-employed: no employer CPF, only MediSave' : ''}</small>
+      </button>`).join('')}</div>
+    <p class="small">Locked jobs need a second skill as well as your qualification. You can still switch later: build the skill as an adult, then use "Look for a new job".</p>`, { wide: true });
   sim.chooseCareer(S, c);
   logEvent(`💼 First job: ${opts.find((o) => o.id === c).label}`);
   const career = opts.find((o) => o.id === c);
@@ -931,7 +1326,7 @@ async function lifestyleDialog() {
   const takeHome = sim.takeHome(S);
   const c = await dialog(`
     <h2>How do you want to live?</h2>
-    <p>Your take-home pay is about <b>${money(takeHome)}</b> a month after CPF. This is your everyday spending (food, transport, bills). It grows as you earn more, so each lifestyle is a share of your pay, with a minimum. Hobbies, shopping and holidays are planned in your Budget.</p>
+    <p>Your take-home pay is about <b>${money(takeHome)}</b> a month after CPF. This is your everyday spending (food, transport, bills). It grows as you earn more, so each lifestyle is a share of your pay, with a minimum. Holidays and regular saving are planned in your Budget.</p>
     <div class="careers">${Object.entries(LIFESTYLES).map(([k, l]) => `
       <button class="career ${S.lifestyle === k ? 'on' : ''}" data-choice="${k}"><span class="c-icon">${l.icon}</span><b>${l.label}</b>
       <span>${Math.round(l.share * 100)}% of pay (at least ${money(l.monthly)})</span><small>${l.desc}. Joy +${l.joy} every few years</small>
@@ -943,43 +1338,100 @@ async function lifestyleDialog() {
 
 async function homeDecision() {
   S.homeAskedAt = S.age;
-  const picked = await chooseHome(`🏠 Ready for your own home?`);
+  if (S.spouse) S.homeAskedMarried = S.age;
+  const picked = await chooseHome(S.spouse && !S.children.length ? '🏠 Newly married: apply for a flat?' : '🏠 Ready for your own home?');
   if (picked) await dialog(`<div class="event"><div class="e-icon">🔑</div><h2>Welcome home!</h2><p>You bought a ${S.home.label}. Your room will look a bit different now.</p></div>${btn('ok', 'OK', 'primary')}`);
 }
 
 // Lists homes the player is eligible for, with the loan limits. Returns true if one was bought.
+let loanYears = 25;
 async function chooseHome(title, { leaveLabel } = {}) {
-  const quotes = sim.homeQuotes(S);
-  const income = sim.grossIncome(S);
-  const c = await dialog(`
+  for (;;) {
+    const quotes = sim.homeQuotes(S, loanYears);
+    const income = sim.grossIncome(S);
+    const c = await dialog(`
+    <button class="modal-x" data-choice="back" aria-label="Back" title="Not now">✕</button>
     <h2>${title}</h2>
-    <p>You have <b>${money(S.cpf.oa)}</b> in your OA and <b>${money(S.bank)}</b> in cash. ${S.spouse ? 'You and your spouse each pay half.' : ''} Household income: <b>${money(income)}</b>/month.</p>
+    <p>You have <b>${money(S.cpf.oa)}</b> in your OA and <b>${money(S.bank)}</b> in cash. ${S.spouse ? S.spouse.home ? 'Your spouse stays at home, so you pay for the whole home.' : 'You and your spouse each pay half.' : ''} Household income: <b>${money(income)}</b>/month.</p>
+    <div class="term-pick"><span>Loan term</span>${housing.LOAN_TERMS.map((y) => `<button class="pick ${y === loanYears ? 'on' : ''}" data-choice="term:${y}">${y} yrs</button>`).join('')}</div>
+    <p class="small">${loanYears <= 25 ? `An HDB loan at ${pctText(cpf.HDB_LOAN_RATE)} lends up to 75% for up to 25 years. A shorter term means bigger monthly payments but much less interest.` : `HDB loans stop at 25 years. For 30 years you'd need a bank loan (about ${pctText(housing.BANK_LOAN_RATE)}), and MAS rules then cap it at 55% of the price, so you pay more upfront.`} Loans that run past age 65 are also capped at 55% for bank loans.</p>
     <ul class="facts small">
-      <li><b>Loan limits:</b> HDB flats: loan repayments can't be more than 30% of household income (Mortgage Servicing Ratio). All property: total debt repayments can't be more than 55% (MAS Total Debt Servicing Ratio, tested at 4% interest).</li>
-      <li><b>Paying:</b> loans cover up to 75%. The 25% down payment and the Buyer's Stamp Duty can come from your OA (private property needs at least 5% in cash). Monthly repayments can come from your OA too, but that's money not growing for retirement.</li>
-      ${S.spouse ? '' : '<li>Singles can buy an HDB flat from 35 (2-room Flexi BTO or resale). Private property has no age limit.</li>'}
+      <li><b>Grants:</b> first-time buyers of an HDB flat get the Enhanced CPF Housing Grant (up to $120,000, less as household income rises, none above $9,000 a month); resale flats also get the CPF Housing Grant. Grants go into your OA and come off the price. When you sell, they're refunded to your CPF with accrued interest.</li>
+      <li><b>Loan limits:</b> the loan is cut, not refused, if repayments would be more than 30% of household income for an HDB flat (Mortgage Servicing Ratio) or all debt repayments more than 55% (MAS Total Debt Servicing Ratio). HDB tests this at 3% interest, banks at 4%. You pay the rest upfront.</li>
+      <li><b>Paying:</b> the down payment and the Buyer's Stamp Duty can come from your OA (bank loans need 5 to 10% in cash). Monthly repayments can come from your OA, from cash, or part of each.</li>
+      ${S.spouse ? '' : '<li>Singles can buy an HDB flat from 35 (2-room Flexi BTO or resale). Private property has no age limit. Married couples can apply for a BTO flat right away.</li>'}
     </ul>
     <div class="careers">${quotes.map((q) => `
       <button class="career" data-choice="${q.id}" ${q.affordable ? '' : 'disabled'}>
         <span class="c-icon">${housingIcon(q)}</span><b>${q.label}</b><span>${money(q.price / q.share)}${q.share < 1 ? ` (your half ${money(q.price)})` : ''}</span>
-        <small>Upfront ${money(q.down + q.bsd)} incl. stamp duty ${money(q.bsd)}: OA ${money(q.fromOa)}, cash ${money(q.fromCash)}<br>
-        Loan ${money(q.instalment)}/month for ${q.years} years<br>
-        ${q.kind === 'hdb' ? `MSR ${pct(q.msrPct)} ${q.msrOk ? '✅' : '❌ over 30%'} · ` : ''}TDSR ${pct(q.tdsrPct)} ${q.tdsrOk ? '✅' : '❌ over 55%'}
-        ${q.affordable || !q.msrOk || !q.tdsrOk ? '' : '<br>❌ not enough cash'}</small>
+        <small>${q.grant > 0 ? `🎁 CPF housing grants ${money(q.grant)}${q.share < 1 ? ' (your half)' : ''}<br>` : ''}
+        Upfront ${money(q.down + q.bsd)} incl. stamp duty ${money(q.bsd)}: OA ${money(q.fromOa)}, cash ${money(q.fromCash)}<br>
+        ${q.loanType} ${money(q.loan)}: <b>${money(q.instalment)}/month</b> for ${q.years} years<br>
+        Total interest about ${money(Math.max(0, q.instalment * q.years * 12 - q.loan))}<br>
+        ${q.cappedBy ? `⚠️ Loan cut from ${money(q.maxLtvLoan)} by the ${q.cappedBy} limit, so you pay more upfront` : `Repayments: ${pct(q.msrPct)} of household income ✅`}
+        ${q.affordable ? '' : `<br>❌ You'd need ${money(q.fromCash - S.bank)} more cash`}</small>
       </button>`).join('') || '<p>No homes available to you yet.</p>'}</div>
-    <div class="row">${btn('none', leaveLabel || (S.age >= 30 || S.spouse ? `Keep renting (${money(RENT_MONTHLY * (S.spouse ? 0.5 : 1))}/month)` : 'Not yet, stay with family'))}</div>`, { wide: true });
-  if (c === 'none') return false;
-  const q = sim.buyHome(S, c);
-  logEvent(`🔑 Bought a ${q.label}`);
-  const how = await dialog(`
+    <h3>Not buying yet?</h3>
+    <p class="small">Many Singaporeans live with their parents until their flat is ready. It's free, but you share the space. Renting gives you your own place for about ${money(RENT_MONTHLY)} a month${S.spouse && sim.householdShare(S) < 1 ? ', split between you' : ''}.</p>
+    <div class="row">${btn('parents', `${!S.renting ? '✓ ' : ''}Live with my parents`, !S.renting ? 'primary' : '')}${btn('rent', `${S.renting ? '✓ ' : ''}Rent a place (${money(RENT_MONTHLY * sim.householdShare(S))}/month)`, S.renting ? 'primary' : '')}</div>
+    <div class="row">${btn('back', leaveLabel || 'Back: decide later')}</div>`, { wide: true });
+    if (c === 'back') return false;
+    if (c === 'parents' || c === 'rent') {
+      const was = !!S.renting;
+      S.renting = c === 'rent';
+      if (was !== S.renting) {
+        logEvent(S.renting ? '🏢 Moved out to rent a place' : '🏡 Living with my parents');
+        sim.story(S, 'home', S.renting ? '🏢' : '🏡', S.renting ? `Moved out to rent a place at ${S.age}` : `Lived with family at ${S.age}`);
+        if (S.renting) S.joy += 1;
+      }
+      render();
+      return false;
+    }
+    if (c.startsWith('term:')) { loanYears = +c.slice(5); continue; }
+    const q = sim.buyHome(S, c, loanYears);
+    logEvent(`🔑 Bought a ${q.label} (${q.years}-year ${q.loanType.toLowerCase()})`);
+    await repaymentDialog(true);
+    return true;
+  }
+}
+
+// How each month's loan instalment is paid: all OA, all cash, or a split.
+async function repaymentDialog(first = false) {
+  const h = S.home;
+  let pctOa = Math.round(housing.oaShareOf(h) * 100);
+  const monthsLeft = Math.max(1, housing.monthsLeft(h));
+  const preview = () => {
+    const oa = h.instalment * pctOa / 100;
+    // CPF used over the rest of the loan, and what it would grow to with 2.5% accrued interest.
+    let used = 0, owed = 0;
+    for (let m = 0; m < monthsLeft; m++) { used += oa; owed = (owed + oa) * (1 + housing.CPF_HOUSING_INTEREST / 12); }
+    return `<table class="summary">
+      <tr><td>Each month from your CPF OA</td><td>${money(oa)}</td></tr>
+      <tr><td>Each month in cash</td><td>${money(h.instalment - oa)}</td></tr>
+      <tr><td>CPF used over the rest of the loan (about ${Math.round(monthsLeft / 12)} years)</td><td>${money(used)}</td></tr>
+      <tr><td>…plus accrued interest you'd refund to your CPF if you sold then</td><td>${money(owed - used)}</td></tr>
+    </table>`;
+  };
+  const c = dialog(`
     <h2>How will you pay the monthly loan?</h2>
-    <p>Your share is <b>${money(q.instalment)}</b> a month.</p>
-    <div class="careers">
-      <button class="career" data-choice="oa"><b>From my CPF OA</b><small>Keeps more cash in hand. The CPF you use (plus 2.5% accrued interest) must be refunded to your CPF when you sell.</small></button>
-      <button class="career" data-choice="cash"><b>In cash</b><small>Your OA keeps growing at 2.5% or more for retirement, but you have less to spend.</small></button>
-    </div>`);
-  S.home.payWith = how;
-  return true;
+    <p>Your share is <b>${money(h.instalment)}</b> a month. Choose how much of it comes from your CPF Ordinary Account.</p>
+    <div class="pay-row"><input type="range" id="oa-pct" min="0" max="100" step="10" value="${pctOa}" aria-label="Percent from CPF OA"><b id="oa-pct-v">${pctOa}% CPF · ${100 - pctOa}% cash</b></div>
+    <div id="oa-prev">${preview()}</div>
+    <ul class="facts small">
+      <li>CPF savings can be used for housing: your down payment, stamp duty and monthly loan.</li>
+      <li>Money taken from your OA stops earning CPF interest (2.5% or more), and less of it is there to form your Retirement Account at 55.</li>
+      <li>Some people pay part in cash and part with CPF so their CPF keeps growing for retirement; others use CPF so they have more cash for daily needs. Both are allowed.</li>
+    </ul>
+    ${btn('ok', first ? 'Confirm' : 'Save', 'primary')}`, { wide: true });
+  const slider = $('#oa-pct', modalBox);
+  slider.oninput = () => {
+    pctOa = +slider.value;
+    $('#oa-pct-v', modalBox).textContent = `${pctOa}% CPF · ${100 - pctOa}% cash`;
+    $('#oa-prev', modalBox).innerHTML = preview();
+  };
+  await c;
+  housing.setOaShare(h, pctOa / 100);
+  sim.story(S, 'cpf', '🏠', pctOa === 100 ? `Paid the ${h.label} loan from your CPF OA` : pctOa === 0 ? `Paid the ${h.label} loan in cash` : `Paid the ${h.label} loan ${pctOa}% from CPF, ${100 - pctOa}% in cash`);
 }
 
 function housingIcon(h) {
@@ -992,6 +1444,7 @@ async function turning55() {
   const before = { ...S.cpf };
   const sums = cpf.RETIREMENT_SUMS;
   const r = sim.formRA(S);
+  sim.story(S, 'cpf', '🎂', `At 55, your Retirement Account was formed with ${money(S.cpf.ra)}${r.metTarget ? ', meeting the FRS' : ''}`, { amount: S.cpf.ra });
   logEvent(`🏛️ Retirement Account formed: ${money(S.cpf.ra)}`);
   const est = (ra) => money(cpf.cpfLifePayout(ra * Math.pow(1 + cpf.INTEREST.ra, 10), 65));
   const oaRoom = Math.min(S.cpf.oa, sim.topUpRoom(S));
@@ -1034,7 +1487,7 @@ async function turning55() {
   }
   const rl = await dialog(`
     <h2>What kind of retirement do you want?</h2>
-    <p>From now on, your everyday spending follows the retirement lifestyle you choose. Hobbies, shopping and holidays are planned separately in your Budget.</p>
+    <p>From now on, your everyday spending follows the retirement lifestyle you choose. Holidays and regular saving are planned separately in your Budget.</p>
     <div class="careers">${Object.entries(RETIREMENT_LIFESTYLES).map(([k, l]) => `
       <button class="career" data-choice="${k}"><b>${l.label}</b><span>${money(l.monthly)}/month</span><small>${l.desc}</small></button>`).join('')}</div>`);
   S.retirementLifestyle = rl;
@@ -1046,6 +1499,7 @@ async function workDialog() {
     <h2>Keep working?</h2>
     <p>Singapore's retirement age is 63 and employers must offer re-employment up to 68. Working longer means more CPF contributions and fewer years living on savings.</p>
     <div class="row">${btn('full', 'Keep working full-time', 'primary')}${btn('part', 'Work part-time (half pay)')}${btn('retired', 'Retire now')}</div>`);
+  if (c !== S.workMode && c !== 'full') sim.story(S, 'job', c === 'retired' ? '🌅' : '⏳', c === 'retired' ? `Retired at ${S.age}` : `Went part-time at ${S.age}`);
   S.workMode = c;
 }
 
@@ -1075,7 +1529,7 @@ async function cpfLifeDecision() {
 
 async function openPanel(kind) {
   if (busy) return;
-  const panels = { stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel, budget: budgetPanel, holidays: holidaysPanel, job: () => jobHunt('choice') };
+  const panels = { car: carPanel, stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel, budget: budgetPanel, holidays: holidaysPanel, job: () => jobHunt('choice'), insurance: insurancePanel, family: familyPanel };
   await panels[kind]();
   closeModal();
   save();
@@ -1086,7 +1540,7 @@ async function homePanel() {
   for (;;) {
     const h = S.home;
     if (!h) {
-      const bought = await chooseHome('🏠 Find a home', { leaveLabel: 'Close' });
+      const bought = await chooseHome(`🏠 Find a home${sim.isRenting(S) ? ' (you rent now)' : ' (you live with your parents)'}`, { leaveLabel: 'Back' });
       if (!bought) return;
       continue;
     }
@@ -1096,24 +1550,24 @@ async function homePanel() {
     const c = await dialog(`
       <h2>${housingIcon(h)} Your ${h.label}</h2>
       <table class="summary">
-        <tr><td>Value of your share (today's dollars)</td><td>${money(sale.sale)}</td></tr>
+        <tr><td>Value of your share (today’s dollars)</td><td>${money(sale.sale)}</td></tr>
         <tr><td>Lease left</td><td>${h.leaseLeft} years</td></tr>
-        <tr><td>Loan left</td><td>${money(h.loanBalance)}${h.loanBalance > 1 ? ` (${money(h.instalment)}/month from ${h.payWith === 'oa' ? 'OA first' : 'cash'})` : ''}</td></tr>
+        <tr><td>Loan left</td><td>${money(h.loanBalance)}${h.loanBalance > 1 ? `<small>${money(h.instalment)}/month, ${Math.round(housing.oaShareOf(h) * 100)}% from CPF</small>` : ''}</td></tr>
         <tr><td>CPF used so far</td><td>${money(h.cpfPrincipal)}</td></tr>
-        <tr><td>Accrued interest on it (2.5%)</td><td>${money(h.cpfAccrued)}</td></tr>
+        <tr><td>Accrued interest on it (2.5% a year, compounded)</td><td>${money(h.cpfAccrued)}</td></tr>
         <tr><td>If you sold today: back to your CPF</td><td>${money(sale.refund)}</td></tr>
         <tr><td>If you sold today: cash to you</td><td>${money(sale.cash)}</td></tr>
       </table>
       <p class="small">When you sell, the CPF you used plus accrued interest goes back into your CPF${S.age >= 55 ? ' (to your RA first, up to the FRS)' : ''}, so it's there for retirement.</p>
       <div class="careers">
-        ${h.loanBalance > 1 ? `<button class="career" data-choice="pay"><b>Pay the loan ${h.payWith === 'oa' ? 'in cash' : 'from my OA'} instead</b><small>${h.payWith === 'oa' ? 'Lets your OA keep growing for retirement.' : 'Frees up cash each month.'}</small></button>` : ''}
+        ${h.loanBalance > 1 ? `<button class="career" data-choice="pay"><b>Change how I pay the loan</b><small>Now ${Math.round(housing.oaShareOf(h) * 100)}% from CPF OA and ${100 - Math.round(housing.oaShareOf(h) * 100)}% in cash.</small></button>` : ''}
         ${owed > 1 ? `<button class="career" data-choice="vhr" ${S.bank < 1000 ? 'disabled' : ''}><b>Voluntary Housing Refund</b><small>Put up to ${money(Math.min(owed, S.bank, 20000))} of cash back into your CPF now. It earns CPF interest and you'll owe less when you sell.</small></button>` : ''}
         <button class="career" data-choice="move"><b>Sell and move</b><small>Upgrade or right-size. ${S.age >= 55 ? 'Moving to a 3-room or smaller flat can earn the Silver Housing Bonus.' : ''}</small></button>
         ${h.kind === 'hdb' && S.age >= 55 ? `<button class="career ${lbsOk ? '' : 'dim'}" data-choice="lbs"><b>Lease Buyback Scheme</b><small>${lbsOk ? 'Sell part of your lease back to HDB and keep living here. The money tops up your RA for bigger CPF LIFE payouts, plus a cash bonus.' : 'Not available to you right now. Tap to see why.'}</small></button>` : ''}
       </div>
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
     if (c === 'ok') return;
-    if (c === 'pay') h.payWith = h.payWith === 'oa' ? 'cash' : 'oa';
+    if (c === 'pay') await repaymentDialog();
     if (c === 'vhr') {
       const a = sim.voluntaryHousingRefund(S, Math.min(owed, 20000));
       toast(`🏛️ Refunded ${money(a)} to your CPF`);
@@ -1156,10 +1610,14 @@ async function moveHome() {
     <table class="summary">
       <tr><td>Sale price (your share)</td><td>${money(b.sale)}</td></tr>
       <tr><td>Loan paid off</td><td>−${money(b.loan)}</td></tr>
-      <tr><td>Refunded to your CPF</td><td>${money(b.refund)}</td></tr>
+      <tr><td>Refunded to your CPF: the CPF you used</td><td>${money(b.principal)}</td></tr>
+      <tr><td>Refunded to your CPF: accrued interest</td><td>${money(b.accrued)}</td></tr>
       <tr><td>Cash to you</td><td>${money(b.cash)}</td></tr>
-    </table>${btn('ok', 'Find my next home', 'primary')}`);
-  const bought = await chooseHome('Where to next?', { leaveLabel: 'Rent instead' });
+    </table>
+    ${b.owed - b.refund > 1 ? `<p class="small">The sale didn't cover all ${money(b.owed)} owed to your CPF. For a sale at market value you don't have to top up the ${money(b.owed - b.refund)} difference in cash.</p>` : ''}
+    ${factBox(FACTS.accruedInterest)}
+    ${btn('ok', 'Find my next home', 'primary')}`);
+  const bought = await chooseHome('Where to next?', { leaveLabel: 'Decide later (renting for now)' });
   if (bought && S.age >= 55 && S.home.kind === 'hdb' && S.home.rooms <= 3 && S.home.rooms < oldRooms) {
     const net = b.cash + b.refund;
     const shb = housing.silverHousingBonus(Math.min(net, S.bank));
@@ -1171,6 +1629,7 @@ async function moveHome() {
       sim.spendCash(S, shb.topUp);
       S.cpf.ra += shb.topUp;
       S.bank += shb.bonus;
+      sim.story(S, 'cpf', '🏛️', `Put ${money(shb.topUp)} into your RA and got the ${money(shb.bonus)} Silver Housing Bonus`, { amount: shb.topUp });
       toast(`🏛️ ${money(shb.topUp)} into your RA, ${money(shb.bonus)} bonus`);
     }
   }
@@ -1294,7 +1753,6 @@ async function moneyPanel() {
   for (;;) {
     const adult = S.stage === 'adult' || S.stage === 'senior';
     const room = sim.topUpRoom(S);
-    const untouched = Math.max(0, Math.min(S.cashLow ?? S.bank, S.bank));
     const investedCash = invest.total(S, 'cash');
     const investedCpf = invest.total(S, 'oa') + invest.total(S, 'sa');
     const limit = sim.creditLimit(S);
@@ -1308,7 +1766,7 @@ async function moneyPanel() {
         ${S.debt ? `<tr><td>💳 ${S.dcp ? 'Debt Consolidation Plan' : 'Credit card debt'}</td><td class="neg">−${money(S.debt)}</td></tr>` : ''}
         <tr><td>🏛️ CPF${investedCpf ? ` (plus ${money(investedCpf)} invested through CPFIS)` : ''}</td><td>${money(cpf.cpfTotal(S.cpf))}</td></tr>
       </table>
-      <p class="small">Your cash is one account you can use for anything. Money you leave untouched for the whole year earns about ${pctText(sim.SAVINGS_INTEREST.untouched)} (like a 12-month fixed deposit); money you dip into earns the ${pctText(sim.SAVINGS_INTEREST.base)} savings base rate. Untouched so far this year: <b>${money(untouched)}</b>.</p>
+      <p class="small">Your cash is one bank savings account you can use for anything. It earns the base savings rate of about ${pctText(sim.SAVINGS_RATE)} a year, far less than CPF (2.5% to 4% or more).</p>
       ${S.debt > 0 ? `
         <h3>💳 Debt</h3>
         ${S.dcp
@@ -1365,9 +1823,26 @@ async function moneyPanel() {
 }
 
 // Buy and sell fictional companies and funds, with cash or through CPFIS.
+const DCA_LINE = 'Dollar-cost averaging (DCA) means investing the same amount at regular times, whatever the price: you buy more units when prices are low and fewer when they are high, so you don\'t have to guess the right moment.';
+
+async function sellDialog(h) {
+  const pr = invest.product(h.id);
+  let amount = 0;
+  const c = dialog(`
+    <h2>${pr.icon} Sell ${pr.name}</h2>
+    <p>You own <b>${money(h.value)}</b> of it (paid with ${invest.SOURCES[h.src].short}). Sell some or all.</p>
+    <div class="pay-row">${amountControl('sell', h.value, 'Amount to sell')}${btn('all', 'Sell all')}</div>
+    <div class="row">${btn('sell', 'Sell', 'primary')}${btn('ok', 'Cancel')}</div>`);
+  wireAmount(modalBox, 'sell', (v) => Math.min(v, h.value), (v) => (amount = v));
+  const choice = await c;
+  if (choice === 'all') return h.value;
+  return choice === 'sell' ? amount : 0;
+}
+
 async function investPanel() {
   let picked = null;
   let src = 'cash';
+  let mode = 'once';
   let scrollToBuy = false;
   for (;;) {
     const hs = invest.holdings(S);
@@ -1394,6 +1869,9 @@ async function investPanel() {
         }).join('')}</table></div>
         <p class="small">Selling puts cash back in your savings, and CPF money back in the account it came from${S.age >= 55 ? ' (SA money goes to your RA)' : ''}.</p>`
         : '<p class="small muted-ink">Nothing yet.</p>'}
+      ${sim.dcaPlans(S).length ? `<h3>Your DCA plans</h3>
+        <p class="small">${DCA_LINE}</p>
+        <table class="summary">${sim.dcaPlans(S).map((d, i) => `<tr><td>${invest.product(d.id).icon} ${invest.product(d.id).name}${d.src === 'cash' ? '' : ` (${invest.SOURCES[d.src].short})`}</td><td>${money(d.perYear)}/year</td><td>${btn(`stop:${i}`, 'Stop')}</td></tr>`).join('')}</table>` : ''}
       <h3>Choose something to buy</h3>
       <div class="products">${invest.PRODUCTS.map((pr) => `
         <button class="product ${picked === pr.id ? 'on' : ''}" data-choice="pick:${pr.id}">
@@ -1405,8 +1883,10 @@ async function investPanel() {
       ${p ? `<div class="buy-box">
         <p><b>${p.icon} ${p.name}</b>: ${p.desc}</p>
         <div class="seg" role="group" aria-label="Pay with">${sources.map((k) => `<button class="seg-btn ${src === k ? 'on' : ''}" data-choice="src:${k}" ${invest.allowed(p, k) ? '' : 'disabled'}>${invest.SOURCES[k].label}</button>`).join('')}</div>
-        ${why ? `<p class="small neg">${why}</p>` : `<p class="small">You can put in up to ${money(max)}.${src !== 'cash' ? ` Left in your ${invest.SOURCES[src].short}, this money would earn a safe ${pctText(invest.cpfAlternative(src))} or more, so an investment has to beat that to be worth it.` : ''}</p>`}
-        <div class="pay-row">${amountControl('buy', max, 'Amount to invest')}${btn('buy', 'Buy', 'primary')}</div>
+        ${why && mode === 'once' ? `<p class="small neg">${why}</p>` : mode === 'dca' ? '' : `<p class="small">You can put in up to ${money(max)}.${src !== 'cash' ? ` Left in your ${invest.SOURCES[src].short}, this money would earn a safe ${pctText(invest.cpfAlternative(src))} or more, so an investment has to beat that to be worth it.` : ''}</p>`}
+        <div class="seg" role="group" aria-label="How to invest"><button class="seg-btn ${mode === 'once' ? 'on' : ''}" data-choice="mode:once">Invest once</button><button class="seg-btn ${mode === 'dca' ? 'on' : ''}" data-choice="mode:dca">Every year (DCA)</button></div>
+        ${mode === 'dca' ? `<p class="small">${DCA_LINE} The plan buys once a year at the start of each year, if you have the money, until you stop it.</p>` : ''}
+        <div class="pay-row">${mode === 'dca' ? amountControl('buy', Math.max(1000, Math.min(60000, max)), 'Amount to invest each year') : amountControl('buy', max, 'Amount to invest')}${btn('buy', mode === 'dca' ? 'Start plan' : 'Buy', 'primary')}</div>
       </div>` : ''}
       <div class="limit-box"><p class="small"><b>CPF Investment Scheme (CPFIS) rules:</b> from age 18; keep the first ${money(invest.CPFIS.oaKeep)} in your OA and ${money(invest.CPFIS.saKeep)} in your SA; at most 35% of your investible OA savings in shares and REITs; SA money only in approved unit trusts and bonds. Many CPFIS investors have earned less than the 2.5% the OA pays risk-free.</p></div>
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
@@ -1419,7 +1899,17 @@ async function investPanel() {
     const [kind, a, b] = choice.split(':');
     if (kind === 'pick') { picked = a; scrollToBuy = true; }
     if (kind === 'src') src = a;
-    if (kind === 'buy' && p && amount > 0) {
+    if (kind === 'mode') { mode = a; scrollToBuy = true; }
+    if (kind === 'stop') {
+      const d = sim.dcaPlans(S).splice(+a, 1)[0];
+      toast(`⏹️ Stopped the ${invest.product(d.id).name} plan. You keep what you bought.`);
+      logEvent(`⏹️ Stopped DCA into ${invest.product(d.id).name}`);
+    }
+    if (kind === 'buy' && p && amount > 0 && mode === 'dca') {
+      sim.dcaPlans(S).push({ id: p.id, src, perYear: amount });
+      toast(`📅 ${money(amount)} a year into ${p.name}, from next year`);
+      logEvent(`📅 Started DCA: ${money(amount)}/year into ${p.name} (${invest.SOURCES[src].short})`);
+    } else if (kind === 'buy' && p && amount > 0) {
       const spent = invest.buy(S, p.id, src, amount);
       if (src === 'cash') S.cashLow = Math.min(S.cashLow ?? S.bank, S.bank);
       toast(`📈 Bought ${money(spent)} of ${p.name} with ${invest.SOURCES[src].short}`);
@@ -1427,9 +1917,12 @@ async function investPanel() {
     }
     if (kind === 'sell') {
       const h = hs.find((x) => x.id === a && x.src === b);
-      const got = invest.sell(S, a, b, h.value);
-      toast(`📈 Sold ${invest.product(a).name} for ${money(got)}`);
-      logEvent(`📈 Sold ${invest.product(a).name} for ${money(got)}`);
+      const want = await sellDialog(h);
+      if (want > 0) {
+        const got = invest.sell(S, a, b, want);
+        toast(`📈 Sold ${money(got)} of ${invest.product(a).name}`);
+        logEvent(`📈 Sold ${money(got)} of ${invest.product(a).name}`);
+      }
     }
     render();
   }
@@ -1438,17 +1931,21 @@ async function investPanel() {
 // Monthly plan: everyday costs are fixed by your lifestyle; you choose the rest.
 async function budgetPanel() {
   for (;;) {
+    const dcaMonthly = sim.dcaCashPerYear(S) / 12; // also moves an old monthly plan into the DCA plans
+    sim.cpfTopUpPerYear(S); // and an old monthly CPF top-up into a yearly one
     const b = { ...sim.newBudget(), ...(S.budget || {}) };
     const income = sim.takeHome(S) + (S.life && S.age >= S.life.startAge ? S.life.monthly : 0);
-    const share = S.spouse ? 0.5 : 1;
+    const share = sim.householdShare(S);
     const living = sim.monthlySpend(S);
-    const rent = !S.home && (S.age >= 30 || S.spouse) ? RENT_MONTHLY * share : 0;
+    const insurance = sim.insurancePremiums(S).cash / 12;
+    const parts = sim.spendBreakdown(S);
+    const rent = sim.isRenting(S) ? RENT_MONTHLY * share : 0;
     const loan = loanSplit();
     const loanCash = loan.fromCash;
     const dcp = S.dcp ? S.dcp.monthly : 0;
     const holidays = sim.holidayMonthly(S);
     const kids = (S.children || []).filter((c) => S.age - c.bornAge < 21);
-    const fixed = living + rent + loanCash + dcp;
+    const fixed = living + rent + loanCash + dcp + insurance;
     const room = sim.topUpRoom(S);
     const ls = S.stage === 'senior' && S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle] : LIFESTYLES[S.lifestyle];
     const scroll = modalEl.hidden ? 0 : modalBox.scrollTop;
@@ -1457,31 +1954,29 @@ async function budgetPanel() {
       <p class="small">Plan how you use your pay each month. It repeats every year until you change it. Anything left over goes to your cash savings.</p>
       <table class="summary budget">
         <tr><th colspan="2">Money in each month</th></tr>
-        <tr><td>Take-home pay${S.spouse ? ' (yours; your spouse covers their half of household costs)' : ''}</td><td class="pos">${money(sim.takeHome(S))}</td></tr>
+        <tr><td>Take-home pay${S.spouse && !S.spouse.home ? ' (yours; your spouse covers their half of household costs)' : ''}</td><td class="pos">${money(sim.takeHome(S))}</td></tr>
         ${S.life && S.age >= S.life.startAge ? `<tr><td>CPF LIFE payout</td><td class="pos">${money(S.life.monthly)}</td></tr>` : ''}
         <tr><th colspan="2">Must-pays</th></tr>
-        <tr><td>${ls.icon || '🏠'} Everyday living: ${ls.label}${kids.length ? `, incl. ${money(sim.CHILD_COST * share * kids.length)} for ${kids.length === 1 ? 'your child' : 'your children'}` : ''}${S.car ? ', incl. $1,500 for the car' : ''} ${btn('life', 'Change')}</td><td class="neg">−${money(living)}</td></tr>
+        <tr><td>${ls.icon || '🏠'} Everyday living: ${ls.label}${parts.kids + parts.groceries ? `, incl. ${money(parts.kids + parts.groceries)} for ${kids.length === 1 ? 'your child' : 'your children'}` : ''}${parts.homeSpouse ? `, ${money(parts.homeSpouse + 300)} for your spouse at home` : ''}${S.car ? `, incl. ${money(parts.car)} for the car` : ''} ${btn('life', 'Change')}</td><td class="neg">−${money(living)}</td></tr>
+        <tr><td>🩺 Health insurance: ${health.PLANS[(S.insurance || {}).plan || 'msl'].label}${(S.insurance || {}).rider ? ' + rider' : ''} (cash part) ${btn('insurance', 'Change')}</td><td class="neg">${insurance ? `−${money(insurance)}` : '$0'}</td></tr>
         ${rent ? `<tr><td>Rent</td><td class="neg">−${money(rent)}</td></tr>` : ''}
-        ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan ${money(S.home.instalment)}: ${S.home.payWith === 'oa' ? (loanCash > 1 ? `your OA only covers ${money(loan.fromOa)}, so the rest is cash` : 'paid from your CPF OA, so no cash') : 'paid in cash'}</td><td class="neg">−${money(loanCash)}</td></tr>` : ''}
+        ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan ${money(S.home.instalment)}: ${money(loan.fromOa)} from your CPF OA, the rest in cash</td><td class="neg">−${money(loanCash)}</td></tr>` : ''}
         ${dcp ? `<tr><td>Debt Consolidation Plan</td><td class="neg">−${money(dcp)}</td></tr>` : ''}
       </table>
       <h3>Your choices</h3>
       <div class="alloc">
-        <div class="alloc-row"><span class="al-icon">🎨</span><span class="al-text"><b>Hobbies</b><small>Classes, sports, music, gear. Joy, plus Health and Creativity.</small></span>${amountControl('hobbies', 2000, 'Hobbies per month')}</div>
-        <div class="alloc-row"><span class="al-icon">🛍️</span><span class="al-text"><b>Shopping and treats</b><small>Clothes, gadgets, nice meals out. Joy.</small></span>${amountControl('shopping', 3000, 'Shopping per month')}</div>
         <div class="alloc-row"><span class="al-icon">✈️</span><span class="al-text"><b>Holidays</b><small>${(S.holidayPlans || []).length ? `${S.holidayPlans.length} trip${S.holidayPlans.length > 1 ? 's' : ''} planned for next year, averaged per month.` : 'No trips planned.'} ${btn('holidays', 'Plan holidays')}</small></span><b class="al-val">${money(holidays)}</b></div>
-        <div class="alloc-row"><span class="al-icon">🏛️</span><span class="al-text"><b>Top up my CPF</b><small>${S.age < 55 ? 'Into your SA (RSTU), up to the FRS. Earns 4%+ and cuts your income tax.' : 'Into your RA (RSTU), up to the ERS, for bigger CPF LIFE payouts.'} Room left: ${money(room)}.</small></span>${amountControl('cpfSelf', Math.min(3000, room / 12), 'CPF top-up per month')}</div>
+        <div class="alloc-row"><span class="al-icon">🏛️</span><span class="al-text"><b>Top up my CPF every year</b><small>${S.age < 55 ? 'Into your SA (RSTU), up to the FRS. Earns 4%+, and the first $8,000 a year cuts your income tax.' : 'Into your RA (RSTU), up to the ERS, for bigger CPF LIFE payouts.'} ${room > 0 ? `Room left: ${money(room)}. The top-ups stop by themselves when you reach the ${S.age < 55 ? 'FRS' : 'ERS'}.` : S.age < 55 ? 'Your SA is at the FRS: no more top-ups until 55.' : 'Your RA is at the ERS: no more top-ups.'}</small></span>${amountControl('cpfYearly', Math.min(36000, room), 'CPF top-up per year')}</div>
         ${kids.length ? `<div class="alloc-row"><span class="al-icon">👶</span><span class="al-text"><b>Top up my ${kids.length === 1 ? "child's" : "children's"} CPF</b><small>Per child, into their SA (RSTU). It grows at 4%+ until they retire: a head start, but locked away. ${S.spouse ? 'Your spouse puts in the same.' : ''} No tax relief for top-ups to children.</small></span>${amountControl('kidsCpf', 500, 'Per child per month')}</div>` : ''}
-        <div class="alloc-row"><span class="al-icon">📈</span><span class="al-text"><b>Invest every month</b><small>A regular savings plan into
-          <select id="inv-id">${invest.PRODUCTS.map((p) => `<option value="${p.id}" ${b.investId === p.id ? 'selected' : ''}>${p.name} (${invest.RISK_LABELS[p.risk].toLowerCase()} risk)</option>`).join('')}</select></small></span>${amountControl('investAmt', 5000, 'Invest per month')}</div>
+        <div class="alloc-row"><span class="al-icon">📈</span><span class="al-text"><b>Regular investing (DCA)</b><small>${sim.dcaPlans(S).length ? sim.dcaPlans(S).map((d) => `${invest.product(d.id).name}: ${money(d.perYear)}/year${d.src === 'cash' ? '' : ` from your ${invest.SOURCES[d.src].short}`}`).join('<br>') : 'No plans yet.'} ${btn('invest', 'Investments')}</small></span><b class="al-val">${money(dcaMonthly)}</b></div>
       </div>
       <div class="budget-sum" id="budget-sum"></div>
       <div class="row">${btn('save', 'Save my budget', 'primary')}${btn('ok', 'Cancel')}</div>`, { wide: true });
     modalBox.scrollTop = scroll;
-    const keys = ['hobbies', 'shopping', 'cpfSelf', 'kidsCpf', 'investAmt'];
+    const keys = ['cpfYearly', 'kidsCpf'];
     const draw = () => {
-      const spend = b.hobbies + b.shopping + holidays;
-      const saving = b.cpfSelf + b.kidsCpf * kids.length + b.investAmt;
+      const spend = holidays;
+      const saving = b.cpfYearly / 12 + b.kidsCpf * kids.length + dcaMonthly;
       const left = income - fixed - spend - saving;
       const total = Math.max(1, income);
       const bar = (v, cls) => `<span class="${cls}" style="width:${Math.max(0, Math.min(100, (v / total) * 100))}%"></span>`;
@@ -1500,7 +1995,6 @@ async function budgetPanel() {
       b[k] = +range.value;
       wireAmount(modalBox, k, (v) => Math.min(v, +range.max), (v) => { b[k] = v; draw(); });
     }
-    $('#inv-id', modalBox).onchange = (e) => (b.investId = e.target.value);
     draw();
     const choice = await c;
     if (choice === 'ok') return;
@@ -1518,8 +2012,16 @@ async function budgetPanel() {
       await holidaysPanel();
       continue;
     }
+    if (choice === 'invest') {
+      await investPanel();
+      continue;
+    }
+    if (choice === 'insurance') {
+      await insurancePanel();
+      continue;
+    }
     toast('📋 Budget saved. It applies from your next turn.');
-    logEvent(`📋 New budget: fun ${money(b.hobbies + b.shopping)}/mo, saving ${money(b.cpfSelf + b.kidsCpf * kids.length + b.investAmt)}/mo`);
+    logEvent(`📋 New budget: saving ${money(b.cpfYearly / 12 + b.kidsCpf * kids.length + dcaMonthly)}/mo`);
     return;
   }
 }
@@ -1630,6 +2132,140 @@ function kidsCpfRecap() {
   return `<h3>👶 Your children's CPF head start</h3><ul class="facts">${kids.map((c, i) => `<li>Child ${i + 1}: you put in ${money(c.cpfGiven)}${S.spouse ? ', your spouse matched it' : ''}, and with interest it has grown to <b>${money(c.cpfSa)}</b> in their SA.</li>`).join('')}</ul>`;
 }
 
+// ---------- the life recap ----------
+
+// A kind of story, without repeats (older saves logged the same line many times).
+// Changes to your spouse's work in the same year count as one: the last.
+const storyKey = (e) => (e.spouseWork || /^Your spouse (became|went back)/.test(e.text) ? `spouse@${e.age}` : `${e.text}@${e.age}`);
+const stories = (kind) => (S.story || []).filter((e, i, all) => e.kind === kind
+  && !all.some((x, j) => j > i && x.kind === kind && storyKey(x) === storyKey(e)));
+// "at 48" unless the line already says when.
+const atAge = (e) => (/\bat \d+\b/.test(e.text) ? '' : ` at ${e.age}`);
+const storyList = (list) => `<ol class="timeline">${list.map((e) => `<li><span class="j-age">${e.age}</span><span>${e.icon} ${esc(e.text)}</span></li>`).join('')}</ol>`;
+const ageSpan = (a, b) => (a === b ? `at ${a}` : `${a} to ${b}`);
+
+// Runs of the same value in the yearly history, e.g. the jobs you held and when.
+function runs(key) {
+  const out = [];
+  for (const h of S.history || []) {
+    if (!(key in h)) continue;
+    const last = out[out.length - 1];
+    if (last && last.value === h[key]) { last.to = h.age - 1; last.peak = Math.max(last.peak, h.pay || 0); } else out.push({ value: h[key], from: h.age - 1, to: h.age - 1, peak: h.pay || 0 });
+  }
+  return out;
+}
+
+function careerRecap() {
+  const t = S.totals || {};
+  const jobs = runs('job').filter((r) => r.value);
+  const info = (id) => CAREERS.find((c) => c.id === id) || CAREER_SWITCHES.find((c) => c.id === id);
+  const retiredAt = stories('job').find((e) => /^Retired/.test(e.text))?.age;
+  const knocks = stories('job').filter((e) => e.icon === '📉');
+  const peak = Math.max(0, ...(S.history || []).map((h) => h.pay || 0));
+  const now = sim.careerInfo(S);
+  const lines = jobs.length
+    ? jobs.map((r) => { const c = info(r.value); return `<li><span class="j-age">${r.from}</span><span>${c ? `${c.icon} <b>${c.title || c.label}</b>` : 'Working'} ${ageSpan(r.from, r.to)}${r.peak ? `, up to ${money(r.peak)} a month` : ''}</span></li>`; }).join('')
+    : now ? `<li><span class="j-age">${S.careerStartAge ?? 21}</span><span>${now.icon} <b>${now.title || now.label}</b></span></li>` : '';
+  return `<div class="recap-card">
+    <h3>💼 Your career</h3>
+    <p>${S.education ? `You finished with ${/^[aeiou]/i.test(EDUCATION[S.education].label) ? 'an' : 'a'} <b>${EDUCATION[S.education].label}</b>. ` : ''}${retiredAt ? `You retired at <b>${retiredAt}</b>.` : S.age >= 55 && !sim.isWorking(S) ? 'You have stopped working.' : S.age >= 21 ? 'You are still working.' : ''}</p>
+    ${lines ? `<ol class="timeline">${lines}</ol>` : '<p class="small muted-ink">You haven\'t started work yet.</p>'}
+    ${knocks.length ? `<p class="small">Setbacks: retrenched ${knocks.length} time${knocks.length > 1 ? 's' : ''} (age ${knocks.map((e) => e.age).join(', ')}).</p>` : ''}
+    <div class="recap-nums">
+      ${peak ? `<span>Highest pay</span><b>${money(peak)}/month</b>` : ''}
+      ${t.income ? `<span>Take-home pay over your life</span><b>${money((t.income || 0) - (t.payouts || 0))}</b>` : ''}
+    </div>
+  </div>`;
+}
+
+function housingRecap() {
+  const t = S.totals || {};
+  const buys = stories('home').filter((e) => e.icon === '🔑');
+  const upfrontOa = buys.reduce((a, e) => a + (e.oa || 0), 0);
+  const upfrontCash = buys.reduce((a, e) => a + (e.cash || 0), 0);
+  const loanOa = t.housingOa || 0;
+  const loanCash = t.housingCash || 0;
+  const rent = t.rent || 0;
+  const total = upfrontOa + upfrontCash + loanOa + loanCash + rent;
+  const moves = stories('home').filter((e) => e.icon === '🏷️').length;
+  const homes = stories('home');
+  const journey = homes.length ? storyList(homes) : S.home ? `<ol class="timeline"><li><span class="j-age">${S.home.boughtAge ?? ''}</span><span>🔑 ${S.home.label}</span></li></ol>` : '';
+  return `<div class="recap-card">
+    <h3>🏠 Your housing journey</h3>
+    <p>${!homes.length && !S.home ? 'You never bought a home of your own.' : `${buys.length ? `You bought ${buys.length} home${buys.length > 1 ? 's' : ''}` : 'You owned your home'}${moves ? ` and moved ${moves} time${moves > 1 ? 's' : ''}` : ''}. ${S.home ? `You live in your <b>${S.home.label}</b>${S.home.loanBalance > 1 ? ` with ${money(S.home.loanBalance)} of loan left` : ', fully paid off'}.` : 'You rent now.'}`}</p>
+    ${journey}
+    <div class="recap-nums">
+      ${upfrontOa + upfrontCash ? `<span>Down payments and stamp duty</span><b>${money(upfrontOa + upfrontCash)} <small>(${money(upfrontOa)} CPF)</small></b>` : ''}
+      ${loanOa + loanCash ? `<span>Loan repayments</span><b>${money(loanOa + loanCash)} <small>(${money(loanOa)} CPF)</small></b>` : ''}
+      ${rent ? `<span>Rent</span><b>${money(rent)}</b>` : ''}
+      ${total ? `<span><b>Spent on housing in all</b></span><b>${money(total)}</b>` : ''}
+    </div>
+  </div>`;
+}
+
+function cpfRecap() {
+  const t = S.totals || {};
+  const decisions = stories('cpf');
+  return `<div class="recap-card">
+    <h3>🏛️ Your CPF decisions</h3>
+    ${decisions.length ? storyList(decisions) : '<p class="small muted-ink">You left your CPF to grow on its own.</p>'}
+    <div class="recap-nums">
+      <span>Paid in by you and your employers</span><b>${money(t.cpfIn || 0)}</b>
+      <span>Interest CPF paid you</span><b>${money(t.cpfInterest ?? t.interest ?? 0)}</b>
+      ${S.lifeTopUps ? `<span>Cash top-ups you made</span><b>${money(S.lifeTopUps)}</b>` : ''}
+      ${t.housingOa ? `<span>Used for your home</span><b>${money(t.housingOa)}</b>` : ''}
+      ${S.life ? `<span>CPF LIFE pays you</span><b>${money(S.life.monthly)}/month</b>` : ''}
+    </div>
+  </div>`;
+}
+
+const STYLE_WORDS = { simple: 'Frugal', comfortable: 'Average', lavish: 'Lavish' };
+function lifestyleRecap() {
+  const t = S.totals || {};
+  const years = {};
+  for (const h of S.history || []) if (h.style) years[h.style] = (years[h.style] || 0) + 1;
+  const ranked = Object.entries(years).sort((a, b) => b[1] - a[1]);
+  const main = ranked[0]?.[0] || S.lifestyle;
+  const earned = Math.max(1, (t.income || 0) - (t.payouts || 0));
+  const given = S.given || 0;
+  const generous = given > 0 && given >= Math.max(5000, earned * 0.01);
+  const word = generous ? 'Generous' : STYLE_WORDS[main] || 'Average';
+  return `<div class="recap-card">
+    <h3>🎭 The life you lived</h3>
+    <p class="recap-word">${generous ? '💝' : LIFESTYLES[main]?.icon || '🛋️'} ${word}${generous && STYLE_WORDS[main] ? ` <small>and ${STYLE_WORDS[main].toLowerCase()}</small>` : ''}</p>
+    <p class="small">${LIFESTYLES[main]?.desc || ''}${generous ? `. You also gave ${money(given)} to charity.` : '.'}</p>
+    ${ranked.length ? `<p class="small">${ranked.map(([k, n]) => `${STYLE_WORDS[k] || k} (${LIFESTYLES[k]?.label || k}) for ${n} year${n > 1 ? 's' : ''}`).join(', ')}.</p>` : ''}
+    <div class="recap-nums">
+      ${t.living ? `<span>Everyday living</span><b>${money(t.living)}</b>` : ''}
+      ${t.fun ? `<span>Hobbies and shopping</span><b>${money(t.fun)}</b>` : ''}
+      ${t.holidays ? `<span>Holidays</span><b>${money(t.holidays)}</b>` : ''}
+      ${t.kids ? `<span>Raising children</span><b>${money(t.kids)}</b>` : ''}
+      ${given ? `<span>Given to charity</span><b>${money(given)}</b>` : ''}
+    </div>
+  </div>`;
+}
+
+function joysRecap() {
+  const family = stories('family');
+  const buys = stories('buy');
+  const items = buys.length ? buys : sim.ownedItems(S).map((it) => ({ icon: it.icon, text: it.name, amount: it.price, joy: it.joy }));
+  const favourites = [...items].sort((a, b) => (b.joy || 0) - (a.joy || 0)).slice(0, 6);
+  const trips = S.trips || [];
+  const places = HOLIDAYS.map((h) => ({ h, n: trips.filter((x) => x.id === h.id).length })).filter((x) => x.n).sort((a, b) => b.n - a.n);
+  const did = Object.entries(S.did || {}).sort((a, b) => b[1] - a[1]).slice(0, 3);
+  return `<div class="recap-card wide">
+    <h3>😊 Your joys <span class="ledger-sub">Joy ${Math.round(S.joy)}</span></h3>
+    <ul class="moments">
+      ${family.map((e) => `<li>${e.icon} ${esc(e.text)}${atAge(e)}</li>`).join('')}
+      ${places.length ? `<li>✈️ ${trips.length} holiday${trips.length > 1 ? 's' : ''} to ${places.length} place${places.length > 1 ? 's' : ''}; your favourite was <b>${places[0].h.name}</b>${places[0].n > 1 ? ` (${places[0].n} times)` : ''}</li>` : ''}
+      ${items.length ? `<li>🛍️ ${items.length} things you bought and loved, costing ${money(items.reduce((a, e) => a + (e.amount || 0), 0))}. Favourites: ${favourites.map((e) => `${e.icon} ${esc(e.text)}`).join(', ')}</li>` : ''}
+      ${S.given ? `<li>💝 You gave ${money(S.given)} to charity</li>` : ''}
+      ${S.carsOwned ? `<li>🚗 You owned ${S.carsOwned} car${S.carsOwned > 1 ? 's' : ''}, costing you about ${money((S.carSpent || 0) + (S.totals?.car || 0))} in all (down payments, loans and running costs, less what you sold them for)</li>` : ''}
+      ${did.length ? `<li>⏳ How you spent your time most: ${did.map(([k, n]) => `${esc(k)} (${n} turn${n > 1 ? 's' : ''})`).join(', ')}</li>` : ''}
+    </ul>
+  </div>`;
+}
+
 async function endScreen() {
   const final = S.age >= STAGES.senior.endAge;
   const life = sim.retirementIncome(S);
@@ -1637,26 +2273,23 @@ async function endScreen() {
   const cash = S.bank + invest.total(S, 'cash') - S.debt;
   const t = S.totals || {};
   const hybrids = Object.keys(S.hybrids).map((h) => `${HYBRIDS[h].icon} ${HYBRIDS[h].label}`).join(', ');
-  const career = sim.careerInfo(S);
-  const moments = [
-    S.education && `🎓 Finished with a ${EDUCATION[S.education].label}`,
-    career && `${career.icon} Worked as ${/^[aeiou]/i.test(career.label) ? 'an' : 'a'} ${career.label}`,
-    S.spouse && '💍 Got married',
-    S.children && S.children.length && `👶 Raised ${S.children.length} ${S.children.length === 1 ? 'child' : 'children'}`,
-    S.home && `🏠 Lived in a ${S.home.label}`,
-    S.car && '🚗 Owned a car',
-    S.room.length && `🛍️ Filled your rooms with ${S.room.length} things you loved`,
-    S.life && `🏛️ Started CPF LIFE at ${S.life.startAge}`,
-  ].filter(Boolean);
   modalBox.className = 'modal-box wide';
   modalEl.hidden = false;
   modalBox.innerHTML = `
+    ${final ? '' : '<button class="modal-x" data-choice="back" aria-label="Keep playing" title="Keep playing">✕</button>'}
     <div class="end">
       ${person(me(), 'big')}
       <p class="eyebrow">${final ? 'A life well lived' : 'Your story so far'}</p>
-      <h2>${esc(S.name)}, age ${S.age}</h2>
-      <ul class="moments">${moments.map((m) => `<li>${m}</li>`).join('')}</ul>
+      <h2>${final ? `Congratulations, ${esc(S.name)}! You made it to ${S.age}.` : `${esc(S.name)}, age ${S.age}`}</h2>
+      <p>Here are the highlights of your life.</p>
       ${hybrids ? `<p class="small">Strengths you built: ${hybrids}</p>` : ''}
+      <div class="recap">
+        ${careerRecap()}
+        ${housingRecap()}
+        ${cpfRecap()}
+        ${lifestyleRecap()}
+        ${joysRecap()}
+      </div>
       <h3>Your money in numbers</h3>
       <table class="summary">
         ${life ? `<tr><td>CPF LIFE income</td><td>${money(life)}/month</td></tr>` : ''}
@@ -1666,9 +2299,7 @@ async function endScreen() {
         ${S.shortfallAge ? `<tr><td>Money ran short from age</td><td>${S.shortfallAge}</td></tr>` : ''}
         <tr><td>Paid into your CPF over your life</td><td>${money(t.cpfIn || 0)}</td></tr>
         <tr><td>…of which your employers paid</td><td>${money(t.employerIn || 0)}</td></tr>
-        <tr><td>Interest earned</td><td>${money(t.interest || 0)}</td></tr>
-        <tr><td>CPF used for housing</td><td>${money(t.housingOa || 0)}</td></tr>
-        <tr><td>😊 Joy from life experiences</td><td>${Math.round(S.joy)}</td></tr>
+        ${t.cpfInterest != null ? `<tr><td>Interest on your CPF</td><td>${money(t.cpfInterest)}</td></tr><tr><td>Interest on your cash (bank)</td><td>${money(t.bankInterest || 0)}</td></tr>` : `<tr><td>Interest earned</td><td>${money(t.interest || 0)}</td></tr>`}
       </table>
       <h3>🏛️ Your CPF over your life</h3>
       ${cpfTrendChart()}

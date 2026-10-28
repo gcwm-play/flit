@@ -92,7 +92,7 @@ export function blockedReason(s, p, src) {
 }
 
 const isStock = (h) => ['stock', 'reit'].includes(product(h.id).kind);
-const costOf = (s, src) => holdings(s).filter((h) => h.src === src).reduce((t, h) => t + h.cost, 0);
+export const costOf = (s, src) => holdings(s).filter((h) => h.src === src).reduce((t, h) => t + h.cost, 0);
 
 export function buy(s, id, src, amount) {
   const p = product(id);

@@ -2,14 +2,15 @@
 import * as cpf from './cpf.js';
 import * as housing from './housing.js';
 import * as invest from './invest.js';
+import * as health from './health.js';
+import * as cars from './car.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, SHOP, LIFESTYLES,
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
 } from './data.js';
 
-// Cash you leave untouched for a whole year earns about what a 12-month fixed
-// deposit paid in 2026; money you dip into only earns the savings-account base rate.
-export const SAVINGS_INTEREST = { untouched: 0.015, base: 0.0005 };
+// Cash earns the base rate of a normal Singapore bank savings account (0.05% a year in 2026).
+export const SAVINGS_RATE = 0.0005;
 export const DEBT_INTEREST = 0.25; // typical credit card interest (it compounds fast!)
 // Debt Consolidation Plan: banks roll card debts into one loan at about 6-8% EIR,
 // repaid in fixed instalments over up to 10 years.
@@ -19,13 +20,14 @@ export function newGame(name, look) {
   const s = {
     version: 1,
     name,
+    renting: false, // without a home of your own, you live with your parents unless you choose to rent
     age: STAGES.child.startAge,
     stage: 'child',
     look: { animal: look.animal, gender: look.gender, outfit: look.outfit },
     stats: Object.fromEntries(Object.keys(STATS).map((k) => [k, 0])),
     hybrids: {},
     bank: 20, // your cash: savings you can spend anywhere
-    cashLow: 20, // lowest cash balance this year: the untouched part earns more interest
+    cashLow: 20, // lowest cash balance this year
     holdings: [],
     debt: 0, // unsecured debt (credit cards), or a Debt Consolidation Plan when s.dcp is set
     dcp: null,
@@ -42,7 +44,7 @@ export function newGame(name, look) {
     salary: 0,
     lifestyle: 'simple',
     home: null,
-    car: false,
+    car: null, // { boughtAge, price, down, loan, monthly, monthsLeft } while you own one
     spouse: null,
     children: [],
     eduRefunds: [],
@@ -53,6 +55,10 @@ export function newGame(name, look) {
     shortfallAge: null,
     history: [],
     log: [],
+    story: [], // the big moments, for the life recap: { age, kind, icon, text, ...numbers }
+    insurance: { plan: 'msl', rider: false }, // MediShield Life for everyone; an Integrated Shield Plan on top is optional
+    healthPlan: health.planHealthEvents(21), // the illnesses and accidents this life will bring: [{ age, id }]
+    dating: null, // the age you started seeing someone
     done: false,
   };
   // MediSave Grant for Newborns, grown with interest from birth to the starting age.
@@ -63,7 +69,7 @@ export function newGame(name, look) {
 }
 
 export function newBudget() {
-  return { hobbies: 0, shopping: 0, cpfSelf: 0, kidsCpf: 0, investAmt: 0, investId: 'world' };
+  return { hobbies: 0, shopping: 0, cpfSelf: 0, cpfYearly: 0, kidsCpf: 0, investAmt: 0, investId: 'world' };
 }
 
 export function unlockedStats(s) {
@@ -109,17 +115,22 @@ export function ownedItems(s) {
   return s.room.map((id) => all.find((i) => i.id === id)).filter(Boolean);
 }
 
+// Remembers a big moment for the life recap at the end.
+export function story(s, kind, icon, text, data = {}) {
+  (s.story ||= []).push({ age: s.age, kind, icon, text, ...data });
+}
+
 export function buy(s, item) {
   if (s.bank < item.price || s.room.includes(item.id)) return false;
   spendCash(s, item.price);
   s.room.push(item.id);
   s.joy += item.joy;
   s.log.push(`Age ${s.age}: bought ${item.name} for ${money(item.price)}`);
+  story(s, 'buy', item.icon, item.name, { amount: item.price, joy: item.joy });
   return true;
 }
 
-// Takes money out of cash. Dipping into savings means that money doesn't earn the
-// higher rate for untouched savings this year.
+// Takes money out of cash, keeping track of the year's lowest balance.
 export function spendCash(s, amount) {
   s.bank -= amount;
   s.cashLow = Math.min(s.cashLow ?? s.bank, s.bank);
@@ -134,7 +145,11 @@ export function allocateGift(s, { cash = 0, treat = 0, charity = 0, cpf: toCpf =
   s.bank += cash;
   const joy = Math.min(6, (treat + charity * 1.3) * joyPerDollar(s));
   s.joy += joy;
-  if (charity > 0) s.stats.communication += Math.min(2, charity * joyPerDollar(s));
+  if (charity > 0) {
+    s.stats.communication += Math.min(2, charity * joyPerDollar(s));
+    s.given = (s.given || 0) + charity;
+    story(s, 'give', '💝', `Gave ${money(charity)} to charity`, { amount: charity });
+  }
   let refused = 0, matched = 0;
   if (toCpf > 0) {
     const r = topUpCpf(s, toCpf);
@@ -172,7 +187,10 @@ export function chooseCareer(s, careerId) {
   s.salary = c.startPay;
   s.careerStartAge = s.age;
   s.cpfWorked = true;
+  story(s, 'job', c.icon, `Started work as ${aOrAn(c.title || c.label)} ${c.title || c.label}`, { pay: c.startPay });
 }
+
+export const aOrAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 
 // The job you have now, whether you started in it or switched into it later.
 export function careerInfo(s) {
@@ -197,6 +215,7 @@ export function switchCareer(s, id) {
   s.selfEmployed = !!c.selfEmployed;
   s.salary = c.pay;
   s.log.push(`Age ${s.age}: became a ${c.label}`);
+  story(s, 'job', c.icon, `Switched careers to become ${aOrAn(c.label)} ${c.label}`, { pay: c.pay });
 }
 
 // ---------- the job market ----------
@@ -246,12 +265,16 @@ export function jobOffers(s, economy = 'normal') {
 }
 
 export function takeJob(s, offer) {
+  const prevCareer = s.career;
   if (offer.id !== s.career) s.careerStartAge = Math.min(s.careerStartAge ?? 21, s.age); // experience carries over
   s.career = offer.id;
   s.selfEmployed = !!offer.selfEmployed;
   s.salary = offer.pay;
   s.jobChangedAge = s.age;
   s.log.push(`Age ${s.age}: started work as ${offer.label} (${money(offer.pay)}/month)`);
+  const job = careerInfo(s);
+  const label = job ? job.title || job.label : offer.label;
+  story(s, 'job', offer.icon, offer.id === prevCareer ? `Moved to a new ${label} job` : `Became ${aOrAn(label)} ${label}`, { pay: offer.pay });
 }
 
 export function ageStage(age) {
@@ -268,13 +291,15 @@ export function yearsThisTurn(s) {
 // Runs `years` years of life. `opts.jobWage` is a teen's part-time monthly pay.
 // Returns a summary of what happened to the money.
 export function advanceYears(s, years, opts = {}) {
-  const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0 };
+  const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0,
+    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cpfInterest: 0, bankInterest: 0, insuranceMa: 0, insuranceCash: 0, groceries: 0, homeSpouse: 0, cashStart: s.bank };
   for (let y = 0; y < years; y++) {
     // One-off effects (like months without pay) only hit the first year.
     oneYear(s, sum, y === 0 ? opts : { jobWage: opts.jobWage });
     s.age++;
     record(s);
   }
+  sum.cashEnd = s.bank;
   return sum;
 }
 
@@ -282,6 +307,7 @@ function oneYear(s, sum, opts) {
   const age = s.age;
   const st = STAGES[s.stage];
   const young = s.stage === 'child' || s.stage === 'teen';
+  childSupportYear(s, sum);
   const lifeOn = !!(s.life && age >= s.life.startAge);
   if (lifeOn) {
     const plan = LIFE_PLANS[s.life.plan || 'standard'];
@@ -295,20 +321,38 @@ function oneYear(s, sum, opts) {
   }
   const wage = young ? 0 : currentWage(s);
   const jobMonths = young && opts.jobWage && age >= 16 ? 3 : 0; // teen holiday job
-  const spendMonthly = young ? 0 : monthlySpend(s) * (opts.costFactor || 1);
+  // Everyday spending, split into its parts so the player can see where it goes.
+  const parts = young ? null : spendBreakdown(s);
+  const costFactor = opts.costFactor || 1;
+  const spendMonthly = young ? 0 : parts.total * costFactor;
   const b = s.budget || newBudget();
   const funMonthly = young ? 0 : (b.hobbies || 0) + (b.shopping || 0);
   const acc = cpf.newInterestAccrual();
   let cash = 0;
 
-  // MediShield Life premiums are deducted from MediSave once a year.
-  if (!young) payFromMedisave(s, medishieldPremium(age));
+  // Health insurance premiums: MediShield Life, plus any Shield plan and rider. MediSave pays
+  // MediShield Life and part of a Shield plan (up to the Additional Withdrawal Limit); the rest is cash.
+  if (!young) {
+    const pr = insurancePremiums(s);
+    const ma = Math.min(pr.medisave, Math.max(0, s.cpf.ma));
+    s.cpf.ma -= ma;
+    if (pr.total - ma > 0) coverShortfall(s, pr.total - ma, sum);
+    sum.insuranceMa += ma;
+    sum.insuranceCash += pr.total - ma;
+  }
 
   for (let m = 0; m < 12; m++) {
     // Outflows first: housing loan instalments come out of the OA, then cash.
     let out = spendMonthly + funMonthly;
     sum.fun += funMonthly;
     if (!young) {
+      sum.living += parts.living * costFactor;
+      sum.kids += parts.kids * costFactor;
+      sum.groceries += parts.groceries * costFactor;
+      sum.homeSpouse += parts.homeSpouse * costFactor;
+      sum.car += parts.car * costFactor;
+      if (s.car) cars.payMonth(s.car);
+      sum.allowance += parts.allowance * costFactor;
       if (s.home) {
         // Loan instalments: from the OA first if you chose that, then cash.
         const paid = housing.payMonth(s.home, s.cpf.oa);
@@ -316,10 +360,13 @@ function oneYear(s, sum, opts) {
         sum.housingOa += paid.fromOa;
         sum.housingCash = (sum.housingCash || 0) + paid.fromCash;
         // The loan was meant to come from the OA, but the OA ran dry.
-        if (s.home.payWith === 'oa' && paid.fromCash > 0.01) sum.oaRanOut = (sum.oaRanOut || 0) + paid.fromCash;
+        if (paid.oaShort > 0.01) sum.oaRanOut = (sum.oaRanOut || 0) + paid.oaShort;
         out += paid.fromCash;
-      } else if (age >= 30 || s.spouse) {
-        out += RENT_MONTHLY * (s.spouse ? 0.5 : 1);
+        if (s.home.loanBalance <= 0.01 && s.home.paidOffAge == null && s.home.instalment > 0) s.home.paidOffAge = age;
+      } else if (s.renting) {
+        const rent = RENT_MONTHLY * householdShare(s);
+        sum.rent += rent;
+        out += rent;
       }
       // Debt Consolidation Plan: a fixed monthly instalment, with interest worked out monthly.
       if (s.dcp && s.debt > 0) {
@@ -328,6 +375,7 @@ function oneYear(s, sum, opts) {
         s.debt += interest - pay;
         sum.debtInterest += interest;
         sum.debtPaid += pay;
+        sum.dcpPaid += pay;
         out += pay;
         if (s.debt < 1) { s.debt = 0; s.dcp = null; s.debtCrisis = false; }
       }
@@ -388,13 +436,14 @@ function oneYear(s, sum, opts) {
   // Children's CPF top-ups grow at the SA rate plus 1% extra interest.
   for (const c of s.children || []) if (c.cpfSa) c.cpfSa *= 1 + cpf.INTEREST.sa + 0.01;
 
-  // Savings interest: the higher rate on what you never touched this year.
-  const untouched = Math.max(0, Math.min(s.cashLow ?? 0, s.bank));
-  const bankInt = untouched * SAVINGS_INTEREST.untouched + Math.max(0, s.bank - untouched) * SAVINGS_INTEREST.base;
+  // Bank savings interest on the cash you have.
+  const bankInt = Math.max(0, s.bank) * SAVINGS_RATE;
   s.bank += bankInt;
   s.cashLow = s.bank;
   const invRet = invest.yearPassed(s, opts.market);
   sum.interest += interest + bankInt;
+  sum.cpfInterest += interest;
+  sum.bankInterest += bankInt;
   sum.investReturn += invRet;
   // Credit card debt: 25% a year, and any spare cash pays it off first.
   if (s.debt > 0 && !s.dcp) {
@@ -443,19 +492,34 @@ export function spendBreakdown(s) {
     const floor = s.lifestyle === 'lavish' ? l.monthly : Math.min(l.monthly, (s.lifestyle === 'simple' ? 0.6 : 0.75) * th);
     m = Math.max(floor, l.share * th);
   }
-  const car = s.car ? 1500 : 0;
-  const share = s.spouse ? 0.5 : 1;
-  let kids = 0, kidsCount = 0, allowance = 0;
+  const car = s.car ? cars.monthlyCost(s.car) : 0;
+  const share = householdShare(s);
+  let kids = 0, kidsCount = 0, allowance = 0, groceries = 0;
   for (const c of s.children || []) {
     const childAge = s.age - c.bornAge;
-    if (childAge < 22) { kids += CHILD_COST * share; kidsCount++; }
+    if (childAge < 22) {
+      kids += childCost(childAge) * share;
+      groceries += GROCERIES.child * share;
+      kidsCount++;
+    }
     // Grown-up children often give their parents a monthly allowance.
     else if (s.age >= 60) allowance += CHILD_ALLOWANCE;
   }
-  return { living: m, car, kids, kidsCount, allowance, total: m + car + kids - allowance };
+  // A stay-at-home spouse: you pay their allowance and their share of the groceries.
+  const homeSpouse = s.spouse && s.spouse.home ? s.spouse.allowance || 0 : 0;
+  if (s.spouse && s.spouse.home) groceries += GROCERIES.spouse;
+  return { living: m, car, kids, kidsCount, groceries, homeSpouse, allowance, total: m + car + kids + groceries + homeSpouse - allowance };
 }
 
-export const CHILD_COST = 1200;
+// What a child costs a month in 2026, after Government subsidies, not counting food
+// (estimates: infant care and diapers; preschool; school, tuition and pocket money; JC or poly).
+export const CHILD_COSTS = [[2, 1000, 'infant care, diapers and milk'], [6, 700, 'preschool and enrichment'],
+  [12, 550, 'school, tuition and pocket money'], [16, 650, 'tuition, transport and pocket money'], [21, 800, 'JC or poly, transport and pocket money']];
+export const childCost = (age) => (CHILD_COSTS.find(([max]) => age <= max) || [0, 0])[1];
+export const GROCERIES = { child: 250, spouse: 300 }; // extra groceries a month for each family member
+
+// Your part of shared household costs: half if your spouse also works, all of it if they stay at home.
+export const householdShare = (s) => (s.spouse && !s.spouse.home ? 0.5 : 1);
 
 export function takeHome(s) {
   const wage = currentWage(s);
@@ -463,11 +527,34 @@ export function takeHome(s) {
 }
 export const CHILD_ALLOWANCE = 200;
 
-export function medishieldPremium(age) {
-  if (age <= 40) return 300;
-  if (age <= 60) return 700;
-  if (age <= 75) return 1300;
-  return 1800;
+export const medishieldPremium = (age) => health.mslPremium(age);
+
+export function insurancePremiums(s) {
+  const ins = s.insurance || { plan: 'msl', rider: false };
+  return health.premiums(s.age, ins.plan, ins.rider);
+}
+
+// Monthly per capita household income, used to means-test hospital subsidies.
+export function pchi(s) {
+  const people = 1 + (s.spouse ? 1 : 0) + (s.children || []).filter((c) => s.age - c.bornAge < 21).length;
+  return grossIncome(s) / people;
+}
+
+// An illness or accident: works out the bill and pays it.
+export function treat(s, id) {
+  const c = health.CONDITIONS.find((x) => x.id === id);
+  const ins = s.insurance || { plan: 'msl', rider: false };
+  const b = health.billBreakdown(c, {
+    age: s.age, plan: ins.plan, rider: ins.rider, pchi: pchi(s),
+    highValueHome: !!s.home && s.home.kind === 'private', medisave: s.cpf.ma, cash: s.bank,
+  });
+  s.cpf.ma -= b.fromMedisave;
+  if (b.fromCash > 0) coverShortfall(s, b.fromCash);
+  s.joy = Math.max(0, s.joy - (c.kind === 'major' ? 3 : 1));
+  if (c.kind === 'major') s.stats.health = Math.max(0, s.stats.health - 3);
+  (s.illnesses ||= []).push({ age: s.age, id, ward: b.ward, cash: b.fromCash, medisave: b.fromMedisave });
+  story(s, 'health', c.icon, `Recovered from ${c.label} in a ${b.wardInfo.label}`, { gross: b.gross, cash: b.fromCash, medisave: b.fromMedisave });
+  return { c, b };
 }
 
 // Pays a bill from MediSave first, then cash. Returns how it was split.
@@ -572,6 +659,7 @@ export function pledgeToBrs(s) {
   s.bank += extra;
   s.retirementTarget = 'BRS';
   s.pledged = true;
+  story(s, 'cpf', '🏠', `Pledged your home to keep only the BRS, and withdrew ${money(extra)}`, { amount: extra });
   return extra;
 }
 
@@ -581,6 +669,7 @@ export function transferOaToRa(s, amount) {
   s.cpf.oa -= a;
   s.cpf.ra += a;
   if (s.cpf.ra > cpf.RETIREMENT_SUMS.FRS) s.retirementTarget = 'ERS';
+  if (a > 0) story(s, 'cpf', '🏛️', `Moved ${money(a)} from your OA to your RA for bigger payouts`, { amount: a });
   return a;
 }
 
@@ -590,6 +679,7 @@ export function withdrawOa(s, amount) {
   s.cpf.oa -= fromOa;
   s.cpf.ra -= fromRa;
   s.bank += fromOa + fromRa;
+  if (fromOa + fromRa > 0) story(s, 'cpf', '💵', `Withdrew ${money(fromOa + fromRa)} of CPF at 55`, { amount: fromOa + fromRa });
   settleDebt(s);
 }
 
@@ -609,6 +699,7 @@ export function startCpfLife(s, startAge, plan = 'standard') {
     s.life.premium = s.cpf.ra;
     s.cpf.ra = 0;
   }
+  story(s, 'cpf', '🏛️', `Chose the CPF LIFE ${LIFE_PLANS[plan].label} plan, starting at ${startAge}`);
 }
 
 export function retirementIncome(s) {
@@ -623,6 +714,11 @@ export function record(s) {
     cpfInvested: Math.round(invest.total(s, 'oa') + invest.total(s, 'sa')),
     cash: Math.round(s.bank + invest.total(s, 'cash') - s.debt),
     oa: Math.round(c.oa), sa: Math.round(c.sa), ma: Math.round(c.ma), ra: Math.round(c.ra),
+    job: isWorking(s) ? s.career : null,
+    pay: Math.round(currentWage(s)),
+    part: s.stage === 'senior' && s.workMode === 'part',
+    style: s.stage === 'adult' || s.stage === 'senior' ? (s.age > 55 && s.retirementLifestyle) || s.lifestyle : null,
+    home: s.home ? s.home.label : null,
   });
 }
 
@@ -641,6 +737,9 @@ function round1(n) {
 
 // ---------- family ----------
 
+// Spouses are usually close in age: 1 or 2 years older or younger.
+export const spouseAgeGap = () => (Math.random() < 0.5 ? -1 : 1) * (1 + Math.floor(Math.random() * 2));
+
 export function marry(s, weddingCost) {
   const ratio = 0.7 + Math.random() * 0.5;
   // Your spouse is the same kind of animal, of the opposite gender.
@@ -649,16 +748,41 @@ export function marry(s, weddingCost) {
     animal: s.look.animal,
     gender: s.look.gender === 'male' ? 'female' : 'male',
     outfit: (s.look.outfit + 2) % 6,
+    home: false, // true: stays at home and you pay their allowance
+    allowance: 500,
+    ageGap: spouseAgeGap(), // years older (+) or younger (-) than you
   };
+  s.dating = null;
   coverShortfall(s, weddingCost / 2);
   s.log.push(`Age ${s.age}: got married`);
+  story(s, 'family', '💍', 'Got married', { amount: weddingCost / 2 });
 }
 
-// Government support for each new baby (children born from 18 Feb 2025).
+// Government support for each new baby: the SG Child Support Package (from April 2027,
+// announced at the National Day Rally 2026). It's the same for every child, whatever the
+// birth order: a $10,000 Baby Gift in cash, a $5,000 CDA First Step Grant plus up to
+// $5,000 of co-matching, $2,000 of Child Credits a year from age 1 to 16, and a $10,000
+// PSEA top-up for education at 17. Every newborn also gets a $4,000 MediSave Grant;
+// large families keep an extra $5,000 MediSave grant from the third child.
+export const CHILD_SUPPORT = { babyGift: 10000, cdaGrant: 5000, cdaMatch: 5000, childCredit: 2000, psea: 10000, medisave: 4000, largeFamilyMedisave: 5000 };
+
 export function babySupport(birthOrder) {
-  return birthOrder <= 2
-    ? { cashGift: 11000, cdaGrant: 5000 }
-    : { cashGift: 13000, cdaGrant: 10000 };
+  const c = CHILD_SUPPORT;
+  return { cashGift: c.babyGift, cdaGrant: c.cdaGrant, cdaMatch: c.cdaMatch, medisave: c.medisave + (birthOrder >= 3 ? c.largeFamilyMedisave : 0) };
+}
+
+// Each year: Child Credits for children aged 1 to 16 (paid to the child's account, which
+// parents manage; couples share it like the costs), and the PSEA top-up at 17.
+function childSupportYear(s, sum) {
+  for (const c of s.children || []) {
+    const age = s.age - c.bornAge;
+    if (age >= 1 && age <= 16) {
+      const credit = CHILD_SUPPORT.childCredit * householdShare(s);
+      s.bank += credit;
+      sum.childCredits = (sum.childCredits || 0) + credit;
+    }
+    if (age === 17 && c.psea == null) c.psea = CHILD_SUPPORT.psea; // for fees at a local university or polytechnic
+  }
 }
 
 export function haveChild(s) {
@@ -671,6 +795,7 @@ export function haveChild(s) {
   });
   s.joy += 4;
   s.log.push(`Age ${s.age}: welcomed child number ${s.children.length}`);
+  story(s, 'family', '👶', `Welcomed child number ${s.children.length}`);
   return babySupport(s.children.length);
 }
 
@@ -679,8 +804,13 @@ export const UNI_FEES = 34000; // about four years of subsidised local universit
 // How a child's university fees are paid. Your share is half if you're married.
 // 'oa' uses the CPF Education Scheme: up to 40% of your OA, which your child
 // repays (with 2.5% interest) over 12 years, starting a year after graduating.
+// The child's PSEA (from the $10,000 top-up at 17) pays part of the fees first.
+export const uniFeesAfterPsea = (child) => Math.max(0, UNI_FEES - (child.psea || 0));
+
 export function payUniversity(s, child, how) {
-  const fees = UNI_FEES * (s.spouse ? 0.5 : 1);
+  const fees = uniFeesAfterPsea(child) * householdShare(s);
+  child.pseaUsed = Math.min(UNI_FEES, child.psea || 0);
+  child.psea = 0;
   child.uni = how;
   if (how === 'cash') coverShortfall(s, fees);
   if (how === 'oa') {
@@ -696,35 +826,68 @@ export function payUniversity(s, child, how) {
 
 // ---------- housing ----------
 
+// ---------- cars ----------
+
+export function buyCar(s) {
+  const car = cars.newCar(s.age);
+  coverShortfall(s, car.down);
+  s.car = car;
+  s.joy += 2;
+  s.carsOwned = (s.carsOwned || 0) + 1;
+  s.carSpent = (s.carSpent || 0) + car.down;
+  story(s, 'car', '🚗', `Bought car number ${s.carsOwned}`, { amount: car.down });
+  return car;
+}
+
+// Sell (or scrap) the car: the dealer's price pays off the loan first.
+export function sellCar(s, why = 'Sold') {
+  const q = cars.quote(s.car, s.age);
+  if (q.net >= 0) s.bank += q.net;
+  else coverShortfall(s, -q.net);
+  s.carSpent = (s.carSpent || 0) - q.value;
+  story(s, 'car', '🔑', `${why} your car after ${q.years} years for ${money(q.value)}`, { amount: q.value });
+  s.car = null;
+  return q;
+}
+
 export function grossIncome(s) {
   const own = s.stage === 'adult' || s.stage === 'senior' ? currentWage(s) : 0;
-  return own + (s.spouse ? s.spouse.salary : 0);
+  return own + (s.spouse && !s.spouse.home ? s.spouse.salary : 0);
 }
 
 export function otherDebt(s) {
-  return s.car ? 900 : 0; // car loan instalment counts towards the TDSR
+  return s.car && s.car.monthsLeft > 0 ? s.car.monthly : 0; // car loan instalments count towards the TDSR
 }
 
-export function homeQuotes(s) {
-  const share = s.spouse ? 0.5 : 1;
+// Without a home of your own you live with your parents (free) or rent, as you choose.
+export const isRenting = (s) => !s.home && !!s.renting;
+
+export function homeQuotes(s, years = 25) {
+  const share = householdShare(s);
   return housing.HOMES
     .filter((h) => (s.spouse ? h.id !== 'flexi2' : h.kind === 'private' || (s.age >= 35 && h.singles)))
     .map((h) => housing.quote(h, {
       share,
+      grant: s.grantUsed ? 0 : housing.grantsFor(h, grossIncome(s), !s.spouse).total,
       grossIncome: Math.max(1, grossIncome(s)),
       otherDebt: otherDebt(s),
       oa: s.cpf.oa,
       cash: s.bank,
+      years,
+      age: s.age,
     }));
 }
 
-export function buyHome(s, id) {
-  const q = homeQuotes(s).find((x) => x.id === id);
+export function buyHome(s, id, years = 25) {
+  const q = homeQuotes(s, years).find((x) => x.id === id);
   s.cpf.oa -= q.fromOa;
   coverShortfall(s, q.fromCash);
   s.home = housing.newHome(q, s.age);
+  s.renting = false;
+  if (q.grant > 0) s.grantUsed = true; // housing grants are for first-timers only
   s.joy += q.joy;
   s.log.push(`Age ${s.age}: bought a ${q.label}`);
+  story(s, 'home', '🔑', `Bought ${aOrAn(q.label)} ${q.label}`, { price: q.price, grant: q.grant, oa: q.fromOa, cash: q.fromCash, instalment: q.instalment });
   return q;
 }
 
@@ -734,7 +897,9 @@ export function sellHome(s) {
   housing.creditHousingRefund(s.cpf, s.age, b.refund);
   s.bank += b.cash;
   s.log.push(`Age ${s.age}: sold the ${s.home.label}`);
+  story(s, 'home', '🏷️', `Sold the ${s.home.label}`, { sale: b.sale, refund: b.refund, cash: b.cash });
   s.home = null;
+  s.renting = true; // until you buy again or move in with family
   return b;
 }
 
@@ -742,6 +907,7 @@ export function voluntaryHousingRefund(s, amount) {
   const a = Math.min(amount, s.bank, s.home ? housing.cpfToRefund(s.home) : 0);
   if (a <= 0) return 0;
   housing.voluntaryRefund(s.home, a);
+  story(s, 'cpf', '🏛️', `Refunded ${money(a)} of housing CPF to your OA (Voluntary Housing Refund)`, { amount: a });
   spendCash(s, a);
   housing.creditHousingRefund(s.cpf, s.age, a);
   return a;
@@ -759,6 +925,7 @@ export function leaseBuyback(s) {
   s.home.leaseLeft = q.keep;
   s.home.lbsDone = true;
   s.home.lbsAge = s.age;
+  story(s, 'home', '🏛️', `Sold ${q.sell} years of lease back to HDB (Lease Buyback Scheme)`, { amount: q.topUp + q.cash });
   return q;
 }
 
@@ -783,7 +950,7 @@ export function travellers(s) {
 // Your share of one trip. Couples split household costs.
 export function holidayCost(s, id) {
   const h = HOLIDAYS.find((x) => x.id === id);
-  return h.cost * travellers(s) * (s.spouse ? 0.5 : 1);
+  return h.cost * travellers(s) * householdShare(s);
 }
 
 // Average monthly cost of your holiday plans over the next year.
@@ -806,6 +973,14 @@ function takeHolidays(s, sum) {
   s.holidayPlans = (s.holidayPlans || []).filter((p) => p.mode === 'yearly' || p.left > 0);
 }
 
+// The yearly CPF top-up plan. Older saves planned it per month.
+export function cpfTopUpPerYear(s) {
+  const b = s.budget;
+  if (!b) return 0;
+  if (b.cpfSelf > 0) { b.cpfYearly = (b.cpfYearly || 0) + b.cpfSelf * 12; b.cpfSelf = 0; }
+  return b.cpfYearly || 0;
+}
+
 // Planned saving each year, only from cash you actually have (never borrowed).
 function budgetTransfers(s, sum) {
   const b = s.budget || newBudget();
@@ -813,35 +988,56 @@ function budgetTransfers(s, sum) {
     const a = Math.max(0, Math.min(want, s.bank));
     return a;
   };
-  if (b.cpfSelf > 0) {
-    const a = take(Math.min(b.cpfSelf * 12, topUpRoom(s)));
+  // Regular yearly CPF top-up. It stops by itself once the SA reaches the FRS (or the RA the ERS).
+  const yearly = cpfTopUpPerYear(s);
+  if (yearly > 0) {
+    const a = take(Math.min(yearly, topUpRoom(s)));
     if (a > 0) {
       spendCash(s, a);
       const r = topUpCpf(s, a);
       s.bank += a - r.accepted;
       sum.cpfSaved += r.accepted;
     }
+    if (topUpRoom(s) <= 0) {
+      b.cpfYearly = 0;
+      s.budget = b;
+      s.cpfPlanStopped = { age: s.age + 1, before55: s.age < 55 };
+    }
   }
   const kids = (s.children || []).filter((c) => s.age - c.bornAge < 21);
   if (b.kidsCpf > 0 && kids.length) {
     for (const c of kids) {
       // Your share: couples split it.
-      const a = take(b.kidsCpf * 12);
-      if (a <= 0) break;
+      // A child's SA also takes top-ups only up to the FRS.
+      const room = Math.max(0, (cpf.RETIREMENT_SUMS.FRS - (c.cpfSa || 0)) * householdShare(s));
+      const a = take(Math.min(b.kidsCpf * 12, room));
+      if (a <= 0) continue;
       spendCash(s, a);
-      c.cpfSa = (c.cpfSa || 0) + a / (s.spouse ? 0.5 : 1);
+      c.cpfSa = (c.cpfSa || 0) + a / householdShare(s);
       c.cpfGiven = (c.cpfGiven || 0) + a;
       sum.kidsCpf += a;
     }
   }
-  if (b.investAmt > 0) {
-    const a = take(b.investAmt * 12);
-    if (a > 0) {
-      sum.invested += invest.buy(s, b.investId || 'world', 'cash', a);
-      s.cashLow = Math.min(s.cashLow ?? s.bank, s.bank);
-    }
+  // Dollar-cost averaging: each plan buys the same amount once a year, whatever the price.
+  for (const plan of dcaPlans(s)) {
+    const a = plan.src === 'cash' ? take(plan.perYear) : plan.perYear;
+    if (a <= 0) continue;
+    sum.invested += invest.buy(s, plan.id, plan.src, a);
+    if (plan.src === 'cash') s.cashLow = Math.min(s.cashLow ?? s.bank, s.bank);
   }
 }
+
+// Regular investment plans (DCA). Older saves had one monthly plan in the budget.
+export function dcaPlans(s) {
+  const b = s.budget;
+  if (b && b.investAmt > 0) {
+    (s.dca ||= []).push({ id: b.investId || 'world', src: 'cash', perYear: b.investAmt * 12 });
+    b.investAmt = 0;
+  }
+  return (s.dca ||= []);
+}
+
+export const dcaCashPerYear = (s) => dcaPlans(s).filter((p) => p.src === 'cash').reduce((t, p) => t + p.perYear, 0);
 
 // Lease Buyback Scheme checks (HDB rules, 2026). Returns { ok, reasons, keep }.
 export function lbsCheck(s) {
@@ -871,7 +1067,10 @@ export function topUpsThisYear(s) {
 }
 
 // How much more cash you can top up: the SA up to the FRS before 55, the RA up to the ERS after.
+// Before 55, SA savings you've invested through CPFIS-SA still count towards the FRS.
+// There's no yearly cap on RSTU top-ups; only the first $8,000 a year gets tax relief.
 export function topUpRoom(s) {
+  if (s.age < 55) return Math.max(0, cpf.topUpRoom(s.cpf, s.age) - invest.costOf(s, 'sa'));
   return cpf.topUpRoom(s.cpf, s.age, s.life ? s.life.premium : 0);
 }
 
@@ -887,9 +1086,10 @@ export function lifePayoutGain(s, amount) {
 // Cash top-up. From 55, if your RA is below the BRS, the Matched Retirement
 // Savings Scheme matches it dollar for dollar, up to $2,000 a year.
 export function topUpCpf(s, amount) {
-  const accepted = cpf.cashTopUp(s.cpf, s.age, amount, s.life ? s.life.premium : 0);
+  const accepted = cpf.cashTopUp(s.cpf, s.age, Math.min(amount, topUpRoom(s)), s.life ? s.life.premium : 0);
   const before = topUpsThisYear(s);
   s.topUps = { age: s.age, amount: before + accepted };
+  s.lifeTopUps = (s.lifeTopUps || 0) + accepted;
   let matched = 0;
   if (s.age >= 55 && accepted > 0 && s.cpf.ra - accepted < cpf.RETIREMENT_SUMS.BRS) {
     const usedThisYear = s.mrss && s.mrss.age === s.age ? s.mrss.amount : 0;

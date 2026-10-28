@@ -1,7 +1,8 @@
 // Random life events. World events change the coming years (and your stats can
 // soften them); personal events and cash gifts happen to you alone.
 import { rand, pick, FACTS } from './data.js';
-import { money, payFromMedisave, coverShortfall, marry, haveChild, spendCash } from './sim.js';
+import { money, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar } from './sim.js';
+import * as cars from './car.js';
 import * as invest from './invest.js';
 
 // How much your stats protect you: 0 (none) to 0.8 (mostly), plus hybrid bonuses.
@@ -176,14 +177,14 @@ export const PERSONAL_EVENTS = [
     run: (s) => ({
       icon: '🍼',
       title: s.children.length ? 'Another baby?' : 'Start a family?',
-      text: `A child costs a household about $1,200 a month until they're grown up (you pay half). The Government helps with a Baby Bonus.`,
+      text: `A child costs about $550 to $1,000 a month depending on age, plus groceries, until they're grown up${s.spouse && !s.spouse.home ? ' (you pay half)' : ''}. The Government helps through the SG Child Support Package.`,
       fact: FACTS.fertility,
       choices: [
         { label: 'Have a baby', run: (s) => {
           const b = haveChild(s);
           return {
-            text: `Congratulations! Your baby gets a $4,000 MediSave Grant for Newborns (just like you did) and a ${money(b.cdaGrant)} CDA First Step Grant in their Child Development Account. You also get the Baby Bonus Cash Gift. Joy +4.`,
-            gift: gift('👶', 'Baby Bonus Cash Gift', 'The Government gives parents a cash gift for each child, paid in instalments until the child is 6½. Here you get it all at once.', b.cashGift),
+            text: `Congratulations! Under the SG Child Support Package your baby gets a ${money(b.medisave)} MediSave grant${b.medisave > 4000 ? ' (including $5,000 extra for large families)' : ''} and a ${money(b.cdaGrant)} CDA First Step Grant. The Government also matches what you save in their Child Development Account (CDA), up to ${money(b.cdaMatch)}; CDA money can only pay for things like preschool and medical bills. From age 1 to 16 they get ${money(2000)} of Child Credits a year. Joy +4.`,
+            gift: gift('👶', 'Baby Gift', 'Part of the SG Child Support Package: cash for every Singapore citizen baby, whatever the birth order, paid in 2 parts within a year of birth. Here you get it all at once. You can spend it on anything.', b.cashGift),
           };
         } },
         { label: s.children.length ? 'No more children' : 'Not now', run: (s) => { if (s.children.length) s.noMoreKids = true; return 'OK. You can decide again later.'; } },
@@ -191,24 +192,7 @@ export const PERSONAL_EVENTS = [
     }),
   },
 
-  // Health
-  {
-    id: 'hospital',
-    stages: ['adult', 'senior'],
-    weight: 2,
-    chance: (s) => 1 - resistance(s, ['health', 'fitness'], ['vitality']),
-    run(s) {
-      const bill = rand(5, 20) * 1000 * (s.stage === 'senior' ? 1.5 : 1);
-      const covered = Math.round(bill * 0.6); // MediShield Life covers large bills after the deductible
-      const rest = bill - covered;
-      const paid = payFromMedisave(s, rest);
-      return {
-        icon: '🏥',
-        title: 'Hospital stay',
-        text: `You need surgery: the bill is ${money(bill)}. MediShield Life pays ${money(covered)}, MediSave pays ${money(paid.ma)}${paid.cash ? ` and you pay ${money(paid.cash)} in cash` : ''}. Good Health and Fitness make this less likely.`,
-      };
-    },
-  },
+  // Health: illnesses and accidents are planned per life (see health.js), not rolled here.
   {
     id: 'parentcare',
     stages: ['adult'],
@@ -270,13 +254,13 @@ export const PERSONAL_EVENTS = [
     stages: ['adult'],
     weight: 1,
     when: (s) => !s.car && s.age >= 28,
-    run: () => ({
+    run: (s) => ({
       icon: '🚗',
       title: 'Buy a car?',
-      text: 'With COE, loan, parking, petrol and insurance, a car costs about $1,500 a month. Public transport is much cheaper.',
+      text: `A new car costs about ${money(cars.CAR.price)}, most of it for the 10-year COE. You pay ${money(cars.CAR.price * cars.CAR.downPct)} down, then a loan of about ${money(cars.newCar(s.age).monthly)} a month for 7 years, plus about ${money(cars.CAR.running)} a month for petrol, parking, insurance and road tax. Public transport is much cheaper.`,
       choices: [
-        { label: 'Buy the car', run: (s) => { s.car = true; s.joy += 2; return 'Vroom! Joy +2, but $1,500 a month more in costs.'; } },
-        { label: 'Stick to MRT and bus', run: () => 'You save about $18,000 a year.' },
+        { label: 'Buy the car', run: (s) => { buyCar(s); return `Vroom! Joy +2. You paid ${money(s.car.down)} down, and the car now costs you ${money(cars.monthlyCost(s.car))} a month.`; } },
+        { label: 'Stick to MRT and bus', run: () => 'You save about $30,000 a year while the car loan lasts, and $11,000 a year after.' },
       ],
     }),
   },

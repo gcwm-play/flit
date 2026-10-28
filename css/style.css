@@ -100,7 +100,7 @@ p { margin: 0.5em 0; }
 /* ---------- room scene ---------- */
 .scene { padding: 16px; display: flex; justify-content: center; }
 .room {
-  position: relative; width: 100%; max-width: 900px; aspect-ratio: 16 / 8; min-height: 260px;
+  position: relative; width: 100%; max-width: 900px; aspect-ratio: 16 / 9; min-height: 220px; container-type: inline-size;
   border: 4px solid var(--line); box-shadow: var(--shadow); overflow: hidden; --wall: #bfe0f5; --wall2: #a9d2ec; --floor: #d9a066; --floor2: #c98c55;
 }
 .room-child { --wall: #ffd6e0; --wall2: #ffc4d3; --floor: #e7b97a; --floor2: #d9a866; }
@@ -142,7 +142,7 @@ p { margin: 0.5em 0; }
   font-family: var(--pixel); font-size: 10px; background: rgba(255,255,255,.85); border: 2px solid var(--line); padding: 4px 8px; white-space: nowrap;
 }
 .items { position: absolute; inset: 0; pointer-events: none; }
-.item { position: absolute; font-size: clamp(22px, 4.2vw, 40px); filter: drop-shadow(2px 2px 0 rgba(0,0,0,.25)); }
+.item { position: absolute; font-size: clamp(18px, 6.5cqw, 40px); filter: drop-shadow(2px 2px 0 rgba(0,0,0,.25)); }
 /* slots on the cabinet, then floor slots left and right of the player */
 .slot-0 { right: 30%; bottom: 36%; } .slot-1 { right: 24%; bottom: 36%; } .slot-2 { right: 18%; bottom: 36%; }
 .slot-3 { right: 12%; bottom: 36%; } .slot-4 { right: 6%; bottom: 36%; }
@@ -189,7 +189,9 @@ p { margin: 0.5em 0; }
 
 table.summary { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 15px; }
 table.summary td { border-bottom: 2px dotted #cfc5b5; padding: 6px 4px; }
-table.summary td:last-child { text-align: right; font-weight: 700; white-space: nowrap; }
+table.summary td:last-child { text-align: right; font-weight: 700; }
+/* Long values wrap instead of widening the table on a phone. */
+table.summary td small { display: block; font-weight: 600; color: var(--muted); }
 
 .careers { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 12px 0; }
 .career, .shop-item {
@@ -284,7 +286,7 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
   .hud { padding: 8px 12px; }
   .menu { width: 100%; }
   .scene { padding: 12px; }
-  .room { aspect-ratio: 4 / 3; }
+  .room { aspect-ratio: 16 / 10; }
   .actions { padding: 0 12px 24px; }
   .cards { grid-template-columns: repeat(2, 1fr); }
   .stat, .stat.locked { grid-template-columns: 120px 1fr 34px; }
@@ -336,7 +338,7 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 .j-age { font-family: var(--pixel); font-size: 9px; color: var(--accent); padding-top: 3px; }
 
 @media (max-width: 900px) {
-  .play { grid-template-columns: 1fr; }
+  .play { grid-template-columns: minmax(0, 1fr); }
   .ledger { position: static; max-height: none; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -352,7 +354,7 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 }
 .person.walking { animation: walk-frames 0.72s steps(4) infinite; }
 @keyframes walk-frames { to { background-position: 133.333% 0; } }
-.people .person { --size: clamp(84px, 17vw, 150px); }
+.people .person { --size: clamp(56px, 24cqw, 150px); }
 .walker {
   position: absolute; bottom: 0; left: var(--from); line-height: 0;
   animation: stroll var(--dur) linear var(--delay) infinite;
@@ -360,6 +362,14 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 .walker.lane-1 { bottom: 5%; z-index: -1; } .walker.lane-2 { bottom: 2%; } .walker.lane-3 { bottom: 7%; z-index: -1; }
 .walker.lane-4 { bottom: 1%; } .walker.lane-5 { bottom: 6%; z-index: -1; }
 .people { isolation: isolate; }
+/* Age tag above each animal. The walker mirrors itself to turn round, so the tag mirrors back in step. */
+.age-tag {
+  position: absolute; left: 50%; bottom: 100%; translate: -50% 0; white-space: nowrap; line-height: 1.2;
+  font-size: 10px; font-weight: 800; color: var(--ink); background: var(--panel); border: 2px solid var(--line);
+  padding: 0 4px; z-index: 5; border-radius: 2px; animation: unflip var(--dur) linear var(--delay) infinite;
+}
+.age-tag b { color: var(--accent); }
+@keyframes unflip { 0%, 47% { transform: scaleX(1); } 50%, 97% { transform: scaleX(-1); } 100% { transform: scaleX(1); } }
 /* Walk right, turn round, walk back. The art faces right; scaleX(-1) mirrors it. */
 @keyframes stroll {
   0% { left: var(--from); transform: scaleX(1); }
@@ -372,7 +382,7 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 .title-sprites .person { --size: clamp(72px, 20vw, 120px); }
 .end .person.big { --size: 160px; }
 .grown .person { --size: 120px; }
-.item-art { display: block; height: calc(var(--s, 0.3) * clamp(84px, 17vw, 150px)); width: auto; max-width: none; }
+.item-art { display: block; height: calc(var(--s, 0.3) * clamp(56px, 24cqw, 150px)); width: auto; max-width: none; }
 .animal-pick { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
 .animal-btn {
   display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px;
@@ -485,3 +495,120 @@ details.spend .sub { margin: 4px 0 6px 14px; font-size: 13px; }
 .career em { font-style: normal; font-weight: 800; margin-left: 4px; }
 .s-icon { display: flex; justify-content: center; align-items: flex-end; height: 64px; }
 .s-icon .item-art { height: 60px; max-width: 100%; object-fit: contain; }
+
+/* ---------- the smaller room beside the cash dashboard ---------- */
+.top-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; align-items: start; margin-bottom: 16px; }
+.play .top-row .scene { padding: 0; }
+.cashboard {
+  display: flex; flex-direction: column; gap: 12px; background: var(--panel); color: var(--ink);
+  border: 4px solid var(--line); box-shadow: var(--shadow); padding: 14px; font-size: 14px; min-width: 0;
+}
+.cashboard.young { gap: 6px; }
+.cb-cash { display: grid; gap: 2px; }
+.cb-label { font-family: var(--pixel); font-size: 9px; color: var(--muted); }
+.cb-big { font-size: 34px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.cb-change { font-size: 13px; color: var(--muted); }
+.cb-mini { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 13px; margin-top: 4px; }
+.cb-mini b { margin-left: 4px; }
+.cb-year { border-top: 2px dotted #cfc5b5; padding-top: 10px; display: grid; gap: 8px; min-width: 0; }
+.cb-year h3 { margin: 0; font-size: 10px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 8px; align-items: baseline; }
+.cb-year h3 span { font-family: 'Nunito', sans-serif; font-size: 12px; color: var(--muted); }
+.cb-flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(84px, 1fr)); gap: 6px; }
+.cb-flow div { display: grid; background: #fff8ea; border: 2px solid #e2d6c2; padding: 6px 8px; font-variant-numeric: tabular-nums; }
+.cb-flow span { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.cb-flow b { font-size: 17px; }
+.cb-flow small { color: var(--muted); font-size: 12px; }
+.cb-split { display: flex; height: 12px; border: 2px solid var(--line); background: #eee4d3; }
+.cb-split span + span { border-left: 1px solid #fff; }
+.cb-out { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 12px; align-items: center; font-variant-numeric: tabular-nums; }
+.cb-h { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.cb-out .num { text-align: right; white-space: nowrap; }
+.cb-item { position: relative; display: flex; align-items: center; gap: 6px; padding-bottom: 4px; min-width: 0; }
+.cb-item i { flex: none; width: 10px; height: 10px; border: 1px solid var(--line); }
+.cb-out .muted-ink { font-weight: 400; }
+.cb-item em { position: absolute; left: 16px; bottom: 0; height: 3px; max-width: calc(100% - 16px); opacity: .8; }
+.k-living { background: #e8a33d; } .k-kids { background: #e86a8a; } .k-car { background: #7a8fd6; }
+.k-home { background: #b97d4b; } .k-debt { background: #c53d3d; } .k-fun { background: #8bc06a; }
+.k-trip { background: #4fb3c9; } .k-save { background: #9c7bb5; } .k-spare { background: #cfe8c0; }
+.cashboard .link-btn { font-size: 13px; }
+
+/* things to do before you move on */
+.tiles-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.tiles-head small { font-family: 'Nunito', sans-serif; font-size: 13px; color: #c9cbe0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 10px; margin-bottom: 20px; }
+.tile {
+  display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 8px; align-items: center; text-align: left;
+  padding: 8px 10px; background: #fff8ea; border: 3px solid var(--line); box-shadow: 3px 3px 0 var(--line); cursor: pointer;
+  font: 800 14px 'Nunito', sans-serif; color: var(--ink); min-width: 0;
+}
+.tile:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--line); }
+.t-icon { grid-row: span 2; font-size: 24px; }
+.t-label { line-height: 1.15; }
+.t-note { font-size: 12px; font-weight: 700; color: var(--muted); line-height: 1.2; overflow-wrap: anywhere; }
+.turn-rows .tr-h { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
+
+@media (max-width: 1100px) {
+  .top-row { grid-template-columns: minmax(0, 1fr); }
+  .play .top-row .scene { max-width: 520px; width: 100%; margin: 0 auto; }
+}
+
+/* ---------- life recap ---------- */
+.recap { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; text-align: left; margin: 12px 0 8px; }
+.recap-card { background: #fff8ea; border: 3px solid var(--line); padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.recap-card.wide { grid-column: 1 / -1; }
+.recap-card h3 { margin: 0; font-size: 11px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.recap-card p { margin: 0; }
+.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.timeline li { display: grid; grid-template-columns: 26px 1fr; gap: 6px; }
+.recap-nums { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 13px; border-top: 2px dotted #cfc5b5; padding-top: 6px; margin-top: auto; font-variant-numeric: tabular-nums; }
+.recap-nums:empty { display: none; }
+.recap-nums b { text-align: right; }
+.recap-nums small { color: var(--muted); font-weight: 600; }
+.recap-word { font-size: 22px; font-weight: 800; }
+.recap-word small { font-size: 14px; color: var(--muted); }
+.recap .moments { margin: 0; font-size: 15px; }
+
+/* close button that floats in the corner of a scrolling panel */
+.modal-x {
+  position: sticky; top: 0; float: right; z-index: 3; margin: -8px -8px 0 8px;
+  width: 44px; height: 44px; font: 800 20px 'Nunito', sans-serif; line-height: 1; color: var(--ink);
+  background: #ffd25e; border: 3px solid var(--line); box-shadow: 3px 3px 0 var(--line); cursor: pointer;
+}
+.modal-x:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--line); }
+
+/* age and the years this turn covers, on the room */
+.age-box {
+  position: absolute; right: 8px; top: 8px; display: grid; gap: 1px; text-align: right; z-index: 2;
+  background: rgba(255,255,255,.9); border: 2px solid var(--line); padding: 4px 8px; font-size: 12px; line-height: 1.2;
+}
+.age-box b { font-family: var(--pixel); font-size: 10px; }
+.age-box small { color: var(--muted); font-weight: 700; }
+@container (max-width: 420px) { .room-label { left: 8px; transform: none; } }
+
+/* loan term picker */
+.term-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
+.term-pick span { font-weight: 800; margin-right: 4px; }
+.term-pick .pick { min-height: 0; min-width: 0; padding: 6px 10px; font: 800 14px 'Nunito', sans-serif; }
+#oa-pct { flex: 1; min-width: 160px; }
+
+/* a hospital ward: more beds in cheaper wards */
+.ward { --w1: #dfeee8; --w2: #cfe3db; border: 3px solid var(--line); margin: 8px auto; max-width: 460px; background: var(--w1); overflow: hidden; }
+.ward-B1 { --w1: #e3ecf7; --w2: #d2dff0; } .ward-A { --w1: #f3eadb; --w2: #e8dcc6; } .ward-private { --w1: #f6e7d8; --w2: #ead2bb; }
+.ward-wall { position: relative; height: 54px; background: repeating-linear-gradient(90deg, var(--w1) 0 18px, var(--w2) 18px 36px); border-bottom: 3px solid var(--line); }
+.fan { position: absolute; left: 50%; top: 4px; width: 30px; height: 6px; background: #666; box-shadow: 0 6px 0 -2px #999; animation: spin 0.6s steps(2) infinite; }
+@keyframes spin { 50% { transform: scaleX(-1) rotate(20deg); } }
+.aircon { position: absolute; right: 10px; top: 8px; width: 56px; height: 16px; background: #fff; border: 2px solid var(--line); }
+.tv { position: absolute; left: 12px; top: 8px; width: 40px; height: 26px; background: #2a2a3a; border: 2px solid var(--line); }
+.sofa { position: absolute; right: 80px; bottom: -2px; width: 60px; height: 18px; background: #b56a4a; border: 2px solid var(--line); }
+.plant { position: absolute; right: 150px; bottom: 0; font-size: 20px; }
+.ward-beds { display: flex; justify-content: center; gap: 6px; padding: 10px 8px 12px; background: repeating-linear-gradient(0deg, #e9e2d4 0 10px, #e1d9c8 10px 20px); }
+.ward-bed { position: relative; flex: 1; max-width: 120px; height: 56px; background: #fff; border: 2px solid var(--line); display: flex; align-items: flex-end; justify-content: center; }
+.ward-bed .sheet { position: absolute; left: 0; right: 0; bottom: 0; height: 45%; background: #8fb8e0; border-top: 2px solid var(--line); }
+.ward-bed.me { max-width: 160px; height: 70px; }
+.ward-bed .person.patient { --size: 72px; position: relative; bottom: 18px; z-index: 1; }
+.ward-B2 .ward-bed, .ward-C .ward-bed { max-width: 64px; }
+.ward-B2 .ward-bed.me, .ward-C .ward-bed.me { max-width: 96px; }
+.ward-caption { text-align: center; font-size: 14px; }
+.summary.bill tr.pay td { color: var(--muted); padding-left: 18px; }
+.summary.rates tr.on td { background: #ffe6d9; }
+@media (prefers-reduced-motion: reduce) { .fan { animation: none; } }

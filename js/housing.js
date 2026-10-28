@@ -7,13 +7,15 @@ export const MSR = 0.3; // HDB Mortgage Servicing Ratio: HDB flats, % of gross m
 export const TDSR = 0.55; // MAS Total Debt Servicing Ratio: all property loans
 export const TDSR_STRESS_RATE = 0.04; // banks test TDSR at a 4% medium-term rate
 export const BANK_LOAN_RATE = 0.03;
+export const HDB_LOAN_FLOOR = 0.03; // HDB works out how much it can lend at 3%, not the 2.6% you pay (from Sep 2022)
 export const CPF_HOUSING_INTEREST = 0.025; // accrued interest on CPF used for housing
 
 // Prices in today's dollars. Leases are 99 years; resale flats come with some used up.
 export const HOMES = [
-  { id: 'flexi2', label: '2-room Flexi BTO', price: 200000, kind: 'hdb', rooms: 2, leaseUsed: 0, joy: 1, singles: true },
-  { id: 'bto3', label: '3-room BTO flat', price: 320000, kind: 'hdb', rooms: 3, leaseUsed: 0, joy: 2 },
-  { id: 'bto4', label: '4-room BTO flat', price: 480000, kind: 'hdb', rooms: 4, leaseUsed: 0, joy: 3, singles: false },
+  // BTO prices are the middle of HDB's ranges for Standard projects (June 2026 launch).
+  { id: 'flexi2', label: '2-room Flexi BTO', price: 180000, kind: 'hdb', rooms: 2, leaseUsed: 0, joy: 1, singles: true },
+  { id: 'bto3', label: '3-room BTO flat', price: 300000, kind: 'hdb', rooms: 3, leaseUsed: 0, joy: 2 },
+  { id: 'bto4', label: '4-room BTO flat', price: 390000, kind: 'hdb', rooms: 4, leaseUsed: 0, joy: 3, singles: false },
   { id: 'resale5', label: '5-room resale flat', price: 720000, kind: 'hdb', rooms: 5, leaseUsed: 25, joy: 4, singles: true },
   { id: 'condo', label: 'Condominium', price: 1600000, kind: 'private', rooms: 4, leaseUsed: 0, joy: 5, singles: true },
 ];
@@ -31,29 +33,79 @@ export function buyersStampDuty(price) {
   return duty;
 }
 
-// What a home costs this household. `share` is the player's part (0.5 with a spouse).
-export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash }) {
-  const price = home.price * share;
+// Loan terms you can pick, in 5-year steps. HDB loans run up to 25 years; a bank loan
+// for an HDB flat can run to 30 (MAS limit), but then lends only 55% of the price.
+export const LOAN_TERMS = [5, 10, 15, 20, 25, 30];
+
+// Which loan a term means, and how much it lends (MAS loan-to-value limits for a first loan):
+// 75% normally; 55% if the term is over 25 years for an HDB flat (30 for private) or runs past age 65.
+export function loanFor(home, years, age = 30) {
   const hdb = home.kind === 'hdb';
-  const loan = price * 0.75; // HDB and bank loans both cover up to 75% (LTV)
-  const down = price - loan;
-  const minCash = hdb ? 0 : price * 0.05; // bank loans need at least 5% in cash
-  const bsd = buyersStampDuty(home.price) * share;
-  const rate = hdb ? cpf.HDB_LOAN_RATE : BANK_LOAN_RATE;
-  const years = hdb ? 25 : 30;
+  if (hdb && years <= 25) return { type: 'HDB loan', rate: cpf.HDB_LOAN_RATE, ltv: 0.75, minCashPct: 0 };
+  const long = years > (hdb ? 25 : 30) || age + years > 65;
+  return { type: 'Bank loan', rate: BANK_LOAN_RATE, ltv: long ? 0.55 : 0.75, minCashPct: long ? 0.1 : 0.05 };
+}
+
+// ---------- CPF housing grants for first-timers ----------
+
+// Enhanced CPF Housing Grant (EHG) for couples and families, by average monthly
+// household income (HDB, from August 2024). For BTO and resale flats.
+const EHG = [[1500, 120000], [2000, 110000], [2500, 105000], [3000, 95000], [3500, 90000], [4000, 80000], [4500, 70000],
+  [5000, 65000], [5500, 55000], [6000, 50000], [6500, 40000], [7000, 30000], [7500, 25000], [8000, 20000], [8500, 10000], [9000, 5000]];
+// Singles get half, with income bands half as wide.
+export function ehg(income, single = false) {
+  const band = EHG.find(([max]) => (single ? income * 2 : income) <= max);
+  return band ? band[1] / (single ? 2 : 1) : 0;
+}
+// Resale flats also get the CPF Housing Grant: $80,000 for couples ($50,000 for 5-room or
+// bigger); singles get the Singles Grant of $40,000 ($25,000 for 5-room or bigger).
+export function resaleGrant(home, single = false) {
+  const big = home.rooms >= 5;
+  return single ? (big ? 25000 : 40000) : big ? 50000 : 80000;
+}
+export function grantsFor(home, income, single = false) {
+  if (home.kind !== 'hdb') return { ehg: 0, resale: 0, total: 0 };
+  const e = ehg(income, single);
+  const r = home.leaseUsed > 0 ? resaleGrant(home, single) : 0;
+  return { ehg: e, resale: r, total: e + r };
+}
+
+// The most a monthly payment can repay over `years` at `rate`.
+const maxLoan = (monthly, rate, years) => Math.max(0, monthly / cpf.monthlyInstalment(1, rate, years));
+
+// What a home costs this household. `share` is the player's part (0.5 with a working spouse).
+// `grant` is the household's CPF housing grants. Loan limits don't block a purchase: they cap
+// the loan, and you pay the rest upfront.
+export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash, years = 25, age = 30, grant = 0 }) {
+  const hdb = home.kind === 'hdb';
+  years = hdb ? Math.min(years, 30) : years;
+  const terms = loanFor(home, years, age);
+  const rate = terms.rate;
+  const full = home.price;
+  grant = Math.min(grant, full);
+  // The loan, worked out for the whole household: up to the LTV limit, and no more than
+  // a repayment of 30% of income (MSR, HDB flats) and 55% for all debts (TDSR), tested at
+  // 3% for HDB loans and 4% for bank loans.
+  const floor = terms.type === 'HDB loan' ? HDB_LOAN_FLOOR : TDSR_STRESS_RATE;
+  const byLtv = Math.min(full * terms.ltv, full - grant);
+  const byMsr = hdb ? maxLoan(MSR * grossIncome, floor, years) : Infinity;
+  const byTdsr = maxLoan(TDSR * grossIncome - otherDebt, floor, years);
+  const fullLoan = Math.min(byLtv, byMsr, byTdsr);
+  const cappedBy = fullLoan >= byLtv - 1 ? null : byMsr <= byTdsr ? 'MSR' : 'TDSR';
+  const price = full * share;
+  const loan = fullLoan * share;
+  const myGrant = grant * share;
+  const down = price - myGrant - loan;
+  const minCash = price * terms.minCashPct; // bank loans need part of the down payment in cash
+  const bsd = buyersStampDuty(full) * share;
   const instalment = cpf.monthlyInstalment(loan, rate, years);
-  // Loan limits use the whole household's income and the whole loan.
-  const fullInstalment = instalment / share;
-  const stressInstalment = cpf.monthlyInstalment(loan / share, hdb ? rate : TDSR_STRESS_RATE, years);
-  const msrOk = !hdb || fullInstalment <= MSR * grossIncome;
-  const tdsrOk = stressInstalment + otherDebt <= TDSR * grossIncome;
   const upfront = down + bsd;
-  const fromOa = Math.min(oa, upfront - minCash);
+  const fromOa = Math.min(oa, Math.max(0, upfront - minCash));
   const fromCash = upfront - fromOa;
   return {
-    ...home, share, price, loan, down, bsd, rate, years, instalment, fullInstalment, stressInstalment,
-    msrOk, tdsrOk, fromOa, fromCash, minCash, affordable: msrOk && tdsrOk && fromCash <= cash,
-    msrPct: fullInstalment / grossIncome, tdsrPct: (stressInstalment + otherDebt) / grossIncome,
+    ...home, share, price, grant: myGrant, loan, ltv: terms.ltv, loanType: terms.type, down, bsd, rate, years, instalment,
+    maxLtvLoan: byLtv * share, cappedBy, fromOa, fromCash, minCash, affordable: fromCash <= cash,
+    msrPct: instalment / share / grossIncome, tdsrPct: (cpf.monthlyInstalment(fullLoan, floor, years) + otherDebt) / grossIncome,
   };
 }
 
@@ -67,14 +119,18 @@ export function newHome(q, age) {
     loanBalance: q.loan,
     rate: q.rate,
     instalment: q.instalment,
-    payWith: 'oa', // 'oa' (CPF first, then cash) or 'cash'
-    cpfPrincipal: q.fromOa, // CPF used so far, refunded to your OA when you sell
+    years: q.years,
+    loanType: q.loanType,
+    payWith: 'oa', // 'oa' if any of the instalment comes from CPF, 'cash' if none
+    oaShare: 1, // how much of each instalment comes from your OA (the rest in cash)
+    cpfPrincipal: q.fromOa + (q.grant || 0), // CPF used so far (grants count too), refunded to your OA when you sell
     cpfAccrued: 0,
     lbsDone: false,
   };
 }
 
-// One month of owning a home. Returns { fromOa, fromCash }.
+// One month of owning a home. Returns { fromOa, fromCash, oaShort }: oaShort is
+// the part you wanted to pay from your OA but couldn't, because it ran out.
 export function payMonth(home, oaBalance) {
   // Accrued interest: what your CPF would have earned had you not used it.
   home.cpfAccrued += (home.cpfPrincipal + home.cpfAccrued) * (CPF_HOUSING_INTEREST / 12);
@@ -82,9 +138,24 @@ export function payMonth(home, oaBalance) {
   const interest = home.loanBalance * (home.rate / 12);
   const due = Math.min(home.instalment, home.loanBalance + interest);
   home.loanBalance = home.loanBalance + interest - due;
-  const fromOa = home.payWith === 'oa' ? Math.min(due, oaBalance) : 0;
+  const want = due * oaShareOf(home);
+  const fromOa = Math.min(want, Math.max(0, oaBalance));
   home.cpfPrincipal += fromOa;
-  return { fromOa, fromCash: due - fromOa };
+  return { fromOa, fromCash: due - fromOa, oaShort: want - fromOa };
+}
+
+// Months of instalments left on the loan.
+export function monthsLeft(home) {
+  if (home.loanBalance <= 0.01) return 0;
+  const r = home.rate / 12;
+  const n = -Math.log(1 - (home.loanBalance * r) / home.instalment) / Math.log(1 + r);
+  return Number.isFinite(n) ? Math.ceil(n) : (home.years || 25) * 12;
+}
+
+export const oaShareOf = (home) => home.oaShare ?? (home.payWith === 'oa' ? 1 : 0);
+export function setOaShare(home, share) {
+  home.oaShare = Math.max(0, Math.min(1, share));
+  home.payWith = home.oaShare > 0 ? 'oa' : 'cash';
 }
 
 export function yearPassed(home) {
@@ -115,7 +186,9 @@ export function saleBreakdown(home) {
   const sale = value(home);
   const afterLoan = Math.max(0, sale - home.loanBalance);
   const refund = Math.min(afterLoan, cpfToRefund(home));
-  return { sale, loan: home.loanBalance, refund, cash: afterLoan - refund };
+  // If the sale doesn't cover it all, the shortfall doesn't have to be topped up in cash.
+  const principal = Math.min(refund, home.cpfPrincipal);
+  return { sale, loan: home.loanBalance, refund, principal, accrued: refund - principal, owed: cpfToRefund(home), cash: afterLoan - refund };
 }
 
 // Refunds to CPF from age 55 go to the RA first, up to the Full Retirement Sum.
