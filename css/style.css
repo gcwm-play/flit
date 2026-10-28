@@ -189,7 +189,9 @@ p { margin: 0.5em 0; }
 
 table.summary { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 15px; }
 table.summary td { border-bottom: 2px dotted #cfc5b5; padding: 6px 4px; }
-table.summary td:last-child { text-align: right; font-weight: 700; white-space: nowrap; }
+table.summary td:last-child { text-align: right; font-weight: 700; }
+/* Long values wrap instead of widening the table on a phone. */
+table.summary td small { display: block; font-weight: 600; color: var(--muted); }
 
 .careers { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin: 12px 0; }
 .career, .shop-item {
@@ -336,7 +338,7 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 .j-age { font-family: var(--pixel); font-size: 9px; color: var(--accent); padding-top: 3px; }
 
 @media (max-width: 900px) {
-  .play { grid-template-columns: 1fr; }
+  .play { grid-template-columns: minmax(0, 1fr); }
   .ledger { position: static; max-height: none; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -546,7 +548,7 @@ details.spend .sub { margin: 4px 0 6px 14px; font-size: 13px; }
 .turn-rows .tr-h { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
 
 @media (max-width: 1100px) {
-  .top-row { grid-template-columns: 1fr; }
+  .top-row { grid-template-columns: minmax(0, 1fr); }
   .play .top-row .scene { max-width: 520px; width: 100%; margin: 0 auto; }
 }
 

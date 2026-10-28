@@ -630,7 +630,7 @@ async function carPanel() {
         <table class="summary">
           <tr><td>Bought at</td><td>${car.boughtAge} (${q.years} year${q.years === 1 ? '' : 's'} ago)</td></tr>
           <tr><td>COE left</td><td>${Math.max(0, cars.CAR.coeYears - q.years)} years</td></tr>
-          <tr><td>Costs you each month</td><td>${money(cars.monthlyCost(car))}${car.monthsLeft > 0 ? ` (loan ${money(car.monthly)} for ${Math.ceil(car.monthsLeft / 12)} more years)` : ''}</td></tr>
+          <tr><td>Costs you each month</td><td>${money(cars.monthlyCost(car))}${car.monthsLeft > 0 ? `<small>incl. loan ${money(car.monthly)} for ${Math.ceil(car.monthsLeft / 12)} more years</small>` : ''}</td></tr>
         </table>
         <h3>A dealer's quote</h3>
         <table class="summary">
@@ -1532,9 +1532,9 @@ async function homePanel() {
     const c = await dialog(`
       <h2>${housingIcon(h)} Your ${h.label}</h2>
       <table class="summary">
-        <tr><td>Value of your share (today's dollars)</td><td>${money(sale.sale)}</td></tr>
+        <tr><td>Value of your share (today’s dollars)</td><td>${money(sale.sale)}</td></tr>
         <tr><td>Lease left</td><td>${h.leaseLeft} years</td></tr>
-        <tr><td>Loan left</td><td>${money(h.loanBalance)}${h.loanBalance > 1 ? ` (${money(h.instalment)}/month, ${Math.round(housing.oaShareOf(h) * 100)}% from CPF)` : ''}</td></tr>
+        <tr><td>Loan left</td><td>${money(h.loanBalance)}${h.loanBalance > 1 ? `<small>${money(h.instalment)}/month, ${Math.round(housing.oaShareOf(h) * 100)}% from CPF</small>` : ''}</td></tr>
         <tr><td>CPF used so far</td><td>${money(h.cpfPrincipal)}</td></tr>
         <tr><td>Accrued interest on it (2.5% a year, compounded)</td><td>${money(h.cpfAccrued)}</td></tr>
         <tr><td>If you sold today: back to your CPF</td><td>${money(sale.refund)}</td></tr>
