@@ -142,4 +142,15 @@ test('own job: titles are checked, pay grows at the chosen rate', () => {
   assert.equal(sim.careerInfo(s).label, 'Product manager');
   sim.advanceYears(s, 1);
   close(s.salary, 7800, 0.01);
+  // Pay rises for a chosen number of years, then stays flat.
+  const t = adult(30, 3000);
+  sim.takeCustomJob(t, { title: 'Teacher', annual: 60000, growth: 0.05, growthYears: 2 });
+  for (let i = 0; i < 5; i++) sim.advanceYears(t, 1);
+  close(t.salary, 5000 * 1.05 ** 2, 0.01);
+  // No pay rises.
+  const u = adult(30, 3000);
+  sim.takeCustomJob(u, { title: 'Baker', annual: 36000, growth: 0, growthYears: 0, selfEmployed: true });
+  sim.advanceYears(u, 3);
+  close(u.salary, 3000, 0.01);
+  assert.ok(sim.careerInfo(u).selfEmployed);
 });

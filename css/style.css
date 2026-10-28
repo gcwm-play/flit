@@ -656,6 +656,8 @@ details summary { cursor: pointer; font-weight: 800; margin: 8px 0; }
 /* Advanced: your own job */
 .advanced-job h3 { margin-top: 0; }
 .field-label { font-weight: 700; margin: 12px 0 4px; }
-#cj-growth { width: 100%; accent-color: var(--accent, #e3574a); }
+.cj-range { width: 100%; accent-color: var(--accent, #e3574a); }
 label.check { display: flex; gap: 8px; align-items: center; font-weight: 700; margin: 12px 0; }
 label.check input { width: 20px; height: 20px; }
+.cj-month { margin: 6px 0 0; font-size: 15px; }
+#cj-emp-note, #cj-rise-note { margin-top: 6px; }
