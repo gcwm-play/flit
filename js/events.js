@@ -299,11 +299,12 @@ export const PERSONAL_EVENTS = [
     id: 'lostwallet',
     stages: ['child'],
     weight: 1,
-    when: (s) => s.wallet > 20,
+    when: (s) => s.wallet > 10,
     run: (s) => {
-      const lost = Math.round(s.wallet / 2);
+      // Only what a kid would actually carry; the rest is safe in the piggy bank.
+      const lost = Math.min(s.wallet, rand(5, 20));
       s.wallet -= lost;
-      return { icon: '👛', title: 'Lost your wallet!', text: `You dropped your wallet at the playground and lost ${money(lost)}. Money in the bank is safer!` };
+      return { icon: '👛', title: 'Lost your wallet!', text: `You dropped your wallet at the playground with ${money(lost)} of pocket money inside. Luckily you only carry a little each day, and the rest of your savings are safe at home and in the bank.` };
     },
   },
 ];
