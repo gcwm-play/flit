@@ -973,14 +973,26 @@ function budgetTransfers(s, sum) {
       sum.kidsCpf += a;
     }
   }
-  if (b.investAmt > 0) {
-    const a = take(b.investAmt * 12);
-    if (a > 0) {
-      sum.invested += invest.buy(s, b.investId || 'world', 'cash', a);
-      s.cashLow = Math.min(s.cashLow ?? s.bank, s.bank);
-    }
+  // Dollar-cost averaging: each plan buys the same amount once a year, whatever the price.
+  for (const plan of dcaPlans(s)) {
+    const a = plan.src === 'cash' ? take(plan.perYear) : plan.perYear;
+    if (a <= 0) continue;
+    sum.invested += invest.buy(s, plan.id, plan.src, a);
+    if (plan.src === 'cash') s.cashLow = Math.min(s.cashLow ?? s.bank, s.bank);
   }
 }
+
+// Regular investment plans (DCA). Older saves had one monthly plan in the budget.
+export function dcaPlans(s) {
+  const b = s.budget;
+  if (b && b.investAmt > 0) {
+    (s.dca ||= []).push({ id: b.investId || 'world', src: 'cash', perYear: b.investAmt * 12 });
+    b.investAmt = 0;
+  }
+  return (s.dca ||= []);
+}
+
+export const dcaCashPerYear = (s) => dcaPlans(s).filter((p) => p.src === 'cash').reduce((t, p) => t + p.perYear, 0);
 
 // Lease Buyback Scheme checks (HDB rules, 2026). Returns { ok, reasons, keep }.
 export function lbsCheck(s) {

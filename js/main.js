@@ -122,7 +122,7 @@ function monthlyPlan() {
   const holidays = sim.holidayMonthly(S);
   const fun = b.hobbies + b.shopping + holidays;
   const kids = (S.children || []).filter((c) => S.age - c.bornAge < 21).length;
-  const saving = b.cpfSelf + b.kidsCpf * kids + b.investAmt;
+  const saving = b.cpfSelf + b.kidsCpf * kids + sim.dcaCashPerYear(S) / 12;
   // Health insurance premiums: the part MediSave can't pay comes from cash.
   const insurance = sim.insurancePremiums(S).cash / 12;
   const out = living + rent + loanCash + dcp + fun + insurance;
@@ -419,7 +419,7 @@ function cashboardHtml() {
           <span class="cb-item" title="${r[3]}"><i class="k-${r[0]}"></i>${r[1]}<em style="width:${(r[2] / top) * 100}%" class="k-${r[0]}"></em></span><b class="num">${money(r[2])}</b><b class="num">${yr(r[2])}</b>`).join('')}
           ${p.loan.fromOa > 0.5 ? `<span class="cb-item muted-ink" title="Paid from your CPF Ordinary Account, so it doesn't come out of your cash."><i></i>Home loan from your OA (not cash)</span><b class="num muted-ink">${money(p.loan.fromOa)}</b><b class="num muted-ink">${yr(p.loan.fromOa)}</b>` : ''}
           ${allowance ? `<span class="cb-item"><i class="k-spare"></i>Allowance from your children</span><b class="num pos">+${money(allowance)}</b><b class="num pos">+${yr(allowance)}</b>` : ''}
-          ${p.saving ? `<span class="cb-item"><i class="k-save"></i>Saving: ${[p.b.cpfSelf && 'CPF top-ups', p.b.kidsCpf && p.kids && "kids' CPF", p.b.investAmt && 'investing'].filter(Boolean).join(', ')}</span><b class="num">${money(p.saving)}</b><b class="num">${yr(p.saving)}</b>` : ''}
+          ${p.saving ? `<span class="cb-item"><i class="k-save"></i>Saving: ${[p.b.cpfSelf && 'CPF top-ups', p.b.kidsCpf && p.kids && "kids' CPF", sim.dcaCashPerYear(S) && 'investing'].filter(Boolean).join(', ')}</span><b class="num">${money(p.saving)}</b><b class="num">${yr(p.saving)}</b>` : ''}
         </div>
         <p class="small muted-ink">${years > 1 ? `Your next turn is ${years} years: about <b class="${left < 0 ? 'neg' : ''}">${left < 0 ? '−' : ''}${money(Math.abs(left * 12 * years))}</b> ${left < 0 ? 'short' : 'spare'} in all. ` : ''}${left < 0 && S.bank > 0 ? `Shortfalls come out of your cash${S.age >= 55 ? ', then your OA' : ''}, then credit cards. ` : ''}<button class="link-btn" data-panel="budget">Change my budget</button></p>
       </div>
@@ -1796,9 +1796,26 @@ async function moneyPanel() {
 }
 
 // Buy and sell fictional companies and funds, with cash or through CPFIS.
+const DCA_LINE = 'Dollar-cost averaging (DCA) means investing the same amount at regular times, whatever the price: you buy more units when prices are low and fewer when they are high, so you don\'t have to guess the right moment.';
+
+async function sellDialog(h) {
+  const pr = invest.product(h.id);
+  let amount = 0;
+  const c = dialog(`
+    <h2>${pr.icon} Sell ${pr.name}</h2>
+    <p>You own <b>${money(h.value)}</b> of it (paid with ${invest.SOURCES[h.src].short}). Sell some or all.</p>
+    <div class="pay-row">${amountControl('sell', h.value, 'Amount to sell')}${btn('all', 'Sell all')}</div>
+    <div class="row">${btn('sell', 'Sell', 'primary')}${btn('ok', 'Cancel')}</div>`);
+  wireAmount(modalBox, 'sell', (v) => Math.min(v, h.value), (v) => (amount = v));
+  const choice = await c;
+  if (choice === 'all') return h.value;
+  return choice === 'sell' ? amount : 0;
+}
+
 async function investPanel() {
   let picked = null;
   let src = 'cash';
+  let mode = 'once';
   let scrollToBuy = false;
   for (;;) {
     const hs = invest.holdings(S);
@@ -1825,6 +1842,9 @@ async function investPanel() {
         }).join('')}</table></div>
         <p class="small">Selling puts cash back in your savings, and CPF money back in the account it came from${S.age >= 55 ? ' (SA money goes to your RA)' : ''}.</p>`
         : '<p class="small muted-ink">Nothing yet.</p>'}
+      ${sim.dcaPlans(S).length ? `<h3>Your DCA plans</h3>
+        <p class="small">${DCA_LINE}</p>
+        <table class="summary">${sim.dcaPlans(S).map((d, i) => `<tr><td>${invest.product(d.id).icon} ${invest.product(d.id).name}${d.src === 'cash' ? '' : ` (${invest.SOURCES[d.src].short})`}</td><td>${money(d.perYear)}/year</td><td>${btn(`stop:${i}`, 'Stop')}</td></tr>`).join('')}</table>` : ''}
       <h3>Choose something to buy</h3>
       <div class="products">${invest.PRODUCTS.map((pr) => `
         <button class="product ${picked === pr.id ? 'on' : ''}" data-choice="pick:${pr.id}">
@@ -1836,8 +1856,10 @@ async function investPanel() {
       ${p ? `<div class="buy-box">
         <p><b>${p.icon} ${p.name}</b>: ${p.desc}</p>
         <div class="seg" role="group" aria-label="Pay with">${sources.map((k) => `<button class="seg-btn ${src === k ? 'on' : ''}" data-choice="src:${k}" ${invest.allowed(p, k) ? '' : 'disabled'}>${invest.SOURCES[k].label}</button>`).join('')}</div>
-        ${why ? `<p class="small neg">${why}</p>` : `<p class="small">You can put in up to ${money(max)}.${src !== 'cash' ? ` Left in your ${invest.SOURCES[src].short}, this money would earn a safe ${pctText(invest.cpfAlternative(src))} or more, so an investment has to beat that to be worth it.` : ''}</p>`}
-        <div class="pay-row">${amountControl('buy', max, 'Amount to invest')}${btn('buy', 'Buy', 'primary')}</div>
+        ${why && mode === 'once' ? `<p class="small neg">${why}</p>` : mode === 'dca' ? '' : `<p class="small">You can put in up to ${money(max)}.${src !== 'cash' ? ` Left in your ${invest.SOURCES[src].short}, this money would earn a safe ${pctText(invest.cpfAlternative(src))} or more, so an investment has to beat that to be worth it.` : ''}</p>`}
+        <div class="seg" role="group" aria-label="How to invest"><button class="seg-btn ${mode === 'once' ? 'on' : ''}" data-choice="mode:once">Invest once</button><button class="seg-btn ${mode === 'dca' ? 'on' : ''}" data-choice="mode:dca">Every year (DCA)</button></div>
+        ${mode === 'dca' ? `<p class="small">${DCA_LINE} The plan buys once a year at the start of each year, if you have the money, until you stop it.</p>` : ''}
+        <div class="pay-row">${mode === 'dca' ? amountControl('buy', Math.max(1000, Math.min(60000, max)), 'Amount to invest each year') : amountControl('buy', max, 'Amount to invest')}${btn('buy', mode === 'dca' ? 'Start plan' : 'Buy', 'primary')}</div>
       </div>` : ''}
       <div class="limit-box"><p class="small"><b>CPF Investment Scheme (CPFIS) rules:</b> from age 18; keep the first ${money(invest.CPFIS.oaKeep)} in your OA and ${money(invest.CPFIS.saKeep)} in your SA; at most 35% of your investible OA savings in shares and REITs; SA money only in approved unit trusts and bonds. Many CPFIS investors have earned less than the 2.5% the OA pays risk-free.</p></div>
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
@@ -1850,7 +1872,17 @@ async function investPanel() {
     const [kind, a, b] = choice.split(':');
     if (kind === 'pick') { picked = a; scrollToBuy = true; }
     if (kind === 'src') src = a;
-    if (kind === 'buy' && p && amount > 0) {
+    if (kind === 'mode') { mode = a; scrollToBuy = true; }
+    if (kind === 'stop') {
+      const d = sim.dcaPlans(S).splice(+a, 1)[0];
+      toast(`⏹️ Stopped the ${invest.product(d.id).name} plan. You keep what you bought.`);
+      logEvent(`⏹️ Stopped DCA into ${invest.product(d.id).name}`);
+    }
+    if (kind === 'buy' && p && amount > 0 && mode === 'dca') {
+      sim.dcaPlans(S).push({ id: p.id, src, perYear: amount });
+      toast(`📅 ${money(amount)} a year into ${p.name}, from next year`);
+      logEvent(`📅 Started DCA: ${money(amount)}/year into ${p.name} (${invest.SOURCES[src].short})`);
+    } else if (kind === 'buy' && p && amount > 0) {
       const spent = invest.buy(S, p.id, src, amount);
       if (src === 'cash') S.cashLow = Math.min(S.cashLow ?? S.bank, S.bank);
       toast(`📈 Bought ${money(spent)} of ${p.name} with ${invest.SOURCES[src].short}`);
@@ -1858,9 +1890,12 @@ async function investPanel() {
     }
     if (kind === 'sell') {
       const h = hs.find((x) => x.id === a && x.src === b);
-      const got = invest.sell(S, a, b, h.value);
-      toast(`📈 Sold ${invest.product(a).name} for ${money(got)}`);
-      logEvent(`📈 Sold ${invest.product(a).name} for ${money(got)}`);
+      const want = await sellDialog(h);
+      if (want > 0) {
+        const got = invest.sell(S, a, b, want);
+        toast(`📈 Sold ${money(got)} of ${invest.product(a).name}`);
+        logEvent(`📈 Sold ${money(got)} of ${invest.product(a).name}`);
+      }
     }
     render();
   }
@@ -1869,6 +1904,7 @@ async function investPanel() {
 // Monthly plan: everyday costs are fixed by your lifestyle; you choose the rest.
 async function budgetPanel() {
   for (;;) {
+    const dcaMonthly = sim.dcaCashPerYear(S) / 12; // also moves an old monthly plan into the DCA plans
     const b = { ...sim.newBudget(), ...(S.budget || {}) };
     const income = sim.takeHome(S) + (S.life && S.age >= S.life.startAge ? S.life.monthly : 0);
     const share = sim.householdShare(S);
@@ -1906,16 +1942,15 @@ async function budgetPanel() {
         <div class="alloc-row"><span class="al-icon">✈️</span><span class="al-text"><b>Holidays</b><small>${(S.holidayPlans || []).length ? `${S.holidayPlans.length} trip${S.holidayPlans.length > 1 ? 's' : ''} planned for next year, averaged per month.` : 'No trips planned.'} ${btn('holidays', 'Plan holidays')}</small></span><b class="al-val">${money(holidays)}</b></div>
         <div class="alloc-row"><span class="al-icon">🏛️</span><span class="al-text"><b>Top up my CPF</b><small>${S.age < 55 ? 'Into your SA (RSTU), up to the FRS. Earns 4%+ and cuts your income tax.' : 'Into your RA (RSTU), up to the ERS, for bigger CPF LIFE payouts.'} Room left: ${money(room)}.</small></span>${amountControl('cpfSelf', Math.min(3000, room / 12), 'CPF top-up per month')}</div>
         ${kids.length ? `<div class="alloc-row"><span class="al-icon">👶</span><span class="al-text"><b>Top up my ${kids.length === 1 ? "child's" : "children's"} CPF</b><small>Per child, into their SA (RSTU). It grows at 4%+ until they retire: a head start, but locked away. ${S.spouse ? 'Your spouse puts in the same.' : ''} No tax relief for top-ups to children.</small></span>${amountControl('kidsCpf', 500, 'Per child per month')}</div>` : ''}
-        <div class="alloc-row"><span class="al-icon">📈</span><span class="al-text"><b>Invest every month</b><small>A regular savings plan into
-          <select id="inv-id">${invest.PRODUCTS.map((p) => `<option value="${p.id}" ${b.investId === p.id ? 'selected' : ''}>${p.name} (${invest.RISK_LABELS[p.risk].toLowerCase()} risk)</option>`).join('')}</select></small></span>${amountControl('investAmt', 5000, 'Invest per month')}</div>
+        <div class="alloc-row"><span class="al-icon">📈</span><span class="al-text"><b>Regular investing (DCA)</b><small>${sim.dcaPlans(S).length ? sim.dcaPlans(S).map((d) => `${invest.product(d.id).name}: ${money(d.perYear)}/year${d.src === 'cash' ? '' : ` from your ${invest.SOURCES[d.src].short}`}`).join('<br>') : 'No plans yet.'} ${btn('invest', 'Investments')}</small></span><b class="al-val">${money(dcaMonthly)}</b></div>
       </div>
       <div class="budget-sum" id="budget-sum"></div>
       <div class="row">${btn('save', 'Save my budget', 'primary')}${btn('ok', 'Cancel')}</div>`, { wide: true });
     modalBox.scrollTop = scroll;
-    const keys = ['hobbies', 'shopping', 'cpfSelf', 'kidsCpf', 'investAmt'];
+    const keys = ['hobbies', 'shopping', 'cpfSelf', 'kidsCpf'];
     const draw = () => {
       const spend = b.hobbies + b.shopping + holidays;
-      const saving = b.cpfSelf + b.kidsCpf * kids.length + b.investAmt;
+      const saving = b.cpfSelf + b.kidsCpf * kids.length + dcaMonthly;
       const left = income - fixed - spend - saving;
       const total = Math.max(1, income);
       const bar = (v, cls) => `<span class="${cls}" style="width:${Math.max(0, Math.min(100, (v / total) * 100))}%"></span>`;
@@ -1934,7 +1969,6 @@ async function budgetPanel() {
       b[k] = +range.value;
       wireAmount(modalBox, k, (v) => Math.min(v, +range.max), (v) => { b[k] = v; draw(); });
     }
-    $('#inv-id', modalBox).onchange = (e) => (b.investId = e.target.value);
     draw();
     const choice = await c;
     if (choice === 'ok') return;
@@ -1952,8 +1986,12 @@ async function budgetPanel() {
       await holidaysPanel();
       continue;
     }
+    if (choice === 'invest') {
+      await investPanel();
+      continue;
+    }
     toast('📋 Budget saved. It applies from your next turn.');
-    logEvent(`📋 New budget: fun ${money(b.hobbies + b.shopping)}/mo, saving ${money(b.cpfSelf + b.kidsCpf * kids.length + b.investAmt)}/mo`);
+    logEvent(`📋 New budget: fun ${money(b.hobbies + b.shopping)}/mo, saving ${money(b.cpfSelf + b.kidsCpf * kids.length + dcaMonthly)}/mo`);
     return;
   }
 }

@@ -478,3 +478,12 @@ test('cash top-ups stop at the FRS before 55, counting SA money invested', () =>
   s.cpf.ra = 200000;
   assert.equal(sim.topUpRoom(s), cpf.RETIREMENT_SUMS.ERS - 200000);
 });
+
+test('DCA plans buy once a year; old monthly budget plans become yearly DCA plans', () => {
+  const s = sim.newGame('Dca', { gender: 'male', animal: 'dog', outfit: 0 });
+  s.age = 30; s.stage = 'adult'; s.salary = 6000; s.bank = 100000;
+  s.budget = { ...sim.newBudget(), investAmt: 500, investId: 'bond' };
+  assert.deepEqual(sim.dcaPlans(s), [{ id: 'bond', src: 'cash', perYear: 6000 }]);
+  assert.equal(s.budget.investAmt, 0);
+  assert.equal(sim.dcaCashPerYear(s), 6000);
+});
