@@ -487,3 +487,17 @@ test('DCA plans buy once a year; old monthly budget plans become yearly DCA plan
   assert.equal(s.budget.investAmt, 0);
   assert.equal(sim.dcaCashPerYear(s), 6000);
 });
+
+test('SG Child Support Package: same Baby Gift for every child, Child Credits from 1 to 16, PSEA pays part of university', () => {
+  assert.equal(sim.babySupport(1).cashGift, 10000);
+  assert.equal(sim.babySupport(3).cashGift, 10000);
+  assert.equal(sim.babySupport(3).medisave, 9000);
+  const s = sim.newGame('Kid', { gender: 'female', animal: 'cat', outfit: 0 });
+  s.age = 40; s.stage = 'adult'; s.salary = 6000; s.bank = 100000;
+  s.children = [{ bornAge: 35, gender: 'male', animal: 'cat', outfit: 0 }, { bornAge: 23, gender: 'male', animal: 'cat', outfit: 0 }];
+  const sum = sim.advanceYears(s, 1);
+  assert.equal(sum.childCredits, 2000);
+  assert.equal(s.children[1].psea, 10000);
+  sim.payUniversity(s, s.children[1], 'cash');
+  assert.equal(s.children[1].pseaUsed, 10000);
+});

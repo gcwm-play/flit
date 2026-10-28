@@ -177,14 +177,14 @@ export const PERSONAL_EVENTS = [
     run: (s) => ({
       icon: '🍼',
       title: s.children.length ? 'Another baby?' : 'Start a family?',
-      text: `A child costs about $550 to $1,000 a month depending on age, plus groceries, until they're grown up${s.spouse && !s.spouse.home ? ' (you pay half)' : ''}. The Government helps with a Baby Bonus.`,
+      text: `A child costs about $550 to $1,000 a month depending on age, plus groceries, until they're grown up${s.spouse && !s.spouse.home ? ' (you pay half)' : ''}. The Government helps through the SG Child Support Package.`,
       fact: FACTS.fertility,
       choices: [
         { label: 'Have a baby', run: (s) => {
           const b = haveChild(s);
           return {
-            text: `Congratulations! Your baby gets a $4,000 MediSave Grant for Newborns (just like you did) and a ${money(b.cdaGrant)} CDA First Step Grant in their Child Development Account. You also get the Baby Bonus Cash Gift. Joy +4.`,
-            gift: gift('👶', 'Baby Bonus Cash Gift', 'The Government gives parents a cash gift for each child, paid in instalments until the child is 6½. Here you get it all at once.', b.cashGift),
+            text: `Congratulations! Under the SG Child Support Package your baby gets a ${money(b.medisave)} MediSave grant${b.medisave > 4000 ? ' (including $5,000 extra for large families)' : ''} and a ${money(b.cdaGrant)} CDA First Step Grant. The Government also matches what you save in their Child Development Account (CDA), up to ${money(b.cdaMatch)}; CDA money can only pay for things like preschool and medical bills. From age 1 to 16 they get ${money(2000)} of Child Credits a year. Joy +4.`,
+            gift: gift('👶', 'Baby Gift', 'Part of the SG Child Support Package: cash for every Singapore citizen baby, whatever the birth order, paid in 2 parts within a year of birth. Here you get it all at once. You can spend it on anything.', b.cashGift),
           };
         } },
         { label: s.children.length ? 'No more children' : 'Not now', run: (s) => { if (s.children.length) s.noMoreKids = true; return 'OK. You can decide again later.'; } },

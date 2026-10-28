@@ -723,7 +723,7 @@ async function familyPanel() {
     const lastKid = kids.at(-1);
     const canBaby = sp && kids.length < 4 && S.age <= 45 && (!lastKid || S.age - lastKid.bornAge >= 1);
     const parts = sim.spendBreakdown(S);
-    const c = await dialog(`
+    const shown = dialog(`
       <h2>💞 Relationship and family</h2>
       ${!sp ? `
         <p>${S.dating != null ? `You've been seeing someone special since ${S.dating}.` : 'You\'re single.'} Married couples can apply for a BTO flat together and share household costs.</p>
@@ -747,11 +747,13 @@ async function familyPanel() {
           ${sim.CHILD_COSTS.map(([max, cost, what], i) => `<tr><td>Age ${i ? sim.CHILD_COSTS[i - 1][0] + 1 : 0} to ${max}: ${what}</td><td>${money(cost)}/month</td></tr>`).join('')}
           <tr><td>Groceries for each child</td><td>${money(sim.GROCERIES.child)}/month</td></tr>
         </table>
-        <p class="small">2026 estimates after Government subsidies, before university.${!sp.home ? ' You pay half; your spouse pays the other half.' : ''} Your family now costs you <b>${money(parts.kids + parts.groceries + parts.homeSpouse)}</b> a month. Each baby gets the Baby Bonus Cash Gift and a CDA First Step Grant.</p>
+        <p class="small">2026 estimates after Government subsidies, before university.${!sp.home ? ' You pay half; your spouse pays the other half.' : ''} Your family now costs you <b>${money(parts.kids + parts.groceries + parts.homeSpouse)}</b> a month. Each child gets the SG Child Support Package: a ${money(sim.CHILD_SUPPORT.babyGift)} Baby Gift, ${money(sim.CHILD_SUPPORT.childCredit)} of Child Credits a year from 1 to 16 (they help with these costs), a CDA grant and ${money(sim.CHILD_SUPPORT.psea)} for their education at 17.</p>
         ${factBox(FACTS.fertility)}
         <div class="row">${canBaby ? btn('baby', kids.length ? '👶 Have another baby' : '👶 Have a baby', 'primary') : `<span class="small muted-ink">${kids.length >= 4 ? 'Your family is complete.' : S.age > 45 ? 'Past 45, the game stops offering babies.' : 'A new baby can come a year after the last.'}</span>`}</div>`}
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
-    if (sp && sp.home) wireAmount(modalBox, 'allow', (v) => v, (v) => (sp.allowance = v));
+    // Wire the slider before waiting for a choice, or it can't be dragged.
+    if (sp && sp.home) wireAmount(modalBox, 'allow', (v) => Math.min(v, 2000), (v) => (sp.allowance = v));
+    const c = await shown;
     if (c === 'ok') return;
     if (c === 'date') { S.dating = S.age; logEvent('💞 Started a relationship'); toast('💞 You\'re seeing someone special'); }
     if (c === 'split') { S.dating = null; logEvent('💔 Broke up'); }
@@ -873,6 +875,7 @@ function recordTurn(startAge, years, sum, opts, activity, gains) {
     add('Take-home pay', sum.income - sum.payouts, 'in');
     add('CPF LIFE payouts', sum.payouts, 'in');
     add('Allowance from your children', sum.allowance, 'in');
+    add('Child Credits (SG Child Support Package)', sum.childCredits || 0, 'in');
     add('Everyday living', -sum.living, 'out');
     add('Children', -sum.kids, 'out');
     add('Family groceries', -(sum.groceries || 0), 'out');
@@ -1223,11 +1226,12 @@ async function careerSwitchDialog(c) {
 }
 
 async function universityDecision(child) {
-  const fees = sim.UNI_FEES * (S.spouse ? 0.5 : 1);
+  const net = sim.uniFeesAfterPsea(child);
+  const fees = net * sim.householdShare(S);
   const oaMax = S.cpf.oa * 0.4;
   const c = await dialog(`
     <div class="event"><div class="e-icon">🎓</div><h2>Your child is going to university!</h2>
-    <p>Four years of subsidised fees come to about ${money(sim.UNI_FEES)}${S.spouse ? `, so your half is <b>${money(fees)}</b>` : ''}. How will you pay?</p></div>
+    <p>Four years of subsidised fees come to about ${money(sim.UNI_FEES)}.${child.psea ? ` The ${money(child.psea)} the Government put in their Post-Secondary Education Account at 17 pays part, leaving ${money(net)}.` : ''}${fees < net ? ` Your half is <b>${money(fees)}</b>.` : ''} How will you pay?</p></div>
     <div class="careers">
       <button class="career" data-choice="cash"><b>Pay in cash</b><small>Your CPF stays untouched.</small></button>
       <button class="career" data-choice="oa"><b>CPF Education Scheme</b><small>Use up to 40% of your OA (${money(oaMax)} now). Your child repays it to your OA, with 2.5% interest, over 12 years after graduating.</small></button>

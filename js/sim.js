@@ -307,6 +307,7 @@ function oneYear(s, sum, opts) {
   const age = s.age;
   const st = STAGES[s.stage];
   const young = s.stage === 'child' || s.stage === 'teen';
+  childSupportYear(s, sum);
   const lifeOn = !!(s.life && age >= s.life.startAge);
   if (lifeOn) {
     const plan = LIFE_PLANS[s.life.plan || 'standard'];
@@ -757,11 +758,31 @@ export function marry(s, weddingCost) {
   story(s, 'family', '💍', 'Got married', { amount: weddingCost / 2 });
 }
 
-// Government support for each new baby (children born from 18 Feb 2025).
+// Government support for each new baby: the SG Child Support Package (from April 2027,
+// announced at the National Day Rally 2026). It's the same for every child, whatever the
+// birth order: a $10,000 Baby Gift in cash, a $5,000 CDA First Step Grant plus up to
+// $5,000 of co-matching, $2,000 of Child Credits a year from age 1 to 16, and a $10,000
+// PSEA top-up for education at 17. Every newborn also gets a $4,000 MediSave Grant;
+// large families keep an extra $5,000 MediSave grant from the third child.
+export const CHILD_SUPPORT = { babyGift: 10000, cdaGrant: 5000, cdaMatch: 5000, childCredit: 2000, psea: 10000, medisave: 4000, largeFamilyMedisave: 5000 };
+
 export function babySupport(birthOrder) {
-  return birthOrder <= 2
-    ? { cashGift: 11000, cdaGrant: 5000 }
-    : { cashGift: 13000, cdaGrant: 10000 };
+  const c = CHILD_SUPPORT;
+  return { cashGift: c.babyGift, cdaGrant: c.cdaGrant, cdaMatch: c.cdaMatch, medisave: c.medisave + (birthOrder >= 3 ? c.largeFamilyMedisave : 0) };
+}
+
+// Each year: Child Credits for children aged 1 to 16 (paid to the child's account, which
+// parents manage; couples share it like the costs), and the PSEA top-up at 17.
+function childSupportYear(s, sum) {
+  for (const c of s.children || []) {
+    const age = s.age - c.bornAge;
+    if (age >= 1 && age <= 16) {
+      const credit = CHILD_SUPPORT.childCredit * householdShare(s);
+      s.bank += credit;
+      sum.childCredits = (sum.childCredits || 0) + credit;
+    }
+    if (age === 17 && c.psea == null) c.psea = CHILD_SUPPORT.psea; // for fees at a local university or polytechnic
+  }
 }
 
 export function haveChild(s) {
@@ -783,8 +804,13 @@ export const UNI_FEES = 34000; // about four years of subsidised local universit
 // How a child's university fees are paid. Your share is half if you're married.
 // 'oa' uses the CPF Education Scheme: up to 40% of your OA, which your child
 // repays (with 2.5% interest) over 12 years, starting a year after graduating.
+// The child's PSEA (from the $10,000 top-up at 17) pays part of the fees first.
+export const uniFeesAfterPsea = (child) => Math.max(0, UNI_FEES - (child.psea || 0));
+
 export function payUniversity(s, child, how) {
-  const fees = UNI_FEES * householdShare(s);
+  const fees = uniFeesAfterPsea(child) * householdShare(s);
+  child.pseaUsed = Math.min(UNI_FEES, child.psea || 0);
+  child.psea = 0;
   child.uni = how;
   if (how === 'cash') coverShortfall(s, fees);
   if (how === 'oa') {
