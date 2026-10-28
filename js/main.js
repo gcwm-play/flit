@@ -623,6 +623,7 @@ async function takeTurn(activityId) {
     void before;
 
     closeModal();
+    if (S.stage === 'adult' || S.stage === 'senior') S.nomTurns = (S.nomTurns ?? -1) + 1;
     await milestones();
     save();
     render();
@@ -1189,17 +1190,23 @@ async function giftDialog(e) {
 
 const pctText = (r) => `${(r * 100).toFixed(Math.abs(r) < 0.001 ? 2 : 1).replace(/\.0+$/, '')}%`;
 
-// Explains the limits on retirement top-ups (RSTU). Children and teens don't pay tax, and
-// top-ups to a child's CPF get no relief for the parents either, so they see no tax line.
+// Explains the limits on retirement top-ups (RSTU). Under 18 your parents top up for you, and
+// top-ups to a child's CPF get no relief for the parents, so there's no tax line.
+// From 18 you top up yourself, but relief only helps once you have taxable income.
 function topUpLimitNote(room, reliefLeft) {
-  const young = S.stage === 'child' || S.stage === 'teen';
+  const young = sim.isMinor(S);
   const cap = S.age < 55 ? `your SA reaches the FRS (${money(cpf.RETIREMENT_SUMS.FRS)})` : `your RA reaches the ERS (${money(cpf.RETIREMENT_SUMS.ERS)})`;
   if (room <= 0) return S.age < 55
     ? `Your SA has reached the FRS (${money(cpf.RETIREMENT_SUMS.FRS)}), so CPF won't take more cash top-ups until you turn 55. At 55 your SA closes and you can top up your RA instead, up to the ERS.`
     : `Limit reached: you can only top up until ${cap}.`;
   if (young) return `Limit: ${money(room)} more until ${cap}. Top-ups to a child's CPF get no tax relief.`;
+  if (noTaxableIncome()) return `Limit: ${money(room)} more until ${cap}. ${NO_INCOME_RELIEF_TEXT(sim.isNsf(S))}`;
   return `Limit: ${money(room)} more until ${cap}. ${reliefNote(reliefLeft)}`;
 }
+
+// Old enough to top up your own CPF, but not earning a taxable income yet (NS or studying).
+const noTaxableIncome = () => !sim.isMinor(S) && !S.career;
+const NO_INCOME_RELIEF_TEXT = (nsf) => `Tax relief on top-ups only helps once you earn a taxable income. ${nsf ? 'The NSF allowance isn\'t taxed, so' : 'While you\'re studying'} there's none for now, but the money grows just the same.`;
 
 function reliefNote(reliefLeft) {
   return `Tax relief on the first ${money(sim.TOP_UP_TAX_RELIEF_CAP)} a year of top-ups to your own SA, RA and MediSave together (${money(reliefLeft)} left this year)${S.age >= 55 ? ', and only while your RA is below the FRS' : ''}.`;
@@ -1214,17 +1221,17 @@ function topUpAccountInfo(account, room) {
   const limitLine = `Counts towards the CPF Annual Limit of ${money(sim.CPF_ANNUAL_LIMIT)} together with your compulsory contributions (about ${money(sim.compulsoryThisYear(S))} this year): ${money(limitLeft)} left.`;
   if (account === 'ma') return {
     label: 'MediSave',
-    text: `A Voluntary Contribution to your MediSave. It earns 4% or more and pays for healthcare and MediShield Life or Shield premiums. MediSave takes cash only up to the Basic Healthcare Sum (${money(cpf.BASIC_HEALTHCARE_SUM)}); you have ${money(S.cpf.ma)}. ${limitLine} ${reliefNote(sim.taxReliefLeft(S)).replace(', and only while your RA is below the FRS', '')}`,
+    text: `A Voluntary Contribution to your MediSave. It earns 4% or more and pays for healthcare and MediShield Life or Shield premiums. MediSave takes cash only up to the Basic Healthcare Sum (${money(cpf.BASIC_HEALTHCARE_SUM)}); you have ${money(S.cpf.ma)}. ${limitLine} ${noTaxableIncome() ? NO_INCOME_RELIEF_TEXT(sim.isNsf(S)) : reliefNote(sim.taxReliefLeft(S)).replace(', and only while your RA is below the FRS', '')}`,
     full: room <= 0 ? (S.cpf.ma >= cpf.BASIC_HEALTHCARE_SUM - 1 ? 'Your MediSave is at the Basic Healthcare Sum, so it can\'t take more.' : 'You\'ve reached the CPF Annual Limit for this year.') : '',
   };
   if (account === 'all') return {
     label: 'All three',
-    text: `A Voluntary Contribution split like your monthly contributions at your age: ${pc(band.oa)} to the OA, ${pc(band.sa)} to the ${S.age < 55 ? 'SA' : 'RA'} and ${pc(band.ma)} to MediSave. The OA part can be used for housing. ${limitLine} ${S.selfEmployed ? 'As you are self-employed, it counts for CPF relief on your income tax.' : 'Employees get no tax relief for this kind of top-up.'}`,
+    text: `A Voluntary Contribution split like your monthly contributions at your age: ${pc(band.oa)} to the OA, ${pc(band.sa)} to the ${S.age < 55 ? 'SA' : 'RA'} and ${pc(band.ma)} to MediSave. The OA part can be used for housing. ${limitLine} ${noTaxableIncome() ? 'There\'s no tax relief on this kind of top-up while you have no taxable income.' : S.selfEmployed ? 'As you are self-employed, it counts for CPF relief on your income tax.' : 'Employees get no tax relief for this kind of top-up.'}`,
     full: room <= 0 ? 'You\'ve reached the CPF Annual Limit for this year.' : '',
   };
   return {
     label: S.age < 55 ? 'Retirement SA' : 'Retirement RA',
-    text: `${S.stage === 'child' || S.stage === 'teen' ? 'Your parents can top up your Special Account for you under the Retirement Sum Topping-Up Scheme (RSTU). ' : `Goes to your ${S.age < 55 ? 'SA' : 'RA'} under the Retirement Sum Topping-Up Scheme (RSTU). It earns 4% or more${S.age < 55 ? ' and stays locked for retirement' : ' and raises your CPF LIFE payouts'}. `}${topUpLimitNote(room, sim.taxReliefLeft(S))} RSTU top-ups don't count towards the CPF Annual Limit.${S.age >= 55 ? ' If your RA is below the BRS, the Matched Retirement Savings Scheme adds $1 for every $1, up to $2,000 a year (those matched dollars get no tax relief).' : ''}`,
+    text: `${sim.isMinor(S) ? 'Your parents can top up your Special Account for you under the Retirement Sum Topping-Up Scheme (RSTU). ' : noTaxableIncome() ? 'You\'re 18 or older, so you can top up your own CPF with your own cash, even before your first job. This goes to your SA under the Retirement Sum Topping-Up Scheme (RSTU). It earns 4% or more and stays locked for retirement, so a little now has decades to grow. ' : `Goes to your ${S.age < 55 ? 'SA' : 'RA'} under the Retirement Sum Topping-Up Scheme (RSTU). It earns 4% or more${S.age < 55 ? ' and stays locked for retirement' : ' and raises your CPF LIFE payouts'}. `}${topUpLimitNote(room, sim.taxReliefLeft(S))} RSTU top-ups don't count towards the CPF Annual Limit.${S.age >= 55 ? ' If your RA is below the BRS, the Matched Retirement Savings Scheme adds $1 for every $1, up to $2,000 a year (those matched dollars get no tax relief).' : ''}`,
     full: '',
   };
 }
@@ -1291,6 +1298,7 @@ async function milestones() {
   for (const child of S.children || []) {
     if (!child.uni && S.age - child.bornAge >= 19) await universityDecision(child);
   }
+  await nominationReminder();
   if (S.stage === 'senior' && S.age >= 65 && !S.life) await cpfLifeDecision();
   if (S.stage === 'senior' && S.age >= 70 && S.workMode !== 'retired') {
     S.workMode = 'retired';
@@ -1298,6 +1306,67 @@ async function milestones() {
     await dialog(`<div class="event"><div class="e-icon">🎉</div><h2>Happy retirement!</h2><p>At 70 you stop working for good. From now on your income is CPF LIFE plus whatever you saved.</p></div>${btn('ok', 'OK', 'primary')}`);
   }
   closeModal();
+}
+
+// ---------- CPF nomination ----------
+// Every 2 life periods as an adult, until you've made one (or when marriage cancels it,
+// or a new child isn't covered).
+async function nominationReminder() {
+  if (!(S.stage === 'adult' || S.stage === 'senior') || (S.stage === 'adult' && !S.career) || S.nomRemindAge === S.age) return;
+  if (S.nominationRevoked != null && !S.nomination && S.nominationRevokedSeen !== S.nominationRevoked) {
+    S.nominationRevokedSeen = S.nominationRevoked;
+    S.nomTurns = 0;
+    return nominationDialog('revoked');
+  }
+  if (!sim.nominationNeedsReview(S)) return;
+  if (S.nomTurns != null && S.nomTurns > 0 && S.nomTurns < 2) return;
+  S.nomTurns = 0;
+  return nominationDialog(S.nomination ? 'review' : 'reminder');
+}
+
+const NOMINATION_FACTS = `
+  <h3>If you don't make one</h3>
+  <p>Your CPF savings don't follow your will. Without a nomination they go to the <b>Public Trustee's Office</b>, which shares them out under the Intestate Succession Act (or Muslim inheritance law). Your family has to apply, it can take <b>up to six months</b>, and fees are taken (about $900 on $100,000). A partner you're not married to gets nothing.</p>
+  <p>With a nomination, CPF contacts your nominees within about 10 working days and usually pays them within five weeks.</p>
+  <h3>How to make one in real life</h3>
+  <ul class="facts">
+    <li>Anyone aged 16 and above can nominate. It's free online.</li>
+    <li>Log in to the CPF website with Singpass, then go to <b>my cpf → My requests → Nomination</b>.</li>
+    <li>Name your nominees and their shares (adding up to 100%).</li>
+    <li>Two witnesses aged 21 or older, who aren't your nominees, confirm with their own Singpass within 7 days.</li>
+    <li>Or make it at a CPF Service Centre by appointment.</li>
+  </ul>
+  <p class="small">It covers your OA, SA, MediSave and RA, and any unused CPF LIFE premiums. It doesn't cover a home bought with CPF or CPFIS investments, which follow your will or how the home is owned. <b>Getting married cancels a nomination</b>, and children born later aren't added, so review it after big life changes.</p>`;
+
+async function nominationDialog(why = 'panel') {
+  if (why !== 'panel') S.nomRemindAge = S.age;
+  const choices = sim.nomineeChoices(S);
+  let who = choices[0];
+  const n = S.nomination;
+  const intro = {
+    reminder: `<div class="event"><div class="e-icon">📝</div><h2>Have you made a CPF nomination?</h2></div>
+      <p>A CPF nomination says who gets your CPF savings (<b>${money(cpf.cpfTotal(S.cpf))}</b> now) if you pass away. You haven't made one yet.</p>`,
+    revoked: `<div class="event"><div class="e-icon">💍</div><h2>Your CPF nomination was cancelled</h2></div>
+      <p>Getting married automatically cancels a CPF nomination, so your earlier one no longer counts. Make a new one if you want your spouse, or anyone else, to receive your CPF savings (<b>${money(cpf.cpfTotal(S.cpf))}</b>).</p>`,
+    review: `<div class="event"><div class="e-icon">👶</div><h2>Review your CPF nomination?</h2></div>
+      <p>Your nomination from age ${n && n.age} names ${n && sim.NOMINEES[n.who]}. Children born since aren't added automatically.</p>`,
+    panel: `<h2>📝 CPF nomination</h2>
+      <p>${n ? `You nominated <b>${sim.NOMINEES[n.who]}</b> at age ${n.age}.` : 'You haven\'t made a CPF nomination.'} It says who gets your CPF savings (<b>${money(cpf.cpfTotal(S.cpf))}</b> now) if you pass away.</p>`,
+  }[why];
+  const c = dialog(`${intro}
+    <p class="field-label">Nominate</p>
+    <div class="seg nom-seg" role="group" aria-label="Nominate">${choices.map((k) => `<button type="button" class="seg-btn ${k === who ? 'on' : ''}" data-nom="${k}">${sim.NOMINEES[k].replace(/^your /, '').replace(/^./, (x) => x.toUpperCase())}</button>`).join('')}</div>
+    ${NOMINATION_FACTS}
+    <div class="row">${btn('nominate', n ? 'Update my nomination' : 'Make my nomination', 'primary')}${btn('later', why === 'panel' ? 'Back' : 'Not now')}</div>`, { wide: true });
+  modalBox.querySelectorAll('[data-nom]').forEach((b) => (b.onclick = () => {
+    who = b.dataset.nom;
+    modalBox.querySelectorAll('[data-nom]').forEach((x) => x.classList.toggle('on', x === b));
+  }));
+  if ((await c) !== 'nominate') return;
+  sim.nominate(S, who);
+  logEvent(`📝 CPF nomination: ${sim.NOMINEES[who]}`);
+  toast(`📝 Nomination made: ${sim.NOMINEES[who]} would receive your CPF savings.`);
+  save();
 }
 
 // Looking for a job: after a retrenchment, or any time you want a change.
@@ -1949,9 +2018,17 @@ function shortMoney(v) {
   return v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `$${Math.round(v / 1000)}k` : money(v);
 }
 
-function cpfPanel() {
+async function cpfPanel() {
+  for (;;) {
+    if ((await cpfPanelOnce()) !== 'nomination') return;
+    await nominationDialog('panel');
+  }
+}
+
+function cpfPanelOnce() {
   const band = cpf.rateBand(S.age);
   const t = S.totals || {};
+  const n = S.nomination;
   return dialog(`
     <h2>🏛️ Your CPF</h2>
     <h3>📈 How your CPF has grown</h3>
@@ -1968,6 +2045,8 @@ function cpfPanel() {
       <li>Retirement sums for 2026: BRS ${money(cpf.RETIREMENT_SUMS.BRS)}, FRS ${money(cpf.RETIREMENT_SUMS.FRS)}, ERS ${money(cpf.RETIREMENT_SUMS.ERS)}.</li>
     </ul>
     ${t.cpfIn ? `<p class="small">Lifetime so far: ${money(t.cpfIn)} contributed (${money(t.employerIn)} from employers), ${money(t.housingOa || 0)} used for housing.</p>` : ''}
+    ${S.age >= sim.NOMINATION_MIN_AGE ? `<h3>📝 Nomination</h3>
+      <p>${n ? `${sim.nominationNeedsReview(S) ? '❗ ' : ''}You nominated <b>${sim.NOMINEES[n.who]}</b> at age ${n.age}.` : `❗ No nomination${S.nominationRevoked != null ? ' (marriage cancelled your earlier one)' : ''}: your CPF would go to the Public Trustee.`} ${btn('nomination', n ? 'Review' : 'Make a nomination')}</p>` : ''}
     ${btn('ok', 'Close', 'primary')}`, { wide: true });
 }
 
@@ -2609,6 +2688,9 @@ function cpfRecap() {
       ${t.housingOa ? `<span>Used for your home</span><b>${money(t.housingOa)}</b>` : ''}
       ${S.life ? `<span>CPF LIFE pays you</span><b>${money(S.life.monthly)}/month</b>` : ''}
     </div>
+    <p class="small nom-recap">${S.nomination
+      ? `📝 <b>Nomination made</b> at age ${S.nomination.age} for ${sim.NOMINEES[S.nomination.who]}. When you pass on, your CPF monies go straight to your nominees, usually within weeks.`
+      : `📝 <b>No CPF nomination${S.nominationRevoked != null ? ' (marriage cancelled the one you made)' : ''}.</b> When you pass on, your CPF monies go to the Public Trustee, to be shared out under intestacy law after fees, which can take months.`}</p>
   </div>`;
 }
 

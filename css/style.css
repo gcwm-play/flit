@@ -661,3 +661,6 @@ label.check { display: flex; gap: 8px; align-items: center; font-weight: 700; ma
 label.check input { width: 20px; height: 20px; }
 .cj-month { margin: 6px 0 0; font-size: 15px; }
 #cj-emp-note, #cj-rise-note { margin-top: 6px; }
+.nom-seg { flex-wrap: wrap; gap: 6px; }
+.nom-seg .seg-btn + .seg-btn { border-left: 3px solid var(--line); }
+.nom-recap { margin-top: 10px; }

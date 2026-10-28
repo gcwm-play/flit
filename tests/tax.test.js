@@ -154,3 +154,24 @@ test('own job: titles are checked, pay grows at the chosen rate', () => {
   close(u.salary, 3000, 0.01);
   assert.ok(sim.careerInfo(u).selfEmployed);
 });
+
+test('top-ups from 18: your own, to any account; CPF nomination is cancelled by marriage', () => {
+  const s = adult(30, 3000);
+  Object.assign(s, { age: 17, stage: 'teen' });
+  assert.deepEqual(sim.topUpAccounts(s), ['ret']);
+  s.age = 18;
+  assert.ok(sim.topUpAccounts(s).includes('ma') && sim.topUpAccounts(s).includes('all'));
+  Object.assign(s, { age: 30, stage: 'adult' });
+  assert.ok(sim.nominationNeedsReview(s));
+  sim.nominate(s, 'parents');
+  assert.ok(!sim.nominationNeedsReview(s));
+  sim.marry(s, 0);
+  assert.equal(s.nomination, null);
+  assert.equal(s.nominationRevoked, 30);
+  assert.deepEqual(sim.nomineeChoices(s), ['spouse', 'parents']);
+  sim.nominate(s, 'spouse');
+  s.children = [{ bornAge: 31 }];
+  assert.ok(sim.nominationNeedsReview(s));
+  sim.nominate(s, 'family');
+  assert.ok(!sim.nominationNeedsReview(s));
+});

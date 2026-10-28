@@ -117,6 +117,39 @@ export function ownedItems(s) {
 }
 
 // Remembers a big moment for the life recap at the end.
+// ---------- CPF nomination ----------
+// Members aged 16 and above can nominate who gets their CPF savings when they die
+// (cpf.gov.sg). Without one, the savings go to the Public Trustee's Office and are shared
+// out under the Intestate Succession Act (or faraid for Muslims), after fees.
+export const NOMINATION_MIN_AGE = 16;
+export const NOMINEES = {
+  parents: 'your parents',
+  spouse: 'your spouse',
+  children: 'your children',
+  family: 'your spouse and children',
+};
+
+export function nomineeChoices(s) {
+  const kids = (s.children || []).length > 0;
+  if (s.spouse && kids) return ['family', 'spouse', 'children', 'parents'];
+  if (s.spouse) return ['spouse', 'parents'];
+  if (kids) return ['children', 'parents'];
+  return ['parents'];
+}
+
+export function nominate(s, who) {
+  s.nomination = { age: s.age, who, kids: (s.children || []).length };
+  s.nominationRevoked = null;
+  story(s, 'cpf', '📝', `Made a CPF nomination for ${NOMINEES[who]}`);
+}
+
+// Worth a look: no nomination, or children born since that aren't covered by it.
+export function nominationNeedsReview(s) {
+  if (!s.nomination) return true;
+  const kidsNow = (s.children || []).length;
+  return kidsNow > s.nomination.kids && !['children', 'family'].includes(s.nomination.who);
+}
+
 export function story(s, kind, icon, text, data = {}) {
   (s.story ||= []).push({ age: s.age, kind, icon, text, ...data });
 }
@@ -840,6 +873,11 @@ export function marry(s, weddingCost) {
     ageGap: spouseAgeGap(), // years older (+) or younger (-) than you
   };
   s.dating = null;
+  // Marriage revokes a CPF nomination (except under Muslim law), so you need a new one.
+  if (s.nomination) {
+    s.nomination = null;
+    s.nominationRevoked = s.age;
+  }
   coverShortfall(s, weddingCost / 2);
   s.log.push(`Age ${s.age}: got married`);
   story(s, 'family', '💍', 'Got married', { amount: weddingCost / 2 });
@@ -1193,7 +1231,10 @@ export function topUpRoom(s, account = 'ret') {
 }
 
 // Children and teens can only have their SA topped up (by their parents). No one gets tax relief for that.
-export const topUpAccounts = (s) => (s.stage === 'child' || s.stage === 'teen' ? ['ret'] : TOP_UP_ACCOUNTS);
+// Under 18, top-ups come from your parents and only go to the SA. From 18 (in NS or still
+// studying) you can top up your own CPF with your own cash, like any adult member.
+export const isMinor = (s) => s.age < 18;
+export const topUpAccounts = (s) => (isMinor(s) ? ['ret'] : TOP_UP_ACCOUNTS);
 
 // Roughly how much more CPF LIFE pays each month for an extra RA top-up today.
 export function lifePayoutGain(s, amount) {
@@ -1208,7 +1249,7 @@ export function lifePayoutGain(s, amount) {
 // Savings Scheme matches RSTU top-ups dollar for dollar, up to $2,000 a year.
 export function topUpCpf(s, amount, account = 'ret') {
   if (!topUpAccounts(s).includes(account)) account = 'ret';
-  const young = s.stage === 'child' || s.stage === 'teen';
+  const young = isMinor(s);
   const rec = topUpRecord(s);
   const want = Math.max(0, Math.min(amount, topUpRoom(s, account)));
   let accepted = 0, matched = 0, relief = 0;
