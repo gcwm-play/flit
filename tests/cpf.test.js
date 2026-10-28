@@ -228,3 +228,49 @@ test('CPFIS limits: keep $20k in the OA, 35% in stocks, SA only in funds', async
   invest.sell(s, 'bank', 'oa', 1e9);
   assert.ok(s.cpf.oa > 65000 * 0 && invest.holdings(s).length === 0);
 });
+
+test('RA is formed up to the FRS; BRS needs a pledge; OA can move in up to the ERS', () => {
+  const s = sim.newGame('RA', { gender: 'male', tone: 0, outfit: 0 });
+  s.age = 55;
+  s.cpf = { oa: 300000, sa: 150000, ma: 50000, ra: 0 };
+  s.home = { kind: 'hdb', leaseLeft: 60, boughtAge: 30 };
+  sim.formRA(s);
+  assert.equal(s.cpf.ra, cpf.RETIREMENT_SUMS.FRS);
+  assert.equal(s.cpf.oa, 300000 - (cpf.RETIREMENT_SUMS.FRS - 150000));
+  assert.ok(sim.canPledge(s));
+  const moved = sim.transferOaToRa(s, 1e9);
+  assert.equal(s.cpf.ra, cpf.RETIREMENT_SUMS.ERS);
+  assert.equal(moved, cpf.RETIREMENT_SUMS.ERS - cpf.RETIREMENT_SUMS.FRS);
+});
+
+test('top-ups after CPF LIFE starts count the premium towards the ERS and raise payouts', () => {
+  const s = sim.newGame('Life', { gender: 'female', tone: 0, outfit: 0 });
+  s.age = 66;
+  s.cpf.ra = 0;
+  s.life = { startAge: 65, plan: 'standard', monthly: 1780, premium: 400000 };
+  assert.equal(sim.topUpRoom(s), cpf.RETIREMENT_SUMS.ERS - 400000);
+  close(sim.lifePayoutGain(s, 10000), 54.5, 0.5);
+});
+
+test('Lease Buyback: explains why a flat with a short lease left is not eligible', () => {
+  const s = sim.newGame('LBS', { gender: 'female', tone: 0, outfit: 0 });
+  s.age = 75;
+  s.home = { kind: 'hdb', leaseLeft: 30, boughtAge: 40, lbsDone: false };
+  const r = sim.lbsCheck(s);
+  assert.equal(r.ok, false);
+  assert.match(r.reasons.join(' '), /20 years/);
+  s.home.leaseLeft = 60;
+  assert.equal(sim.lbsCheck(s).ok, true);
+});
+
+test('a very high stat opens a matching career switch', () => {
+  const s = sim.newGame('Switch', { gender: 'male', tone: 0, outfit: 0 });
+  s.age = 40;
+  s.stage = 'adult';
+  s.stats.communication = 52;
+  const offer = sim.careerSwitchOffer(s);
+  assert.equal(offer.id, 'speaker');
+  sim.switchCareer(s, 'speaker');
+  assert.equal(s.selfEmployed, true);
+  assert.equal(sim.careerInfo(s).id, 'speaker');
+});

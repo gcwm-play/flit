@@ -149,16 +149,16 @@ export const CAREERS = [
 // Monthly spending (today's dollars, one person, excluding housing and children):
 // at least `monthly`, and more as you earn more ("lifestyle creep"), as a share of take-home pay.
 export const LIFESTYLES = {
-  simple: { label: 'Simple', icon: '🍜', monthly: 1800, share: 0.5, joy: 0, desc: 'Hawker food, public transport, free fun' },
-  comfortable: { label: 'Comfortable', icon: '🛋️', monthly: 2600, share: 0.7, joy: 1, desc: 'Eating out, gym, a short trip each year' },
-  lavish: { label: 'Lavish', icon: '🥂', monthly: 4000, share: 0.95, joy: 2, desc: 'Fine dining, branded goods, big holidays' },
+  simple: { label: 'Simple', icon: '🍜', monthly: 1600, share: 0.4, joy: 0, desc: 'Hawker food, public transport, free fun' },
+  comfortable: { label: 'Comfortable', icon: '🛋️', monthly: 2200, share: 0.55, joy: 1, desc: 'Eating out, the odd taxi, a gym membership' },
+  lavish: { label: 'Lavish', icon: '🥂', monthly: 3500, share: 0.75, joy: 2, desc: 'Fine dining, taxis everywhere, branded goods' },
 };
 
 // What a retiree spends a month in each lifestyle (today's dollars).
 export const RETIREMENT_LIFESTYLES = {
   simple: { label: 'Simple', monthly: 1500, desc: 'Basic needs, hawker food, public transport' },
-  comfortable: { label: 'Comfortable', monthly: 2500, desc: 'Eating out, hobbies, a holiday now and then' },
-  lavish: { label: 'Lavish', monthly: 4500, desc: 'Travel, a car, fine dining' },
+  comfortable: { label: 'Comfortable', monthly: 2200, desc: 'Eating out, taxis now and then' },
+  lavish: { label: 'Lavish', monthly: 3800, desc: 'Fine dining, taxis, branded goods' },
 };
 
 export const HOMES = [
@@ -312,3 +312,50 @@ export const FACTS = {
     source: 'SingStat, Complete Life Tables 2024-2025',
   },
 };
+
+// Holidays you can plan from the Holidays panel. Cost is per traveller, return
+// flights and a typical stay, in today's dollars.
+export const HOLIDAYS = [
+  { id: 'jb', name: 'Weekend in Johor Bahru', place: 'Malaysia', icon: '🚗', cost: 250, joy: 1, days: 2 },
+  { id: 'cruise', name: 'Cruise to nowhere', place: 'From Marina Bay', icon: '🛳️', cost: 600, joy: 1, days: 3 },
+  { id: 'bangkok', name: 'Bangkok', place: 'Thailand', icon: '🛕', cost: 900, joy: 2, days: 4 },
+  { id: 'bali', name: 'Bali', place: 'Indonesia', icon: '🏝️', cost: 1200, joy: 2, days: 5 },
+  { id: 'tokyo', name: 'Tokyo', place: 'Japan', icon: '🗻', cost: 3000, joy: 3, days: 7 },
+  { id: 'sydney', name: 'Sydney', place: 'Australia', icon: '🦘', cost: 3500, joy: 3, days: 8 },
+  { id: 'paris', name: 'Paris', place: 'France', icon: '🗼', cost: 6000, joy: 4, days: 10 },
+];
+
+// Career switches offered when a stat (45+) or a hybrid stat (25+) gets very high.
+// Pay is a typical monthly figure in Singapore today; self-employed incomes vary a lot.
+export const CAREER_SWITCHES = [
+  { id: 'speaker', label: 'Professional speaker and corporate trainer', icon: '🎤', stat: 'communication', min: 45, pay: 6500, selfEmployed: true,
+    desc: 'Run workshops for companies and speak at conferences. Many trainers get work through SkillsFuture-funded courses.' },
+  { id: 'illustrator', label: 'Illustrator and game artist', icon: '🖌️', stat: 'creativity', min: 45, pay: 5200,
+    desc: 'Draw for a Singapore games studio or animation house.' },
+  { id: 'scientist', label: 'Research scientist at a national research agency', icon: '🔬', stat: 'knowledge', min: 45, pay: 7500,
+    desc: 'Work on research at a lab like A*STAR\'s institutes.' },
+  { id: 'trainer', label: 'Personal trainer with your own clients', icon: '🏋️', stat: 'fitness', min: 45, pay: 5000, selfEmployed: true,
+    desc: 'Train clients at gyms and parks across the island.' },
+  { id: 'adviser', label: 'Licensed financial adviser', icon: '📊', stat: 'moneySense', min: 40, pay: 6500,
+    desc: 'Help families plan their finances. Part of your pay is commission.' },
+  { id: 'scdf', label: 'Emergency responder (civil defence)', icon: '🚒', stat: 'resilience', min: 45, pay: 5200,
+    desc: 'Firefighting and rescue: tough, steady and respected.' },
+  { id: 'manager', label: 'Department manager', icon: '🗂️', stat: 'career', min: 45, pay: 9000,
+    desc: 'Lead a team at a large company.' },
+  { id: 'director', label: 'Director at a statutory board', icon: '🏛️', hybrid: 'leadership', min: 25, pay: 10000,
+    desc: 'Lead a public agency division that shapes policy.' },
+  { id: 'founder2', label: 'Tech start-up founder', icon: '🚀', hybrid: 'innovation', min: 25, pay: 7000, selfEmployed: true,
+    desc: 'Build your own app with help from Startup SG grants. Big upside, real risk.' },
+  { id: 'performer', label: 'Theatre performer and content creator', icon: '🎭', hybrid: 'artistry', min: 25, pay: 5000, selfEmployed: true,
+    desc: 'Perform on local stages and grow an online audience. Arts grants can help.' },
+  { id: 'teamlead', label: 'Sports team manager', icon: '🏟️', hybrid: 'teamwork', min: 25, pay: 6000,
+    desc: 'Manage a professional or national sports team.' },
+  { id: 'officer', label: 'Regular officer in the armed forces', icon: '🎖️', hybrid: 'discipline', min: 25, pay: 6800,
+    desc: 'A structured career with good benefits.' },
+  { id: 'fnb', label: 'Owner of a food and drinks chain', icon: '🍲', hybrid: 'enterprise', min: 25, pay: 8000, selfEmployed: true,
+    desc: 'Grow a hawker stall into a chain of outlets.' },
+  { id: 'cfp', label: 'Certified wealth planner', icon: '📈', hybrid: 'planner', min: 25, pay: 8500,
+    desc: 'Plan retirement and investments for clients.' },
+  { id: 'studio', label: 'Owner of a yoga and wellness studio', icon: '🧘', hybrid: 'vitality', min: 25, pay: 5500, selfEmployed: true,
+    desc: 'Run your own studio and classes.' },
+];

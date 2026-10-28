@@ -421,3 +421,27 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 .summary.holdings th, .summary.holdings td { padding: 4px 6px; font-size: 14px; }
 .pos { color: #2e8b57; } .neg { color: #c0392b; }
 .tip { all: unset; display: block; cursor: pointer; margin-top: 8px; padding: 6px 8px; background: #fff7d6; border: 2px solid #e0a23a; font-size: 13px; }
+
+/* Status, budget, holidays */
+.status { font-weight: 800; color: var(--muted); }
+.status.on { color: #2e8b57; }
+.career.dim { opacity: 0.7; border-style: dashed; }
+.gain-note { background: #eef8ee; border: 2px solid #3a9d5d; padding: 6px 10px; font-size: 14px; }
+.summary.budget th { text-align: left; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding-top: 10px; }
+.summary.budget td .btn { padding: 2px 8px; font-size: 12px; margin-left: 6px; }
+.alloc-row select { font: inherit; font-size: 12px; max-width: 100%; margin-top: 2px; }
+.budget-sum { margin: 10px 0; }
+.budget-bar { display: flex; height: 18px; border: 2px solid var(--line); background: #fff; overflow: hidden; }
+.budget-bar span { display: block; height: 100%; }
+.b-fixed { background: #8a8fa3; } .b-fun { background: #e0a23a; } .b-save { background: #3f7fd9; } .b-left { background: #3a9d5d; }
+.legend .b-fixed, .legend .b-fun, .legend .b-save, .legend .b-left { display: inline-block; width: 12px; height: 12px; vertical-align: middle; }
+.holidays { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.holiday { display: flex; flex-direction: column; gap: 3px; background: #fff; border: 2px solid var(--line); padding: 8px; min-width: 0; }
+.holiday small { color: var(--muted); font-size: 12px; }
+.postcard { width: 100%; height: auto; aspect-ratio: 3 / 2; border: 3px solid #fff; outline: 2px solid var(--line); image-rendering: pixelated; display: block; }
+.row.tight { gap: 4px; flex-wrap: wrap; }
+.row.tight .btn { padding: 4px 8px; font-size: 12px; }
+.plans { list-style: none; padding: 0; display: grid; gap: 4px; }
+.plans .btn { padding: 2px 8px; font-size: 12px; }
+.who .status { font-style: normal; font-weight: 800; font-family: 'Nunito', sans-serif; color: var(--muted); }
+.who .status.on { color: #2e8b57; }

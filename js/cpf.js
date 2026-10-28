@@ -170,13 +170,14 @@ export function formRetirementAccount(cpf, target = 'FRS', { ownsHome = false } 
 
 // Cash top-up (Retirement Sum Topping-Up). Under 55 it goes to the SA up to the
 // FRS; from 55 to the RA up to the ERS. Returns the amount accepted.
-export function topUpRoom(cpf, age) {
+// From 55 the limit counts RA savings already used to join CPF LIFE (`premium`).
+export function topUpRoom(cpf, age, premium = 0) {
   if (age < 55) return Math.max(0, RETIREMENT_SUMS.FRS - cpf.sa);
-  return Math.max(0, RETIREMENT_SUMS.ERS - cpf.ra);
+  return Math.max(0, RETIREMENT_SUMS.ERS - cpf.ra - premium);
 }
 
-export function cashTopUp(cpf, age, amount) {
-  const accepted = Math.min(amount, topUpRoom(cpf, age));
+export function cashTopUp(cpf, age, amount, premium = 0) {
+  const accepted = Math.min(amount, topUpRoom(cpf, age, premium));
   if (age < 55) cpf.sa += accepted;
   else cpf.ra += accepted;
   return accepted;

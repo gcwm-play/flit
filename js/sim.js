@@ -4,7 +4,7 @@ import * as housing from './housing.js';
 import * as invest from './invest.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, SHOP, LIFESTYLES,
-  RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS,
+  RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
 } from './data.js';
 
 // Cash you leave untouched for a whole year earns about what a 12-month fixed
@@ -29,6 +29,10 @@ export function newGame(name, look) {
     holdings: [],
     debt: 0, // unsecured debt (credit cards), or a Debt Consolidation Plan when s.dcp is set
     dcp: null,
+    // Monthly spending and saving plan, set in the Budget panel (adults and seniors).
+    budget: newBudget(),
+    holidayPlans: [], // { id, mode: 'once' | 'yearly' | 'times', left }
+    trips: [], // { age, id }
     cpf: cpf.newCpfAccounts(),
     cpfWorked: false,
     room: [],
@@ -56,6 +60,10 @@ export function newGame(name, look) {
   for (let a = 0; a < s.age; a++) cpf.applyYearlyInterest(s.cpf, a);
   record(s);
   return s;
+}
+
+export function newBudget() {
+  return { hobbies: 0, shopping: 0, cpfSelf: 0, kidsCpf: 0, investAmt: 0, investId: 'world' };
 }
 
 export function unlockedStats(s) {
@@ -165,6 +173,31 @@ export function chooseCareer(s, careerId) {
   s.cpfWorked = true;
 }
 
+// The job you have now, whether you started in it or switched into it later.
+export function careerInfo(s) {
+  return CAREERS.find((c) => c.id === s.career) || CAREER_SWITCHES.find((c) => c.id === s.career) || null;
+}
+
+// A career switch you've earned with a very high stat, not offered in the last 10 years.
+export function careerSwitchOffer(s) {
+  if (s.stage !== 'adult' || s.age < 25 || s.age > 60) return null;
+  return CAREER_SWITCHES.find((c) => {
+    if (c.id === s.career) return false;
+    const last = (s.switchOffers || {})[c.id];
+    if (last != null && s.age - last < 10) return false;
+    const level = c.stat ? s.stats[c.stat] : s.hybrids[c.hybrid] ? hybridValue(s, c.hybrid) : 0;
+    return level >= c.min;
+  }) || null;
+}
+
+export function switchCareer(s, id) {
+  const c = CAREER_SWITCHES.find((x) => x.id === id);
+  s.career = c.id;
+  s.selfEmployed = !!c.selfEmployed;
+  s.salary = c.pay;
+  s.log.push(`Age ${s.age}: became a ${c.label}`);
+}
+
 export function ageStage(age) {
   return STAGE_ORDER.find((k) => age >= STAGES[k].startAge && age < STAGES[k].endAge) || 'senior';
 }
@@ -179,7 +212,7 @@ export function yearsThisTurn(s) {
 // Runs `years` years of life. `opts.jobWage` is a teen's part-time monthly pay.
 // Returns a summary of what happened to the money.
 export function advanceYears(s, years, opts = {}) {
-  const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0 };
+  const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0 };
   for (let y = 0; y < years; y++) {
     // One-off effects (like months without pay) only hit the first year.
     oneYear(s, sum, y === 0 ? opts : { jobWage: opts.jobWage });
@@ -207,6 +240,8 @@ function oneYear(s, sum, opts) {
   const wage = young ? 0 : currentWage(s);
   const jobMonths = young && opts.jobWage && age >= 16 ? 3 : 0; // teen holiday job
   const spendMonthly = young ? 0 : monthlySpend(s) * (opts.costFactor || 1);
+  const b = s.budget || newBudget();
+  const funMonthly = young ? 0 : (b.hobbies || 0) + (b.shopping || 0);
   const acc = cpf.newInterestAccrual();
   let cash = 0;
 
@@ -215,7 +250,8 @@ function oneYear(s, sum, opts) {
 
   for (let m = 0; m < 12; m++) {
     // Outflows first: housing loan instalments come out of the OA, then cash.
-    let out = spendMonthly;
+    let out = spendMonthly + funMonthly;
+    sum.fun += funMonthly;
     if (!young) {
       if (s.home) {
         // Loan instalments: from the OA first if you chose that, then cash.
@@ -279,6 +315,20 @@ function oneYear(s, sum, opts) {
     coverShortfall(s, -cash, sum);
   }
 
+  if (!young) {
+    takeHolidays(s, sum);
+    budgetTransfers(s, sum);
+    // Hobbies and treats: joy, and hobbies keep you healthy and creative.
+    s.joy += Math.min(4, funMonthly * 12 * joyPerDollar(s));
+    const h = Math.min(1, ((b.hobbies || 0) * 12) / 3000);
+    if (h > 0) {
+      s.stats.health = round1(s.stats.health + h);
+      s.stats.creativity = round1(s.stats.creativity + h);
+    }
+  }
+  // Children's CPF top-ups grow at the SA rate plus 1% extra interest.
+  for (const c of s.children || []) if (c.cpfSa) c.cpfSa *= 1 + cpf.INTEREST.sa + 0.01;
+
   // Savings interest: the higher rate on what you never touched this year.
   const untouched = Math.max(0, Math.min(s.cashLow ?? 0, s.bank));
   const bankInt = untouched * SAVINGS_INTEREST.untouched + Math.max(0, s.bank - untouched) * SAVINGS_INTEREST.base;
@@ -306,7 +356,7 @@ function oneYear(s, sum, opts) {
   if (s.home) housing.yearPassed(s.home);
 }
 
-function currentWage(s) {
+export function currentWage(s) {
   if (s.stage === 'adult') return s.salary;
   if (s.stage === 'senior') {
     if (s.age >= 70 || s.workMode === 'retired') return 0;
@@ -439,9 +489,34 @@ function scale(c, n) {
 
 // ---------- big decisions ----------
 
-export function formRA(s, target) {
-  s.retirementTarget = target;
-  return cpf.formRetirementAccount(s.cpf, target, { ownsHome: !!s.home });
+// At 55 the RA is always filled up to the FRS (from SA, then OA).
+export function formRA(s) {
+  s.retirementTarget = 'FRS';
+  return cpf.formRetirementAccount(s.cpf, 'FRS', { ownsHome: !!s.home });
+}
+
+// A property whose lease lasts until you're 95 lets you pledge it and keep only the BRS.
+export function canPledge(s) {
+  return !!s.home && s.home.leaseLeft >= 95 - s.age && s.cpf.ra > cpf.RETIREMENT_SUMS.BRS;
+}
+
+// Pledge your property and withdraw the RA savings above the BRS as cash.
+export function pledgeToBrs(s) {
+  const extra = Math.max(0, s.cpf.ra - cpf.RETIREMENT_SUMS.BRS);
+  s.cpf.ra -= extra;
+  s.bank += extra;
+  s.retirementTarget = 'BRS';
+  s.pledged = true;
+  return extra;
+}
+
+// Move OA savings into the RA, up to the ERS, for bigger CPF LIFE payouts.
+export function transferOaToRa(s, amount) {
+  const a = Math.max(0, Math.min(amount, s.cpf.oa, topUpRoom(s)));
+  s.cpf.oa -= a;
+  s.cpf.ra += a;
+  if (s.cpf.ra > cpf.RETIREMENT_SUMS.FRS) s.retirementTarget = 'ERS';
+  return a;
 }
 
 export function withdrawOa(s, amount) {
@@ -618,7 +693,104 @@ export function leaseBuyback(s) {
   s.bank += q.cash;
   s.home.leaseLeft = q.keep;
   s.home.lbsDone = true;
+  s.home.lbsAge = s.age;
   return q;
+}
+
+// ---------- budget, holidays and status ----------
+
+// What you're doing for a living, in words.
+export function workStatus(s) {
+  if (s.stage === 'child') return 'At school';
+  if (s.stage === 'teen') return s.age >= 17 ? 'Studying' : 'At school';
+  if (s.stage === 'adult') return s.selfEmployed ? 'Running your own business' : 'Working full-time';
+  if (s.age >= 70 || s.workMode === 'retired') return 'Retired';
+  return s.workMode === 'part' ? 'Working part-time' : 'Working full-time';
+}
+
+export const isWorking = (s) => currentWage(s) > 0;
+
+// Who goes on a family holiday: you, your spouse, and children under 21.
+export function travellers(s) {
+  return 1 + (s.spouse ? 1 : 0) + (s.children || []).filter((c) => s.age - c.bornAge < 21).length;
+}
+
+// Your share of one trip. Couples split household costs.
+export function holidayCost(s, id) {
+  const h = HOLIDAYS.find((x) => x.id === id);
+  return h.cost * travellers(s) * (s.spouse ? 0.5 : 1);
+}
+
+// Average monthly cost of your holiday plans over the next year.
+export function holidayMonthly(s) {
+  return (s.holidayPlans || []).reduce((t, p) => t + holidayCost(s, p.id), 0) / 12;
+}
+
+function takeHolidays(s, sum) {
+  for (const p of s.holidayPlans || []) {
+    const h = HOLIDAYS.find((x) => x.id === p.id);
+    const cost = holidayCost(s, p.id);
+    coverShortfall(s, cost, sum);
+    sum.holidays += cost;
+    // The first few visits to a place are the most memorable.
+    const visits = (s.trips || []).filter((t) => t.id === p.id).length;
+    s.joy += h.joy * (visits >= 3 ? 0.5 : 1);
+    (s.trips ||= []).push({ age: s.age, id: p.id });
+    if (p.mode !== 'yearly') p.left--;
+  }
+  s.holidayPlans = (s.holidayPlans || []).filter((p) => p.mode === 'yearly' || p.left > 0);
+}
+
+// Planned saving each year, only from cash you actually have (never borrowed).
+function budgetTransfers(s, sum) {
+  const b = s.budget || newBudget();
+  const take = (want) => {
+    const a = Math.max(0, Math.min(want, s.bank));
+    return a;
+  };
+  if (b.cpfSelf > 0) {
+    const a = take(Math.min(b.cpfSelf * 12, topUpRoom(s)));
+    if (a > 0) {
+      spendCash(s, a);
+      const r = topUpCpf(s, a);
+      s.bank += a - r.accepted;
+      sum.cpfSaved += r.accepted;
+    }
+  }
+  const kids = (s.children || []).filter((c) => s.age - c.bornAge < 21);
+  if (b.kidsCpf > 0 && kids.length) {
+    for (const c of kids) {
+      // Your share: couples split it.
+      const a = take(b.kidsCpf * 12);
+      if (a <= 0) break;
+      spendCash(s, a);
+      c.cpfSa = (c.cpfSa || 0) + a / (s.spouse ? 0.5 : 1);
+      c.cpfGiven = (c.cpfGiven || 0) + a;
+      sum.kidsCpf += a;
+    }
+  }
+  if (b.investAmt > 0) {
+    const a = take(b.investAmt * 12);
+    if (a > 0) {
+      sum.invested += invest.buy(s, b.investId || 'world', 'cash', a);
+      s.cashLow = Math.min(s.cashLow ?? s.bank, s.bank);
+    }
+  }
+}
+
+// Lease Buyback Scheme checks (HDB rules, 2026). Returns { ok, reasons, keep }.
+export function lbsCheck(s) {
+  const h = s.home;
+  const reasons = [];
+  if (!h) return { ok: false, reasons: ['You don\'t own a home.'] };
+  const keep = s.age >= 80 ? 15 : s.age >= 75 ? 20 : s.age >= 70 ? 25 : 30;
+  if (h.kind !== 'hdb') reasons.push('LBS is only for HDB flats. Private property owners can rent out or sell instead.');
+  if (s.age < 65) reasons.push(`All owners must be at least 65 (you are ${s.age}).`);
+  if (h.lbsDone) reasons.push(`You already sold part of this flat's lease to HDB at ${h.lbsAge ?? 'an earlier age'}. The ${h.leaseLeft} years you kept are what's left to live in, so there is nothing more to sell.`);
+  else if (h.leaseLeft - keep < 20) reasons.push(`At your age you must keep ${keep} years of lease, and at least 20 years must be left to sell to HDB. Your flat has ${h.leaseLeft} years left, so only ${Math.max(0, h.leaseLeft - keep)} could be sold.`);
+  if (s.age - (h.boughtAge ?? s.age) < 5) reasons.push('You must have lived in the flat for at least 5 years.');
+  if (grossIncome(s) > 14000) reasons.push(`Gross household income must be $14,000 a month or less (yours is ${money(grossIncome(s))}).`);
+  return { ok: reasons.length === 0, reasons, keep };
 }
 
 // ---------- CPF top-ups ----------
@@ -635,13 +807,22 @@ export function topUpsThisYear(s) {
 
 // How much more cash you can top up: the SA up to the FRS before 55, the RA up to the ERS after.
 export function topUpRoom(s) {
-  return cpf.topUpRoom(s.cpf, s.age);
+  return cpf.topUpRoom(s.cpf, s.age, s.life ? s.life.premium : 0);
+}
+
+// Roughly how much more CPF LIFE pays each month for an extra RA top-up today.
+export function lifePayoutGain(s, amount) {
+  if (s.age < 55 || amount <= 0) return 0;
+  const plan = LIFE_PLANS[(s.life && s.life.plan) || 'standard'];
+  if (s.life && s.age >= s.life.startAge) return cpf.cpfLifePayout(amount, s.life.startAge) * plan.factor;
+  const start = s.life ? s.life.startAge : 65;
+  return cpf.cpfLifePayout(amount * Math.pow(1 + cpf.INTEREST.ra, start - s.age), start) * plan.factor;
 }
 
 // Cash top-up. From 55, if your RA is below the BRS, the Matched Retirement
 // Savings Scheme matches it dollar for dollar, up to $2,000 a year.
 export function topUpCpf(s, amount) {
-  const accepted = cpf.cashTopUp(s.cpf, s.age, amount);
+  const accepted = cpf.cashTopUp(s.cpf, s.age, amount, s.life ? s.life.premium : 0);
   const before = topUpsThisYear(s);
   s.topUps = { age: s.age, amount: before + accepted };
   let matched = 0;
