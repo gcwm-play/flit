@@ -1333,13 +1333,66 @@ async function jobHunt(reason, economy) {
     </div>
     ${m.locked.length ? `<h3>Better jobs you could reach</h3><ul class="small locked-jobs">${m.locked.map((o) => `<li>${o.icon} <b>${o.label}</b>, about ${money(o.pay)}/month: needs ${o.needs.map(([k, v]) => `${statName(k, o.hybrid)} ${v}`).join(' and ')}</li>`).join('')}</ul>
     <p class="small">Upskill with a SkillsFuture course or other activities to raise these stats.</p>` : ''}
+    ${advancedJobHtml()}
     <div class="row">${working ? btn('stay', 'Stay in my job') : ''}</div>`, { wide: true });
   if (c === 'stay' || c == null) return;
+  if (c === 'custom') {
+    if (await customJobDialog()) S.jobMarket = null;
+    return;
+  }
   const o = m.offers[+c];
   sim.takeJob(S, o);
   S.jobMarket = null;
   logEvent(`${o.icon} New job: ${o.label} (${money(o.pay)}/month)`);
   toast(`${o.icon} You start as ${o.label} at ${money(o.pay)} a month.`);
+}
+
+// Advanced: play with your own job, pay and pay rises.
+function advancedJobHtml() {
+  return `<div class="limit-box advanced-job"><h3>⚙️ Advanced: your own job</h3>
+    <p class="small">Want to see how your real job plays out? Enter its title, your yearly income and how fast you expect your pay to grow.</p>
+    ${btn('custom', '✏️ Enter my own job')}</div>`;
+}
+
+async function customJobDialog() {
+  const cur = (S.customJobs || {})[S.career];
+  let title = cur ? cur.label : '';
+  let annual = cur ? Math.round(S.salary * 12) : 60000;
+  let growth = cur ? cur.growth : 0.03;
+  let selfEmployed = cur ? cur.selfEmployed : false;
+  let error = '';
+  for (;;) {
+    const c = dialog(`
+      <h2>⚙️ Your own job</h2>
+      <p class="small">The game uses your numbers from now on. Your job title appears in your life recap.</p>
+      <label class="field"><span>Job title</span><input id="cj-title" maxlength="32" autocomplete="off" placeholder="e.g. Marketing manager" value="${esc(title)}"></label>
+      ${error ? `<p class="small neg" role="alert">${error}</p>` : ''}
+      <p class="field-label">Yearly income (before CPF, including bonuses)</p>
+      ${amountControl('cj-annual', 600000, 'Yearly income')}
+      <p class="field-label">Pay rise each year: <b id="cj-growth-val">${(growth * 100).toFixed(1)}%</b></p>
+      <input type="range" id="cj-growth" min="0" max="10" step="0.5" value="${growth * 100}" aria-label="Pay rise each year">
+      <p class="small">Game amounts are in today's dollars, so use a rise above inflation: 2% to 3% is typical, 0% if your pay keeps pace with prices only. It stops at 65.</p>
+      <label class="check"><input type="checkbox" id="cj-self" ${selfEmployed ? 'checked' : ''}> I'm self-employed (no employer CPF, only MediSave)</label>
+      <p class="small muted-ink" id="cj-month"></p>
+      <div class="row">${btn('save', 'Start this job', 'primary')}${btn('cancel', 'Cancel')}</div>`, { wide: true });
+    const box = $('[data-amt="cj-annual"]', modalBox);
+    const [range, num] = box.querySelectorAll('input');
+    range.value = num.value = annual;
+    const month = () => { $('#cj-month', modalBox).textContent = annual > 0 ? `That's about ${money(annual / 12)} a month.` : ''; };
+    wireAmount(modalBox, 'cj-annual', (v) => Math.min(v, 600000), (v) => { annual = v; month(); });
+    month();
+    $('#cj-title', modalBox).oninput = (e) => (title = e.target.value);
+    $('#cj-growth', modalBox).oninput = (e) => { growth = +e.target.value / 100; $('#cj-growth-val', modalBox).textContent = `${(+e.target.value).toFixed(1)}%`; };
+    $('#cj-self', modalBox).onchange = (e) => (selfEmployed = e.target.checked);
+    const choice = await c;
+    if (choice !== 'save') return false;
+    error = sim.checkJobTitle(title) || (annual < 1200 ? 'Enter a yearly income of at least $1,200.' : '');
+    if (error) continue;
+    sim.takeCustomJob(S, { title, annual, growth, selfEmployed });
+    logEvent(`💼 New job: ${title.trim()} (${money(annual)}/year)`);
+    toast(`💼 You start as ${title.trim()} at ${money(annual / 12)} a month.`);
+    return true;
+  }
 }
 
 async function careerSwitchDialog(c) {
@@ -1432,7 +1485,13 @@ async function adultStart() {
           ? `✓ ${STATS[k].label} ${v}`
           : `<span class="neg">✗ ${STATS[k].label} ${v} (you have ${Math.round(S.stats[k])})</span>`).join('<br>') || 'No requirements'}${o.selfEmployed ? '<br>Self-employed: no employer CPF, only MediSave' : ''}</small>
       </button>`).join('')}</div>
-    <p class="small">Locked jobs need a second skill as well as your qualification. You can still switch later: build the skill as an adult, then use "Look for a new job".</p>`, { wide: true });
+    <p class="small">Locked jobs need a second skill as well as your qualification. You can still switch later: build the skill as an adult, then use "Look for a new job".</p>
+    ${advancedJobHtml()}`, { wide: true });
+  if (c === 'custom') {
+    if (!(await customJobDialog())) return adultStart();
+    await lifestyleDialog();
+    return;
+  }
   sim.chooseCareer(S, c);
   logEvent(`💼 First job: ${opts.find((o) => o.id === c).label}`);
   const career = opts.find((o) => o.id === c);
@@ -2464,7 +2523,7 @@ function runs(key) {
 function careerRecap() {
   const t = S.totals || {};
   const jobs = runs('job').filter((r) => r.value);
-  const info = (id) => CAREERS.find((c) => c.id === id) || CAREER_SWITCHES.find((c) => c.id === id);
+  const info = (id) => (S.customJobs || {})[id] || CAREERS.find((c) => c.id === id) || CAREER_SWITCHES.find((c) => c.id === id);
   const retiredAt = stories('job').find((e) => /^Retired/.test(e.text))?.age;
   const knocks = stories('job').filter((e) => e.icon === '📉');
   const peak = Math.max(0, ...(S.history || []).map((h) => h.pay || 0));

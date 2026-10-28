@@ -132,3 +132,14 @@ test('men do two years of NS at 18 with an allowance and no CPF, and start work 
   assert.ok(sim.isStudying(m));
   assert.equal(sim.yearsThisTurn(m), 2);
 });
+
+test('own job: titles are checked, pay grows at the chosen rate', () => {
+  for (const ok of ['Physiotherapist', 'Assistant manager', 'Saltwater fish farmer', 'Data scientist']) assert.equal(sim.checkJobTitle(ok), '', ok);
+  for (const bad of ['Sex worker', 's3x worker', 'Escort', 'Drug dealer', 'P1mp', '<b>x</b>', '']) assert.notEqual(sim.checkJobTitle(bad), '', bad);
+  const s = adult(30, 3000);
+  sim.takeCustomJob(s, { title: 'Product manager', annual: 90000, growth: 0.04 });
+  assert.equal(s.salary, 7500);
+  assert.equal(sim.careerInfo(s).label, 'Product manager');
+  sim.advanceYears(s, 1);
+  close(s.salary, 7800, 0.01);
+});

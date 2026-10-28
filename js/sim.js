@@ -211,12 +211,51 @@ export const aOrAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 
 // The job you have now, whether you started in it or switched into it later.
 export function careerInfo(s) {
-  return CAREERS.find((c) => c.id === s.career) || CAREER_SWITCHES.find((c) => c.id === s.career) || null;
+  return (s.customJobs || {})[s.career] || CAREERS.find((c) => c.id === s.career) || CAREER_SWITCHES.find((c) => c.id === s.career) || null;
+}
+
+// ---------- your own job (Advanced) ----------
+
+// Job titles the player types in show up in the life recap, so they're checked first.
+// Words that are blocked anywhere in the title (after undoing tricks like f*ck, sh1t, s e x):
+const BLOCKED_ANYWHERE = ['fuck', 'fuk', 'shit', 'cunt', 'bitch', 'bastard', 'whore', 'slut', 'porn', 'prostitut', 'hooker',
+  'escort', 'stripper', 'striptease', 'sexwork', 'camgirl', 'camboy', 'onlyfans', 'pimp', 'brothel', 'masturbat', 'blowjob',
+  'handjob', 'dildo', 'fetish', 'bdsm', 'nigg', 'faggot', 'retard', 'pedophil', 'paedophil', 'molest', 'hitman', 'assassin',
+  'terrorist', 'drugdeal', 'drugdealer', 'drugtraffick', 'drugmule', 'loanshark', 'ahlong', 'scammer', 'kanina', 'knn', 'cheebye',
+  'chibai', 'lanjiao', 'nabeh', 'pukimak', 'sohai', 'diaolei', 'motherfucker', 'wanker', 'dickhead', 'arsehole', 'asshole'];
+// Short words that are only blocked on their own, so "assistant" or "Sussex" are fine:
+const BLOCKED_WORDS = ['ass', 'arse', 'sex', 'sexy', 'cum', 'tit', 'tits', 'dick', 'cock', 'nude', 'nudes', 'xxx', 'rape', 'nazi',
+  'gigolo', 'mamasan', 'thief', 'gangster', 'gang', 'smuggler', 'drug', 'drugs', 'kill', 'killer', 'hoe', 'boobs', 'penis',
+  'vagina', 'horny', 'lust', 'rapist', 'twat', 'pedo', 'paedo', 'damn', 'crap', 'piss', 'wtf', 'stfu', 'fk', 'sial', 'lj', 'cb'];
+const LEET = { 0: 'o', 1: 'i', 3: 'e', 4: 'a', 5: 's', 7: 't', 8: 'b', '@': 'a', $: 's', '!': 'i', '|': 'i', '+': 't' };
+
+// Returns an error message, or '' if the title is fine.
+export function checkJobTitle(raw) {
+  const title = (raw || '').trim();
+  if (title.length < 2) return 'Type a job title.';
+  if (title.length > 32) return 'Keep the job title to 32 characters.';
+  if (!/^[A-Za-z0-9 &'().,/-]+$/.test(title)) return 'Use letters, numbers, spaces and simple punctuation only.';
+  const lower = title.toLowerCase().replace(/[0-9@$!|+]/g, (c) => LEET[c] || c);
+  const squashed = lower.replace(/[^a-z]/g, '').replace(/(.)\1+/g, '$1');
+  const plain = lower.replace(/[^a-z]/g, '');
+  const words = lower.split(/[^a-z]+/).filter(Boolean);
+  const bad = BLOCKED_ANYWHERE.some((w) => plain.includes(w) || squashed.includes(w.replace(/(.)\1+/g, '$1')))
+    || words.some((w) => BLOCKED_WORDS.includes(w));
+  return bad ? 'Please choose a different job title. This one can\'t be used in the game.' : '';
+}
+
+// Takes your own job: a title, yearly income and how fast your pay grows each year.
+export function takeCustomJob(s, { title, annual, growth, selfEmployed }) {
+  const id = `custom-${Object.keys(s.customJobs || {}).length + 1}`;
+  (s.customJobs ||= {})[id] = { id, label: title.trim(), icon: '💼', growth, selfEmployed: !!selfEmployed, custom: true };
+  const first = !s.career;
+  takeJob(s, { id, label: title.trim(), icon: '💼', selfEmployed, pay: Math.round(annual / 12) });
+  if (first) { s.careerStartAge = s.age; s.cpfWorked = true; }
 }
 
 // A career switch you've earned with a very high stat, not offered in the last 10 years.
 export function careerSwitchOffer(s) {
-  if (s.stage !== 'adult' || s.age < 25 || s.age > 60) return null;
+  if (s.stage !== 'adult' || s.age < 25 || s.age > 60 || (s.customJobs || {})[s.career]) return null;
   return CAREER_SWITCHES.find((c) => {
     if (c.id === s.career) return false;
     const last = (s.switchOffers || {})[c.id];
@@ -503,8 +542,10 @@ function oneYear(s, sum, opts) {
   if (s.debt > 0 && s.age >= 55 && !s.shortfallAge) s.shortfallAge = age;
 
   // Pay rises: faster early in your career.
-  const growth = age < 45 ? 0.025 : age < 55 ? 0.005 : 0; // real pay growth, after inflation
-  if (s.salary && !young) s.salary = Math.min(15000, s.salary * (1 + growth));
+  // Real pay growth, after inflation. Your own job (Advanced) grows at the rate you chose, until 65.
+  const own = (s.customJobs || {})[s.career];
+  const growth = own ? (age < 65 ? own.growth : 0) : age < 45 ? 0.025 : age < 55 ? 0.005 : 0;
+  if (s.salary && !young) s.salary = own ? s.salary * (1 + growth) : Math.min(15000, s.salary * (1 + growth));
   if (s.spouse) s.spouse.salary *= 1 + growth;
   if (s.home) housing.yearPassed(s.home);
 }
