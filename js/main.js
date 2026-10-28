@@ -4,7 +4,7 @@ import * as sim from './sim.js';
 import * as housing from './housing.js';
 import * as invest from './invest.js';
 import { postcard } from './postcards.js';
-import { characterHtml, itemHtml, lookOf, ANIMALS, GENDERS, OUTFITS } from './sprites.js';
+import { characterHtml, itemHtml, lookOf, ANIMALS, GENDERS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent } from './events.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION,
@@ -198,12 +198,6 @@ const walker = (look, cls, alt, lane, count) => {
 };
 const me = (stage = S.stage) => lookOf(S.look, stage);
 
-// Outfit colour swatches, used when you grow into a new life stage.
-function outfitPicker(selected) {
-  return `<div class="swatches" role="group" aria-label="Outfit colour">${OUTFITS.map((c, i) =>
-    `<button class="swatch ${i === selected ? 'on' : ''}" data-outfit="${i}" style="background:${c}" aria-label="Outfit colour ${i + 1}"></button>`).join('')}</div>`;
-}
-
 // ---------- title screen ----------
 
 function titleScreen() {
@@ -223,8 +217,6 @@ function titleScreen() {
         <p class="small muted">Everyone in this Singapore is an animal, but the rules are real: the same CPF, HDB and marriage rules apply.</p>
         <p class="pick-label">You are</p>
         <div class="seg" role="group" aria-label="He or she">${Object.entries(GENDERS).map(([k, l]) => `<button class="seg-btn" data-gender="${k}">${l}</button>`).join('')}</div>
-        <p class="pick-label">Outfit colour</p>
-        ${outfitPicker(look.outfit)}
         <div class="row">
           <button class="btn primary" id="start">Start a new life</button>
           ${saved ? `<button class="btn" id="continue">Continue (${esc(saved.name)}, age ${saved.age})</button>` : ''}
@@ -882,7 +874,7 @@ async function stageIntro(stage) {
     <p class="eyebrow">${st.label} · age ${S.age}</p>
     <h2>${st.intro.title}</h2>
     ${st.intro.body.map((p) => `<p>${p}</p>`).join('')}
-    ${stage !== 'child' ? `<div class="grown"><span id="grown-me">${person(me(stage), 'walking')}</span><div><p class="small">You've grown up! Pick a new outfit colour.</p>${outfitPicker(S.look.outfit)}</div></div>` : ''}
+    ${stage !== 'child' ? `<div class="grown"><span id="grown-me">${person(me(stage), 'walking')}</span><div><p class="small">You've grown up!</p></div></div>` : ''}
     ${btn('ok', "Let's go", 'primary')}`, { wide: true });
   modalBox.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => {
     S.look.outfit = +b.dataset.outfit;
