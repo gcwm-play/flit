@@ -303,6 +303,14 @@ export const FACTS = {
     text: 'In 2024 the median age at first marriage in Singapore was <b>31.1 for grooms</b> and <b>29.6 for brides</b>, up from 30.2 and 28.2 ten years earlier. There were 26,328 marriages that year.',
     source: 'SingStat, Statistics on Marriages and Divorces 2024',
   },
+  accruedInterest: {
+    text: 'When you sell a home bought with CPF, you refund to your CPF the savings you used <b>plus the interest they would have earned</b> had they stayed there (accrued interest, at the OA rate of 2.5% a year). It isn\'t a penalty: the money goes back into your own CPF for your retirement. If a sale at market value doesn\'t cover it all, you don\'t top up the difference in cash. Making a Voluntary Housing Refund earlier stops the accrued interest from building up.',
+    source: 'CPF Board, "Why do I need to pay interest on CPF used for housing after property sale?"',
+  },
+  healthcare: {
+    text: 'Singapore pays for healthcare in layers: <b>Government subsidies</b> of up to 80% in Class B2 and C wards, <b>MediShield Life</b> for large bills (everyone is covered for life), <b>MediSave</b> for the rest, and <b>MediFund</b> as a safety net for those who still can\'t pay. Integrated Shield Plans are optional private insurance for B1, A or private-hospital wards.',
+    source: 'Ministry of Health, 2026',
+  },
   fertility: {
     text: 'Singapore\'s resident total fertility rate fell to <b>0.87 births per woman</b> in 2025, a record low (0.97 in 2024). About 2.1 is needed for a population to replace itself.',
     source: 'Preliminary 2025 figures, reported February 2026',

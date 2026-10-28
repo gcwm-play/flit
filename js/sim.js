@@ -2,6 +2,7 @@
 import * as cpf from './cpf.js';
 import * as housing from './housing.js';
 import * as invest from './invest.js';
+import * as health from './health.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, SHOP, LIFESTYLES,
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
@@ -53,6 +54,9 @@ export function newGame(name, look) {
     history: [],
     log: [],
     story: [], // the big moments, for the life recap: { age, kind, icon, text, ...numbers }
+    insurance: { plan: 'msl', rider: false }, // MediShield Life for everyone; an Integrated Shield Plan on top is optional
+    healthPlan: health.planHealthEvents(21), // the illnesses and accidents this life will bring: [{ age, id }]
+    dating: null, // the age you started seeing someone
     done: false,
   };
   // MediSave Grant for Newborns, grown with interest from birth to the starting age.
@@ -286,7 +290,7 @@ export function yearsThisTurn(s) {
 // Returns a summary of what happened to the money.
 export function advanceYears(s, years, opts = {}) {
   const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0,
-    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cpfInterest: 0, bankInterest: 0, cashStart: s.bank };
+    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cpfInterest: 0, bankInterest: 0, insuranceMa: 0, insuranceCash: 0, groceries: 0, homeSpouse: 0, cashStart: s.bank };
   for (let y = 0; y < years; y++) {
     // One-off effects (like months without pay) only hit the first year.
     oneYear(s, sum, y === 0 ? opts : { jobWage: opts.jobWage });
@@ -323,8 +327,16 @@ function oneYear(s, sum, opts) {
   const acc = cpf.newInterestAccrual();
   let cash = 0;
 
-  // MediShield Life premiums are deducted from MediSave once a year.
-  if (!young) payFromMedisave(s, medishieldPremium(age));
+  // Health insurance premiums: MediShield Life, plus any Shield plan and rider. MediSave pays
+  // MediShield Life and part of a Shield plan (up to the Additional Withdrawal Limit); the rest is cash.
+  if (!young) {
+    const pr = insurancePremiums(s);
+    const ma = Math.min(pr.medisave, Math.max(0, s.cpf.ma));
+    s.cpf.ma -= ma;
+    if (pr.total - ma > 0) coverShortfall(s, pr.total - ma, sum);
+    sum.insuranceMa += ma;
+    sum.insuranceCash += pr.total - ma;
+  }
 
   for (let m = 0; m < 12; m++) {
     // Outflows first: housing loan instalments come out of the OA, then cash.
@@ -333,6 +345,8 @@ function oneYear(s, sum, opts) {
     if (!young) {
       sum.living += parts.living * costFactor;
       sum.kids += parts.kids * costFactor;
+      sum.groceries += parts.groceries * costFactor;
+      sum.homeSpouse += parts.homeSpouse * costFactor;
       sum.car += parts.car * costFactor;
       sum.allowance += parts.allowance * costFactor;
       if (s.home) {
@@ -342,10 +356,10 @@ function oneYear(s, sum, opts) {
         sum.housingOa += paid.fromOa;
         sum.housingCash = (sum.housingCash || 0) + paid.fromCash;
         // The loan was meant to come from the OA, but the OA ran dry.
-        if (s.home.payWith === 'oa' && paid.fromCash > 0.01) sum.oaRanOut = (sum.oaRanOut || 0) + paid.fromCash;
+        if (paid.oaShort > 0.01) sum.oaRanOut = (sum.oaRanOut || 0) + paid.oaShort;
         out += paid.fromCash;
       } else if (age >= 30 || s.spouse) {
-        const rent = RENT_MONTHLY * (s.spouse ? 0.5 : 1);
+        const rent = RENT_MONTHLY * householdShare(s);
         sum.rent += rent;
         out += rent;
       }
@@ -474,18 +488,33 @@ export function spendBreakdown(s) {
     m = Math.max(floor, l.share * th);
   }
   const car = s.car ? 1500 : 0;
-  const share = s.spouse ? 0.5 : 1;
-  let kids = 0, kidsCount = 0, allowance = 0;
+  const share = householdShare(s);
+  let kids = 0, kidsCount = 0, allowance = 0, groceries = 0;
   for (const c of s.children || []) {
     const childAge = s.age - c.bornAge;
-    if (childAge < 22) { kids += CHILD_COST * share; kidsCount++; }
+    if (childAge < 22) {
+      kids += childCost(childAge) * share;
+      groceries += GROCERIES.child * share;
+      kidsCount++;
+    }
     // Grown-up children often give their parents a monthly allowance.
     else if (s.age >= 60) allowance += CHILD_ALLOWANCE;
   }
-  return { living: m, car, kids, kidsCount, allowance, total: m + car + kids - allowance };
+  // A stay-at-home spouse: you pay their allowance and their share of the groceries.
+  const homeSpouse = s.spouse && s.spouse.home ? s.spouse.allowance || 0 : 0;
+  if (s.spouse && s.spouse.home) groceries += GROCERIES.spouse;
+  return { living: m, car, kids, kidsCount, groceries, homeSpouse, allowance, total: m + car + kids + groceries + homeSpouse - allowance };
 }
 
-export const CHILD_COST = 1200;
+// What a child costs a month in 2026, after Government subsidies, not counting food
+// (estimates: infant care and diapers; preschool; school, tuition and pocket money; JC or poly).
+export const CHILD_COSTS = [[2, 1000, 'infant care, diapers and milk'], [6, 700, 'preschool and enrichment'],
+  [12, 550, 'school, tuition and pocket money'], [16, 650, 'tuition, transport and pocket money'], [21, 800, 'JC or poly, transport and pocket money']];
+export const childCost = (age) => (CHILD_COSTS.find(([max]) => age <= max) || [0, 0])[1];
+export const GROCERIES = { child: 250, spouse: 300 }; // extra groceries a month for each family member
+
+// Your part of shared household costs: half if your spouse also works, all of it if they stay at home.
+export const householdShare = (s) => (s.spouse && !s.spouse.home ? 0.5 : 1);
 
 export function takeHome(s) {
   const wage = currentWage(s);
@@ -493,11 +522,34 @@ export function takeHome(s) {
 }
 export const CHILD_ALLOWANCE = 200;
 
-export function medishieldPremium(age) {
-  if (age <= 40) return 300;
-  if (age <= 60) return 700;
-  if (age <= 75) return 1300;
-  return 1800;
+export const medishieldPremium = (age) => health.mslPremium(age);
+
+export function insurancePremiums(s) {
+  const ins = s.insurance || { plan: 'msl', rider: false };
+  return health.premiums(s.age, ins.plan, ins.rider);
+}
+
+// Monthly per capita household income, used to means-test hospital subsidies.
+export function pchi(s) {
+  const people = 1 + (s.spouse ? 1 : 0) + (s.children || []).filter((c) => s.age - c.bornAge < 21).length;
+  return grossIncome(s) / people;
+}
+
+// An illness or accident: works out the bill and pays it.
+export function treat(s, id) {
+  const c = health.CONDITIONS.find((x) => x.id === id);
+  const ins = s.insurance || { plan: 'msl', rider: false };
+  const b = health.billBreakdown(c, {
+    age: s.age, plan: ins.plan, rider: ins.rider, pchi: pchi(s),
+    highValueHome: !!s.home && s.home.kind === 'private', medisave: s.cpf.ma, cash: s.bank,
+  });
+  s.cpf.ma -= b.fromMedisave;
+  if (b.fromCash > 0) coverShortfall(s, b.fromCash);
+  s.joy = Math.max(0, s.joy - (c.kind === 'major' ? 3 : 1));
+  if (c.kind === 'major') s.stats.health = Math.max(0, s.stats.health - 3);
+  (s.illnesses ||= []).push({ age: s.age, id, ward: b.ward, cash: b.fromCash, medisave: b.fromMedisave });
+  story(s, 'health', c.icon, `Recovered from ${c.label} in a ${b.wardInfo.label}`, { gross: b.gross, cash: b.fromCash, medisave: b.fromMedisave });
+  return { c, b };
 }
 
 // Pays a bill from MediSave first, then cash. Returns how it was split.
@@ -688,7 +740,10 @@ export function marry(s, weddingCost) {
     animal: s.look.animal,
     gender: s.look.gender === 'male' ? 'female' : 'male',
     outfit: (s.look.outfit + 2) % 6,
+    home: false, // true: stays at home and you pay their allowance
+    allowance: 500,
   };
+  s.dating = null;
   coverShortfall(s, weddingCost / 2);
   s.log.push(`Age ${s.age}: got married`);
   story(s, 'family', '💍', 'Got married', { amount: weddingCost / 2 });
@@ -721,7 +776,7 @@ export const UNI_FEES = 34000; // about four years of subsidised local universit
 // 'oa' uses the CPF Education Scheme: up to 40% of your OA, which your child
 // repays (with 2.5% interest) over 12 years, starting a year after graduating.
 export function payUniversity(s, child, how) {
-  const fees = UNI_FEES * (s.spouse ? 0.5 : 1);
+  const fees = UNI_FEES * householdShare(s);
   child.uni = how;
   if (how === 'cash') coverShortfall(s, fees);
   if (how === 'oa') {
@@ -739,15 +794,15 @@ export function payUniversity(s, child, how) {
 
 export function grossIncome(s) {
   const own = s.stage === 'adult' || s.stage === 'senior' ? currentWage(s) : 0;
-  return own + (s.spouse ? s.spouse.salary : 0);
+  return own + (s.spouse && !s.spouse.home ? s.spouse.salary : 0);
 }
 
 export function otherDebt(s) {
   return s.car ? 900 : 0; // car loan instalment counts towards the TDSR
 }
 
-export function homeQuotes(s) {
-  const share = s.spouse ? 0.5 : 1;
+export function homeQuotes(s, years = 25) {
+  const share = householdShare(s);
   return housing.HOMES
     .filter((h) => (s.spouse ? h.id !== 'flexi2' : h.kind === 'private' || (s.age >= 35 && h.singles)))
     .map((h) => housing.quote(h, {
@@ -756,11 +811,13 @@ export function homeQuotes(s) {
       otherDebt: otherDebt(s),
       oa: s.cpf.oa,
       cash: s.bank,
+      years,
+      age: s.age,
     }));
 }
 
-export function buyHome(s, id) {
-  const q = homeQuotes(s).find((x) => x.id === id);
+export function buyHome(s, id, years = 25) {
+  const q = homeQuotes(s, years).find((x) => x.id === id);
   s.cpf.oa -= q.fromOa;
   coverShortfall(s, q.fromCash);
   s.home = housing.newHome(q, s.age);
@@ -828,7 +885,7 @@ export function travellers(s) {
 // Your share of one trip. Couples split household costs.
 export function holidayCost(s, id) {
   const h = HOLIDAYS.find((x) => x.id === id);
-  return h.cost * travellers(s) * (s.spouse ? 0.5 : 1);
+  return h.cost * travellers(s) * householdShare(s);
 }
 
 // Average monthly cost of your holiday plans over the next year.
@@ -874,7 +931,7 @@ function budgetTransfers(s, sum) {
       const a = take(b.kidsCpf * 12);
       if (a <= 0) break;
       spendCash(s, a);
-      c.cpfSa = (c.cpfSa || 0) + a / (s.spouse ? 0.5 : 1);
+      c.cpfSa = (c.cpfSa || 0) + a / householdShare(s);
       c.cpfGiven = (c.cpfGiven || 0) + a;
       sum.kidsCpf += a;
     }

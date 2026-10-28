@@ -31,16 +31,30 @@ export function buyersStampDuty(price) {
   return duty;
 }
 
-// What a home costs this household. `share` is the player's part (0.5 with a spouse).
-export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash }) {
+// Loan terms you can pick, in 5-year steps. HDB loans run up to 25 years; a bank loan
+// for an HDB flat can run to 30 (MAS limit), but then lends only 55% of the price.
+export const LOAN_TERMS = [5, 10, 15, 20, 25, 30];
+
+// Which loan a term means, and how much it lends (MAS loan-to-value limits for a first loan):
+// 75% normally; 55% if the term is over 25 years for an HDB flat (30 for private) or runs past age 65.
+export function loanFor(home, years, age = 30) {
+  const hdb = home.kind === 'hdb';
+  if (hdb && years <= 25) return { type: 'HDB loan', rate: cpf.HDB_LOAN_RATE, ltv: 0.75, minCashPct: 0 };
+  const long = years > (hdb ? 25 : 30) || age + years > 65;
+  return { type: 'Bank loan', rate: BANK_LOAN_RATE, ltv: long ? 0.55 : 0.75, minCashPct: long ? 0.1 : 0.05 };
+}
+
+// What a home costs this household. `share` is the player's part (0.5 with a working spouse).
+export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash, years = 25, age = 30 }) {
   const price = home.price * share;
   const hdb = home.kind === 'hdb';
-  const loan = price * 0.75; // HDB and bank loans both cover up to 75% (LTV)
+  years = hdb ? Math.min(years, 30) : years;
+  const terms = loanFor(home, years, age);
+  const loan = price * terms.ltv;
   const down = price - loan;
-  const minCash = hdb ? 0 : price * 0.05; // bank loans need at least 5% in cash
+  const minCash = price * terms.minCashPct; // bank loans need part of the down payment in cash
   const bsd = buyersStampDuty(home.price) * share;
-  const rate = hdb ? cpf.HDB_LOAN_RATE : BANK_LOAN_RATE;
-  const years = hdb ? 25 : 30;
+  const rate = terms.rate;
   const instalment = cpf.monthlyInstalment(loan, rate, years);
   // Loan limits use the whole household's income and the whole loan.
   const fullInstalment = instalment / share;
@@ -51,7 +65,7 @@ export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash }) {
   const fromOa = Math.min(oa, upfront - minCash);
   const fromCash = upfront - fromOa;
   return {
-    ...home, share, price, loan, down, bsd, rate, years, instalment, fullInstalment, stressInstalment,
+    ...home, share, price, loan, ltv: terms.ltv, loanType: terms.type, down, bsd, rate, years, instalment, fullInstalment, stressInstalment,
     msrOk, tdsrOk, fromOa, fromCash, minCash, affordable: msrOk && tdsrOk && fromCash <= cash,
     msrPct: fullInstalment / grossIncome, tdsrPct: (stressInstalment + otherDebt) / grossIncome,
   };
@@ -67,14 +81,18 @@ export function newHome(q, age) {
     loanBalance: q.loan,
     rate: q.rate,
     instalment: q.instalment,
-    payWith: 'oa', // 'oa' (CPF first, then cash) or 'cash'
+    years: q.years,
+    loanType: q.loanType,
+    payWith: 'oa', // 'oa' if any of the instalment comes from CPF, 'cash' if none
+    oaShare: 1, // how much of each instalment comes from your OA (the rest in cash)
     cpfPrincipal: q.fromOa, // CPF used so far, refunded to your OA when you sell
     cpfAccrued: 0,
     lbsDone: false,
   };
 }
 
-// One month of owning a home. Returns { fromOa, fromCash }.
+// One month of owning a home. Returns { fromOa, fromCash, oaShort }: oaShort is
+// the part you wanted to pay from your OA but couldn't, because it ran out.
 export function payMonth(home, oaBalance) {
   // Accrued interest: what your CPF would have earned had you not used it.
   home.cpfAccrued += (home.cpfPrincipal + home.cpfAccrued) * (CPF_HOUSING_INTEREST / 12);
@@ -82,9 +100,16 @@ export function payMonth(home, oaBalance) {
   const interest = home.loanBalance * (home.rate / 12);
   const due = Math.min(home.instalment, home.loanBalance + interest);
   home.loanBalance = home.loanBalance + interest - due;
-  const fromOa = home.payWith === 'oa' ? Math.min(due, oaBalance) : 0;
+  const want = due * oaShareOf(home);
+  const fromOa = Math.min(want, Math.max(0, oaBalance));
   home.cpfPrincipal += fromOa;
-  return { fromOa, fromCash: due - fromOa };
+  return { fromOa, fromCash: due - fromOa, oaShort: want - fromOa };
+}
+
+export const oaShareOf = (home) => home.oaShare ?? (home.payWith === 'oa' ? 1 : 0);
+export function setOaShare(home, share) {
+  home.oaShare = Math.max(0, Math.min(1, share));
+  home.payWith = home.oaShare > 0 ? 'oa' : 'cash';
 }
 
 export function yearPassed(home) {
@@ -115,7 +140,9 @@ export function saleBreakdown(home) {
   const sale = value(home);
   const afterLoan = Math.max(0, sale - home.loanBalance);
   const refund = Math.min(afterLoan, cpfToRefund(home));
-  return { sale, loan: home.loanBalance, refund, cash: afterLoan - refund };
+  // If the sale doesn't cover it all, the shortfall doesn't have to be topped up in cash.
+  const principal = Math.min(refund, home.cpfPrincipal);
+  return { sale, loan: home.loanBalance, refund, principal, accrued: refund - principal, owed: cpfToRefund(home), cash: afterLoan - refund };
 }
 
 // Refunds to CPF from age 55 go to the RA first, up to the Full Retirement Sum.

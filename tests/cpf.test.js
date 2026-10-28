@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as cpf from '../js/cpf.js';
 import * as housing from '../js/housing.js';
 import * as sim from '../js/sim.js';
+import * as health from '../js/health.js';
 
 const close = (a, b, tol = 1) => assert.ok(Math.abs(a - b) <= tol, `${a} is not within ${tol} of ${b}`);
 
@@ -318,7 +319,26 @@ test('spending breakdown adds up to monthly spending', () => {
   const b = sim.spendBreakdown(s);
   assert.equal(b.kidsCount, 2);
   assert.equal(b.car, 1500);
-  close(sim.monthlySpend(s), b.living + b.car + b.kids - b.allowance, 0.01);
+  close(sim.monthlySpend(s), b.living + b.car + b.kids + b.groceries + b.homeSpouse - b.allowance, 0.01);
+  // Ages 8 and 5: school and preschool, plus groceries, all paid by you (no spouse).
+  close(b.kids, sim.childCost(8) + sim.childCost(5), 0.01);
+  close(b.groceries, 2 * sim.GROCERIES.child, 0.01);
+});
+
+test('a stay-at-home spouse: you pay all shared costs plus their allowance', () => {
+  const s = sim.newGame('Fam', { gender: 'male', animal: 'dog', outfit: 0 });
+  s.age = 35; s.stage = 'adult'; s.salary = 6000;
+  s.spouse = { salary: 5000, home: false };
+  s.children = [{ bornAge: 34 }];
+  const dual = sim.spendBreakdown(s);
+  close(dual.kids, sim.childCost(1) / 2, 0.01);
+  close(sim.grossIncome(s), 11000, 0.01);
+  s.spouse.home = true; s.spouse.allowance = 600;
+  const single = sim.spendBreakdown(s);
+  close(single.kids, sim.childCost(1), 0.01);
+  close(single.homeSpouse, 600, 0.01);
+  close(single.groceries, sim.GROCERIES.child + sim.GROCERIES.spouse, 0.01);
+  close(sim.grossIncome(s), 6000, 0.01);
 });
 
 test('a self-employed owner paying the home loan from the OA runs the OA dry, then pays cash', () => {
@@ -330,4 +350,67 @@ test('a self-employed owner paying the home loan from the OA runs the OA dry, th
   assert.ok(s.cpf.oa < 500, `OA should be (nearly) empty, is ${s.cpf.oa}`); // only the year's interest is left
   close(sum.housingOa, 20000, 600);
   assert.ok(sum.oaRanOut > 20000);
+});
+
+test('hospital bills: subsidy, MediShield Life deductible and co-insurance, MediSave limits', () => {
+  const c = health.CONDITIONS.find((x) => x.id === 'heart');
+  // Co-insurance: 10% of the first $5,000 (counting the deductible), 5% of the next $5,000, 3% above.
+  close(health.coInsurance(12000, 2500), 250 + 250 + 60, 0.01);
+  const b = health.billBreakdown(c, { age: 50, plan: 'msl', pchi: 2000, medisave: 100000, cash: 100000 });
+  assert.equal(b.ward, 'B2');
+  assert.equal(b.subsidyPct, 0.8);
+  close(b.subsidy + b.msl + b.fromMedisave + b.fromCash + b.medifund, b.gross, 0.01);
+  assert.ok(b.fromMedisave <= health.medisaveLimit(c));
+  // A private plan with a rider: you still pay 5% co-payment, capped at $3,000.
+  const p = health.billBreakdown(c, { age: 50, plan: 'private', rider: true, medisave: 100000, cash: 100000 });
+  assert.equal(p.subsidy, 0);
+  close(p.fromMedisave + p.fromCash, Math.min(p.gross * 0.05, 3000), 1);
+  // MediFund steps in when a subsidised patient can't pay.
+  const poor = health.billBreakdown(health.CONDITIONS.find((x) => x.id === 'cancer'), { age: 60, plan: 'msl', pchi: 500, medisave: 0, cash: 0 });
+  assert.ok(poor.medifund > 0);
+  assert.equal(poor.fromCash, 0);
+});
+
+test('health insurance premiums rise with age; MediSave pays MediShield Life plus the AWL', () => {
+  const young = health.premiums(30, 'private', true);
+  const old = health.premiums(80, 'private', true);
+  assert.equal(young.msl, 503); // age next birthday 31
+  assert.equal(young.medisave, 503 + 300);
+  assert.ok(old.total > 5 * young.total);
+  assert.equal(health.premiums(45, 'msl').cash, 0);
+});
+
+test('1 to 3 illnesses or accidents a life, from 21 to 84', () => {
+  for (let i = 0; i < 50; i++) {
+    const plan = health.planHealthEvents(21);
+    assert.ok(plan.length >= 1 && plan.length <= 3);
+    for (const e of plan) assert.ok(e.age >= 21 && e.age <= 84 && health.CONDITIONS.some((c) => c.id === e.id));
+  }
+});
+
+test('loan terms: HDB loans to 25 years at 75%; 30 years means a bank loan at 55%', () => {
+  const flat = housing.HOMES.find((h) => h.id === 'bto4');
+  const q25 = housing.quote(flat, { share: 1, grossIncome: 10000, oa: 100000, cash: 100000, years: 25, age: 30 });
+  const q30 = housing.quote(flat, { share: 1, grossIncome: 10000, oa: 100000, cash: 100000, years: 30, age: 30 });
+  const q15 = housing.quote(flat, { share: 1, grossIncome: 10000, oa: 100000, cash: 100000, years: 15, age: 30 });
+  assert.equal(q25.loanType, 'HDB loan');
+  close(q25.loan, flat.price * 0.75, 0.01);
+  assert.equal(q30.loanType, 'Bank loan');
+  close(q30.loan, flat.price * 0.55, 0.01);
+  assert.ok(q15.instalment > q25.instalment);
+});
+
+test('loan paid part from CPF, part in cash; selling refunds CPF used plus accrued interest', () => {
+  const flat = housing.HOMES.find((h) => h.id === 'bto3');
+  const q = housing.quote(flat, { share: 1, grossIncome: 8000, oa: 0, cash: 200000, years: 25, age: 30 });
+  const home = housing.newHome(q, 30);
+  housing.setOaShare(home, 0.4);
+  const m = housing.payMonth(home, 100000);
+  close(m.fromOa, q.instalment * 0.4, 0.01);
+  close(m.fromCash, q.instalment * 0.6, 0.01);
+  for (let i = 0; i < 119; i++) housing.payMonth(home, 100000);
+  const b = housing.saleBreakdown(home);
+  close(b.principal, q.instalment * 0.4 * 120, 0.5);
+  assert.ok(b.accrued > 0);
+  close(b.refund, b.principal + b.accrued, 0.01);
 });

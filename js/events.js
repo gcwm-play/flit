@@ -176,7 +176,7 @@ export const PERSONAL_EVENTS = [
     run: (s) => ({
       icon: '🍼',
       title: s.children.length ? 'Another baby?' : 'Start a family?',
-      text: `A child costs a household about $1,200 a month until they're grown up (you pay half). The Government helps with a Baby Bonus.`,
+      text: `A child costs about $550 to $1,000 a month depending on age, plus groceries, until they're grown up${s.spouse && !s.spouse.home ? ' (you pay half)' : ''}. The Government helps with a Baby Bonus.`,
       fact: FACTS.fertility,
       choices: [
         { label: 'Have a baby', run: (s) => {
@@ -191,24 +191,7 @@ export const PERSONAL_EVENTS = [
     }),
   },
 
-  // Health
-  {
-    id: 'hospital',
-    stages: ['adult', 'senior'],
-    weight: 2,
-    chance: (s) => 1 - resistance(s, ['health', 'fitness'], ['vitality']),
-    run(s) {
-      const bill = rand(5, 20) * 1000 * (s.stage === 'senior' ? 1.5 : 1);
-      const covered = Math.round(bill * 0.6); // MediShield Life covers large bills after the deductible
-      const rest = bill - covered;
-      const paid = payFromMedisave(s, rest);
-      return {
-        icon: '🏥',
-        title: 'Hospital stay',
-        text: `You need surgery: the bill is ${money(bill)}. MediShield Life pays ${money(covered)}, MediSave pays ${money(paid.ma)}${paid.cash ? ` and you pay ${money(paid.cash)} in cash` : ''}. Good Health and Fitness make this less likely.`,
-      };
-    },
-  },
+  // Health: illnesses and accidents are planned per life (see health.js), not rolled here.
   {
     id: 'parentcare',
     stages: ['adult'],
