@@ -161,11 +161,17 @@ function render() {
         <button class="btn small-btn" data-panel="menu">☰</button>
       </nav>
     </header>
+    <div class="play">
+    <div class="play-main">
     <main class="scene">${roomHtml()}</main>
     <section class="actions">
       <h2>${S.done ? 'Your life story is complete' : `Age ${S.age}: ${turnPrompt()}`}</h2>
       <div class="cards">${S.done ? btn('end', 'See your life summary', 'primary') : activityCards()}</div>
-    </section>`;
+    </section>
+    </div>
+    ${ledgerHtml()}
+    </div>`;
+  if (S.ledgerFresh) S.ledgerFresh = false;
   app.querySelectorAll('[data-panel]').forEach((b) => (b.onclick = () => openPanel(b.dataset.panel)));
   app.querySelectorAll('[data-activity]').forEach((b) => (b.onclick = () => takeTurn(b.dataset.activity)));
   const endBtn = app.querySelector('[data-choice="end"]');
@@ -265,6 +271,7 @@ async function takeTurn(activityId) {
     if (world) {
       const w = world.run(S);
       opts = { ...opts, ...(w.opts || {}) };
+      logEvent(`${w.icon} ${w.title}`);
       await dialog(`<div class="event world"><div class="e-icon">${w.icon}</div><p class="eyebrow">World event</p><h2>${w.title}</h2><p>${w.text}</p></div>${btn('ok', 'OK', 'primary')}`);
     }
 
@@ -274,7 +281,8 @@ async function takeTurn(activityId) {
     const sum = sim.advanceYears(S, years, opts);
     S.totals = addTotals(S.totals, sum);
     if (S.stage === 'adult' || S.stage === 'senior') S.joy += LIFESTYLES[S.lifestyle].joy;
-    await yearsSummary(startAge, years, sum, opts);
+    recordTurn(startAge, years, sum, opts, activity, gains);
+    S.ledgerFresh = true;
 
     // Personal events and gifts.
     const personal = rollPersonalEvent(S);
@@ -304,39 +312,77 @@ function scoreWord(score) {
   return '😅 Keep practising!';
 }
 
-async function yearsSummary(startAge, years, sum, opts) {
+// Records what happened to the money this turn; the ledger beside the room shows it.
+function recordTurn(startAge, years, sum, opts, activity, gains) {
   const young = S.stage === 'child' || S.stage === 'teen' || startAge < 21;
   const span = years > 1 ? `Ages ${startAge} to ${startAge + years - 1}` : `Age ${startAge}`;
   const rows = [];
   if (young) {
-    rows.push(['Pocket money and earnings', money(sum.income)]);
-    if (sum.cpfIn) rows.push([`CPF from your job (your employer paid ${money(sum.employerIn)})`, money(sum.cpfIn)]);
+    rows.push(['Pocket money and earnings', money(sum.income), 'in']);
+    if (sum.cpfIn) rows.push([`Into CPF from your job (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn), 'in']);
   } else {
-    rows.push(['Take-home pay and payouts', money(sum.income)]);
-    rows.push(['Living costs', `−${money(sum.spend)}`]);
-    if (sum.cpfIn) rows.push([`Into your CPF (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn)]);
-    if (sum.housingOa) rows.push(['Housing loan paid from OA', `−${money(sum.housingOa)}`]);
-    if (sum.payouts) rows.push(['CPF LIFE payouts', money(sum.payouts)]);
-    if (sum.investReturn) rows.push(['Investment returns', money(sum.investReturn)]);
-    if (sum.debtInterest) rows.push(['Debt interest (25% a year!)', `−${money(sum.debtInterest)}`]);
+    rows.push(['Take-home pay and payouts', money(sum.income), 'in']);
+    rows.push(['Living costs', `−${money(sum.spend)}`, 'out']);
+    if (sum.cpfIn) rows.push([`Into CPF (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn), 'in']);
+    if (sum.housingOa) rows.push(['Home loan paid from OA', `−${money(sum.housingOa)}`, 'out']);
+    if (sum.payouts) rows.push(['CPF LIFE payouts', money(sum.payouts), 'in']);
+    if (sum.investReturn) rows.push(['Investment returns', money(sum.investReturn), sum.investReturn < 0 ? 'out' : 'in']);
+    if (sum.debtInterest) rows.push(['Debt interest (25% a year)', `−${money(sum.debtInterest)}`, 'out']);
   }
-  rows.push(['Interest earned (CPF and bank)', money(sum.interest)]);
-  await dialog(`
-    <p class="eyebrow">${span}</p>
-    <h2>Time flies…</h2>
-    <table class="summary">${rows.map(([a, b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join('')}</table>
-    <div class="cpf-mini">${cpfBars()}</div>
-    ${opts.noPayMonths ? `<p class="small">You had ${opts.noPayMonths} months without pay.</p>` : ''}
-    ${btn('ok', 'Continue', 'primary')}`);
+  rows.push(['Interest earned (CPF and bank)', money(sum.interest), 'in']);
+  if (opts.noPayMonths) rows.push([`Months without pay`, String(opts.noPayMonths), 'out']);
+  S.lastTurn = { span, rows };
+  const g = Object.entries(gains).map(([k, v]) => `${STATS[k].icon}+${v}`).join(' ');
+  logEvent(`${activity.icon} ${activity.label} ${g}`, startAge);
+}
+
+function logEvent(text, age = S.age) {
+  S.journal = S.journal || [];
+  S.journal.unshift({ age, text });
+  S.journal.length = Math.min(S.journal.length, 60);
+}
+
+function ledgerHtml() {
+  const t = S.lastTurn;
+  const total = cpf.cpfTotal(S.cpf);
+  return `
+    <aside class="ledger ${S.ledgerFresh ? 'fresh' : ''}" aria-label="Your money and life log">
+      <section>
+        <h3>🏛️ CPF <span class="ledger-total">${money(total)}</span></h3>
+        ${cpfBars()}
+        ${S.life ? `<p class="small">CPF LIFE ${S.age >= S.life.startAge ? `pays <b>${money(S.life.monthly)}</b>/month` : `starts at ${S.life.startAge}`}</p>` : ''}
+      </section>
+      <section>
+        <h3>💵 Cash</h3>
+        <div class="cash-rows">
+          <span>👛 Spending</span><b>${money(S.wallet)}</b>
+          <span>🏦 Bank</span><b>${money(S.bank)}</b>
+          ${S.invest > 0 ? `<span>📈 Invested</span><b>${money(S.invest)}</b>` : ''}
+          ${S.debt > 0 ? `<span class="neg">💳 Debt</span><b class="neg">−${money(S.debt)}</b>` : ''}
+          ${S.home ? `<span>🏠 Home loan</span><b>${money(S.home.loanBalance)}</b>` : ''}
+        </div>
+      </section>
+      <section>
+        <h3>⏳ Last turn${t ? ` <span class="ledger-sub">${t.span}</span>` : ''}</h3>
+        ${t ? `<div class="turn-rows">${t.rows.map(([a, b, k]) => `<span>${a}</span><b class="${k === 'out' ? 'neg' : 'pos'}">${b}</b>`).join('')}</div>`
+          : '<p class="small muted-ink">Pick an activity below to start. What happens to your money each turn shows up here.</p>'}
+      </section>
+      <section>
+        <h3>📖 Life log</h3>
+        <ol class="journal">${(S.journal || []).slice(0, 12).map((j) => `<li><span class="j-age">${j.age}</span>${esc(j.text)}</li>`).join('') || '<li class="muted-ink">Your story starts here.</li>'}</ol>
+      </section>
+    </aside>`;
 }
 
 async function runPersonalEvent(e) {
+  logEvent(`${e.icon} ${e.title}${e.gift ? ` (${money(e.gift)})` : ''}`);
   if (e.gift) return giftDialog(e);
   if (e.choices) {
     const c = await dialog(`<div class="event"><div class="e-icon">${e.icon}</div><h2>${e.title}</h2><p>${e.text}</p></div>
       <div class="row">${e.choices.map((c, i) => btn(i, c.label, i === 0 ? 'primary' : '')).join('')}</div>`);
     // A choice returns text, or { text, gift } to follow up with a gift to split.
     const result = e.choices[+c].run(S);
+    logEvent(`↳ ${e.choices[+c].label}`);
     const r = typeof result === 'string' ? { text: result } : result;
     await dialog(`<div class="event"><div class="e-icon">${e.icon}</div><p>${r.text}</p></div>${btn('ok', 'OK', 'primary')}`);
     if (r.gift) await giftDialog(r.gift);
@@ -418,6 +464,7 @@ async function milestones() {
   }
   if (stage !== S.stage) {
     S.stage = stage;
+    logEvent(`🎉 New life stage: ${STAGES[stage].label}`);
     await stageIntro(stage);
   }
   if (S.stage === 'adult' && !S.home && S.age >= 27 && (S.homeAskedAt == null || S.age - S.homeAskedAt >= 6)) {
@@ -490,6 +537,7 @@ async function adultStart() {
         <small>${Object.entries(o.needs).map(([k, v]) => `${STATS[k].icon} ${v}`).join(' ') || 'No requirements'}${o.selfEmployed ? ' · Self-employed: no employer CPF, only MediSave' : ''}</small>
       </button>`).join('')}</div>`, { wide: true });
   sim.chooseCareer(S, c);
+  logEvent(`💼 First job: ${opts.find((o) => o.id === c).label}`);
   const career = opts.find((o) => o.id === c);
   const contrib = cpf.monthlyContribution(S.age, S.salary, { selfEmployed: S.selfEmployed });
   await dialog(`
@@ -544,6 +592,7 @@ async function chooseHome(title, { leaveLabel } = {}) {
     <div class="row">${btn('none', leaveLabel || (S.age >= 30 || S.spouse ? `Keep renting (${money(RENT_MONTHLY * (S.spouse ? 0.5 : 1))}/month)` : 'Not yet, stay with family'))}</div>`, { wide: true });
   if (c === 'none') return false;
   const q = sim.buyHome(S, c);
+  logEvent(`🔑 Bought a ${q.label}`);
   const how = await dialog(`
     <h2>How will you pay the monthly loan?</h2>
     <p>Your share is <b>${money(q.instalment)}</b> a month.</p>
@@ -574,6 +623,7 @@ async function turning55() {
     </div>
     <p class="small">Payout estimates are the CPF Board's figures for people turning 55 in 2026, on the CPF LIFE Standard Plan.</p>`, { wide: true });
   const r = sim.formRA(S, t);
+  logEvent(`🏛️ Retirement Account formed: ${money(S.cpf.ra)} (${t})`);
   const c = await dialog(`
     <h2>Your Retirement Account is ready</h2>
     <table class="summary">
@@ -620,6 +670,7 @@ async function cpfLifeDecision() {
       <button class="career" data-choice="${k}"><b>${p.label}</b><span>about ${money((+start === 65 ? now : later) * p.factor)}/month to start</span><small>${p.desc}</small></button>`).join('')}</div>
     <p class="small">Payout figures are estimates.</p>`);
   sim.startCpfLife(S, +start, plan);
+  logEvent(`🏛️ CPF LIFE ${sim.LIFE_PLANS[plan].label} plan, starting at ${start}`);
   if (S.workMode !== 'retired') await workDialog();
 }
 
@@ -846,7 +897,10 @@ async function shopPanel() {
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
     if (c === 'ok') return;
     const item = SHOP[S.stage].find((i) => i.id === c);
-    if (sim.buy(S, item)) toast(`${item.icon} ${item.name} added to your room!`);
+    if (sim.buy(S, item)) {
+      toast(`${item.icon} ${item.name} added to your room!`);
+      logEvent(`${item.icon} Bought ${item.name} (${money(item.price)})`);
+    }
     render();
   }
 }

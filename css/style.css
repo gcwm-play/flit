@@ -308,3 +308,42 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 .room-child .bed { --blanket: #f08bb0; }
 .room-teen .bed { --blanket: #6c63c9; }
 .stage-senior .bed { --blanket: #9c7bb5; }
+
+/* ---------- play layout: room and actions beside the always-visible ledger ---------- */
+.play {
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start;
+  max-width: 1280px; margin: 0 auto; padding: 16px max(16px, env(safe-area-inset-right, 0px)) 32px max(16px, env(safe-area-inset-left, 0px));
+}
+.play-main { min-width: 0; }
+.play .scene { padding: 0 0 16px; }
+.play .actions { padding: 0; max-width: none; }
+.ledger {
+  position: sticky; top: 12px; display: flex; flex-direction: column; gap: 12px;
+  background: var(--panel); border: 4px solid var(--line); box-shadow: var(--shadow); padding: 14px;
+  max-height: calc(100vh - 24px); overflow-y: auto; font-size: 14px;
+}
+.ledger.fresh { animation: ledger-flash 1.2s ease-out; }
+@keyframes ledger-flash { from { box-shadow: 0 0 0 6px #ffd25e, var(--shadow); } }
+.ledger section + section { border-top: 2px dotted #cfc5b5; padding-top: 10px; }
+.ledger h3 { margin: 0 0 8px; font-size: 10px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.ledger-total { font-family: 'Nunito', sans-serif; font-size: 16px; font-weight: 800; }
+.ledger-sub { font-family: 'Nunito', sans-serif; font-size: 12px; color: var(--muted); font-weight: 700; }
+.ledger .acct { grid-template-columns: 1fr 70px 78px; gap: 6px; margin: 4px 0; }
+.ledger .acct-name small { display: none; }
+.ledger .bar { height: 10px; }
+.cash-rows, .turn-rows { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; font-variant-numeric: tabular-nums; }
+.cash-rows b, .turn-rows b { text-align: right; white-space: nowrap; }
+.pos { color: var(--good); }
+.neg { color: var(--bad); }
+.muted-ink { color: var(--muted); }
+.journal { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.journal li { display: grid; grid-template-columns: 26px 1fr; gap: 6px; }
+.j-age { font-family: var(--pixel); font-size: 9px; color: var(--accent); padding-top: 3px; }
+
+@media (max-width: 900px) {
+  .play { grid-template-columns: 1fr; }
+  .ledger { position: static; max-height: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ledger.fresh { animation: none; }
+}
