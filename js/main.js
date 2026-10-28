@@ -1269,6 +1269,11 @@ async function milestones() {
     logEvent(`🎉 New life stage: ${STAGES[stage].label}`);
     await stageIntro(stage);
   }
+  // Saves from before the post-NS choice: ask now instead of assuming more study.
+  if (S.stage === 'adult' && !S.career && sim.doesNs(S) && !S.postNs) {
+    await postNsChoice();
+    if (sim.isStudying(S)) await studyAfterNs();
+  }
   if (S.stage === 'adult' && !S.career && S.age >= sim.firstJobAge(S)) {
     await adultStart();
     closeModal();
