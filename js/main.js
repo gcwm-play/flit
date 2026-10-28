@@ -115,7 +115,7 @@ function monthlyPlan() {
   const income = pay + payout;
   const parts = sim.spendBreakdown(S);
   const living = parts.total;
-  const rent = !S.home && (S.age >= 30 || S.spouse) ? RENT_MONTHLY * share : 0;
+  const rent = sim.isRenting(S) ? RENT_MONTHLY * share : 0;
   const loan = loanSplit();
   const loanCash = loan.fromCash;
   const dcp = S.dcp ? S.dcp.monthly : 0;
@@ -259,6 +259,7 @@ function titleScreen() {
 
 // Saves from before the character picker used numbered sprites.
 function migrate(s) {
+  if (s.renting === undefined) s.renting = !s.home && (s.age >= 30 || !!s.spouse);
   if (!s.look) s.look = { gender: 'female', outfit: 0 };
   // People became animals: older saves become capybaras, family included.
   if (!s.look.animal) s.look.animal = 'capybara';
@@ -363,7 +364,7 @@ function outflows(p) {
     ['living', 'Allowance for your spouse at home', p.parts.homeSpouse, 'Your spouse stays at home and you cover their spending.'],
     ['debt', 'Health insurance (cash part)', p.insurance, 'Shield plan premiums above what MediSave can pay, and any rider.'],
     ['car', S.car && S.car.monthsLeft > 0 ? 'Car (loan and running costs)' : 'Car (running costs)', p.parts.car, 'Car loan, petrol, parking, insurance, road tax and servicing.'],
-    ['home', 'Rent', p.rent, S.spouse ? 'Your half of the rent.' : 'Renting a room or small flat.'],
+    ['home', 'Rent', p.rent, S.spouse && sim.householdShare(S) < 1 ? 'Your half of the rent.' : 'Renting a room or small flat.'],
     ['home', p.loan.fromOa > 0.5 ? 'Home loan (cash part)' : 'Home loan', p.loanCash, p.loan.fromOa > 0.5 ? `The rest, ${money(p.loan.fromOa)} a month, comes from your OA.` : 'Paid in cash. You can switch to your OA in 🏠 Home.'],
     ['debt', 'Debt plan', p.dcp, 'Fixed instalment until your debt is cleared.'],
     ['fun', 'Hobbies', p.b.hobbies, ''],
@@ -1322,26 +1323,43 @@ async function chooseHome(title, { leaveLabel } = {}) {
     const quotes = sim.homeQuotes(S, loanYears);
     const income = sim.grossIncome(S);
     const c = await dialog(`
+    <button class="modal-x" data-choice="back" aria-label="Back" title="Not now">✕</button>
     <h2>${title}</h2>
     <p>You have <b>${money(S.cpf.oa)}</b> in your OA and <b>${money(S.bank)}</b> in cash. ${S.spouse ? S.spouse.home ? 'Your spouse stays at home, so you pay for the whole home.' : 'You and your spouse each pay half.' : ''} Household income: <b>${money(income)}</b>/month.</p>
     <div class="term-pick"><span>Loan term</span>${housing.LOAN_TERMS.map((y) => `<button class="pick ${y === loanYears ? 'on' : ''}" data-choice="term:${y}">${y} yrs</button>`).join('')}</div>
     <p class="small">${loanYears <= 25 ? `An HDB loan at ${pctText(cpf.HDB_LOAN_RATE)} lends up to 75% for up to 25 years. A shorter term means bigger monthly payments but much less interest.` : `HDB loans stop at 25 years. For 30 years you'd need a bank loan (about ${pctText(housing.BANK_LOAN_RATE)}), and MAS rules then cap it at 55% of the price, so you pay more upfront.`} Loans that run past age 65 are also capped at 55% for bank loans.</p>
     <ul class="facts small">
-      <li><b>Loan limits:</b> HDB flats: loan repayments can't be more than 30% of household income (Mortgage Servicing Ratio). All property: total debt repayments can't be more than 55% (MAS Total Debt Servicing Ratio, tested at 4% interest).</li>
+      <li><b>Grants:</b> first-time buyers of an HDB flat get the Enhanced CPF Housing Grant (up to $120,000, less as household income rises, none above $9,000 a month); resale flats also get the CPF Housing Grant. Grants go into your OA and come off the price. When you sell, they're refunded to your CPF with accrued interest.</li>
+      <li><b>Loan limits:</b> the loan is cut, not refused, if repayments would be more than 30% of household income for an HDB flat (Mortgage Servicing Ratio) or all debt repayments more than 55% (MAS Total Debt Servicing Ratio). HDB tests this at 3% interest, banks at 4%. You pay the rest upfront.</li>
       <li><b>Paying:</b> the down payment and the Buyer's Stamp Duty can come from your OA (bank loans need 5 to 10% in cash). Monthly repayments can come from your OA, from cash, or part of each.</li>
       ${S.spouse ? '' : '<li>Singles can buy an HDB flat from 35 (2-room Flexi BTO or resale). Private property has no age limit. Married couples can apply for a BTO flat right away.</li>'}
     </ul>
     <div class="careers">${quotes.map((q) => `
       <button class="career" data-choice="${q.id}" ${q.affordable ? '' : 'disabled'}>
         <span class="c-icon">${housingIcon(q)}</span><b>${q.label}</b><span>${money(q.price / q.share)}${q.share < 1 ? ` (your half ${money(q.price)})` : ''}</span>
-        <small>Upfront ${money(q.down + q.bsd)} incl. stamp duty ${money(q.bsd)}: OA ${money(q.fromOa)}, cash ${money(q.fromCash)}<br>
-        ${q.loanType} ${money(q.loan)} (${Math.round(q.ltv * 100)}%): <b>${money(q.instalment)}/month</b> for ${q.years} years<br>
-        Total interest about ${money(q.instalment * q.years * 12 - q.loan)}<br>
-        ${q.kind === 'hdb' ? `MSR ${pct(q.msrPct)} ${q.msrOk ? '✅' : '❌ over 30%'} · ` : ''}TDSR ${pct(q.tdsrPct)} ${q.tdsrOk ? '✅' : '❌ over 55%'}
-        ${q.affordable || !q.msrOk || !q.tdsrOk ? '' : '<br>❌ not enough cash'}</small>
+        <small>${q.grant > 0 ? `🎁 CPF housing grants ${money(q.grant)}${q.share < 1 ? ' (your half)' : ''}<br>` : ''}
+        Upfront ${money(q.down + q.bsd)} incl. stamp duty ${money(q.bsd)}: OA ${money(q.fromOa)}, cash ${money(q.fromCash)}<br>
+        ${q.loanType} ${money(q.loan)}: <b>${money(q.instalment)}/month</b> for ${q.years} years<br>
+        Total interest about ${money(Math.max(0, q.instalment * q.years * 12 - q.loan))}<br>
+        ${q.cappedBy ? `⚠️ Loan cut from ${money(q.maxLtvLoan)} by the ${q.cappedBy} limit, so you pay more upfront` : `Repayments: ${pct(q.msrPct)} of household income ✅`}
+        ${q.affordable ? '' : `<br>❌ You'd need ${money(q.fromCash - S.bank)} more cash`}</small>
       </button>`).join('') || '<p>No homes available to you yet.</p>'}</div>
-    <div class="row">${btn('none', leaveLabel || (S.age >= 30 || S.spouse ? `Keep renting (${money(RENT_MONTHLY * sim.householdShare(S))}/month)` : 'Not yet, stay with family'))}</div>`, { wide: true });
-    if (c === 'none') return false;
+    <h3>Not buying yet?</h3>
+    <p class="small">Many Singaporeans live with their parents until their flat is ready. It's free, but you share the space. Renting gives you your own place for about ${money(RENT_MONTHLY)} a month${S.spouse && sim.householdShare(S) < 1 ? ', split between you' : ''}.</p>
+    <div class="row">${btn('parents', `${!S.renting ? '✓ ' : ''}Live with my parents`, !S.renting ? 'primary' : '')}${btn('rent', `${S.renting ? '✓ ' : ''}Rent a place (${money(RENT_MONTHLY * sim.householdShare(S))}/month)`, S.renting ? 'primary' : '')}</div>
+    <div class="row">${btn('back', leaveLabel || 'Back: decide later')}</div>`, { wide: true });
+    if (c === 'back') return false;
+    if (c === 'parents' || c === 'rent') {
+      const was = !!S.renting;
+      S.renting = c === 'rent';
+      if (was !== S.renting) {
+        logEvent(S.renting ? '🏢 Moved out to rent a place' : '🏡 Living with my parents');
+        sim.story(S, 'home', S.renting ? '🏢' : '🏡', S.renting ? `Moved out to rent a place at ${S.age}` : `Lived with family at ${S.age}`);
+        if (S.renting) S.joy += 1;
+      }
+      render();
+      return false;
+    }
     if (c.startsWith('term:')) { loanYears = +c.slice(5); continue; }
     const q = sim.buyHome(S, c, loanYears);
     logEvent(`🔑 Bought a ${q.label} (${q.years}-year ${q.loanType.toLowerCase()})`);
@@ -1495,7 +1513,7 @@ async function homePanel() {
   for (;;) {
     const h = S.home;
     if (!h) {
-      const bought = await chooseHome('🏠 Find a home', { leaveLabel: 'Close' });
+      const bought = await chooseHome(`🏠 Find a home${sim.isRenting(S) ? ' (you rent now)' : ' (you live with your parents)'}`, { leaveLabel: 'Back' });
       if (!bought) return;
       continue;
     }
@@ -1572,7 +1590,7 @@ async function moveHome() {
     ${b.owed - b.refund > 1 ? `<p class="small">The sale didn't cover all ${money(b.owed)} owed to your CPF. For a sale at market value you don't have to top up the ${money(b.owed - b.refund)} difference in cash.</p>` : ''}
     ${factBox(FACTS.accruedInterest)}
     ${btn('ok', 'Find my next home', 'primary')}`);
-  const bought = await chooseHome('Where to next?', { leaveLabel: 'Rent instead' });
+  const bought = await chooseHome('Where to next?', { leaveLabel: 'Decide later (renting for now)' });
   if (bought && S.age >= 55 && S.home.kind === 'hdb' && S.home.rooms <= 3 && S.home.rooms < oldRooms) {
     const net = b.cash + b.refund;
     const shb = housing.silverHousingBonus(Math.min(net, S.bank));
@@ -1857,7 +1875,7 @@ async function budgetPanel() {
     const living = sim.monthlySpend(S);
     const insurance = sim.insurancePremiums(S).cash / 12;
     const parts = sim.spendBreakdown(S);
-    const rent = !S.home && (S.age >= 30 || S.spouse) ? RENT_MONTHLY * share : 0;
+    const rent = sim.isRenting(S) ? RENT_MONTHLY * share : 0;
     const loan = loanSplit();
     const loanCash = loan.fromCash;
     const dcp = S.dcp ? S.dcp.monthly : 0;

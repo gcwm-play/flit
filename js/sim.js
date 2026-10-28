@@ -20,6 +20,7 @@ export function newGame(name, look) {
   const s = {
     version: 1,
     name,
+    renting: false, // without a home of your own, you live with your parents unless you choose to rent
     age: STAGES.child.startAge,
     stage: 'child',
     look: { animal: look.animal, gender: look.gender, outfit: look.outfit },
@@ -361,7 +362,7 @@ function oneYear(s, sum, opts) {
         if (paid.oaShort > 0.01) sum.oaRanOut = (sum.oaRanOut || 0) + paid.oaShort;
         out += paid.fromCash;
         if (s.home.loanBalance <= 0.01 && s.home.paidOffAge == null && s.home.instalment > 0) s.home.paidOffAge = age;
-      } else if (age >= 30 || s.spouse) {
+      } else if (s.renting) {
         const rent = RENT_MONTHLY * householdShare(s);
         sum.rent += rent;
         out += rent;
@@ -828,12 +829,16 @@ export function otherDebt(s) {
   return s.car && s.car.monthsLeft > 0 ? s.car.monthly : 0; // car loan instalments count towards the TDSR
 }
 
+// Without a home of your own you live with your parents (free) or rent, as you choose.
+export const isRenting = (s) => !s.home && !!s.renting;
+
 export function homeQuotes(s, years = 25) {
   const share = householdShare(s);
   return housing.HOMES
     .filter((h) => (s.spouse ? h.id !== 'flexi2' : h.kind === 'private' || (s.age >= 35 && h.singles)))
     .map((h) => housing.quote(h, {
       share,
+      grant: s.grantUsed ? 0 : housing.grantsFor(h, grossIncome(s), !s.spouse).total,
       grossIncome: Math.max(1, grossIncome(s)),
       otherDebt: otherDebt(s),
       oa: s.cpf.oa,
@@ -848,9 +853,11 @@ export function buyHome(s, id, years = 25) {
   s.cpf.oa -= q.fromOa;
   coverShortfall(s, q.fromCash);
   s.home = housing.newHome(q, s.age);
+  s.renting = false;
+  if (q.grant > 0) s.grantUsed = true; // housing grants are for first-timers only
   s.joy += q.joy;
   s.log.push(`Age ${s.age}: bought a ${q.label}`);
-  story(s, 'home', '🔑', `Bought ${aOrAn(q.label)} ${q.label}`, { price: q.price, oa: q.fromOa, cash: q.fromCash, instalment: q.instalment });
+  story(s, 'home', '🔑', `Bought ${aOrAn(q.label)} ${q.label}`, { price: q.price, grant: q.grant, oa: q.fromOa, cash: q.fromCash, instalment: q.instalment });
   return q;
 }
 
@@ -862,6 +869,7 @@ export function sellHome(s) {
   s.log.push(`Age ${s.age}: sold the ${s.home.label}`);
   story(s, 'home', '🏷️', `Sold the ${s.home.label}`, { sale: b.sale, refund: b.refund, cash: b.cash });
   s.home = null;
+  s.renting = true; // until you buy again or move in with family
   return b;
 }
 

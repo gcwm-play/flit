@@ -107,12 +107,27 @@ test("buyer's stamp duty on a $500k flat", () => {
   assert.equal(housing.buyersStampDuty(500000), 1800 + 3600 + 4200);
 });
 
-test('MSR blocks an HDB loan above 30% of household income', () => {
+test('MSR cuts an HDB loan to 30% of household income (tested at 3%)', () => {
   const h = housing.HOMES.find((x) => x.id === 'bto4');
-  const low = housing.quote(h, { share: 1, grossIncome: 4000, oa: 200000, cash: 100000 });
-  assert.equal(low.msrOk, false);
+  const low = housing.quote(h, { share: 1, grossIncome: 3000, oa: 200000, cash: 100000 });
+  assert.equal(low.cappedBy, 'MSR');
+  close(cpf.monthlyInstalment(low.loan, 0.03, 25), 900, 0.01);
   const high = housing.quote(h, { share: 1, grossIncome: 9000, oa: 200000, cash: 100000 });
-  assert.equal(high.msrOk, true);
+  assert.equal(high.cappedBy, null);
+  close(high.loan, h.price * 0.75, 0.01);
+});
+
+test('a couple on $5,225 a month can buy a 4-room BTO with the EHG', () => {
+  const h = housing.HOMES.find((x) => x.id === 'bto4');
+  const g = housing.grantsFor(h, 5225);
+  assert.equal(g.total, 55000);
+  assert.equal(housing.ehg(9500), 0);
+  assert.equal(housing.ehg(700, true), 60000);
+  assert.equal(housing.ehg(2000, true), 40000);
+  const q = housing.quote(h, { share: 0.5, grossIncome: 5225, oa: 44541, cash: 42141, grant: g.total, years: 25 });
+  assert.ok(q.affordable);
+  assert.equal(q.cappedBy, null);
+  close(q.grant, 27500, 0.01);
 });
 
 test('selling refunds CPF used plus accrued interest, up to the proceeds', () => {

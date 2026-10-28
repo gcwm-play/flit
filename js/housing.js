@@ -7,13 +7,15 @@ export const MSR = 0.3; // HDB Mortgage Servicing Ratio: HDB flats, % of gross m
 export const TDSR = 0.55; // MAS Total Debt Servicing Ratio: all property loans
 export const TDSR_STRESS_RATE = 0.04; // banks test TDSR at a 4% medium-term rate
 export const BANK_LOAN_RATE = 0.03;
+export const HDB_LOAN_FLOOR = 0.03; // HDB works out how much it can lend at 3%, not the 2.6% you pay (from Sep 2022)
 export const CPF_HOUSING_INTEREST = 0.025; // accrued interest on CPF used for housing
 
 // Prices in today's dollars. Leases are 99 years; resale flats come with some used up.
 export const HOMES = [
-  { id: 'flexi2', label: '2-room Flexi BTO', price: 200000, kind: 'hdb', rooms: 2, leaseUsed: 0, joy: 1, singles: true },
-  { id: 'bto3', label: '3-room BTO flat', price: 320000, kind: 'hdb', rooms: 3, leaseUsed: 0, joy: 2 },
-  { id: 'bto4', label: '4-room BTO flat', price: 480000, kind: 'hdb', rooms: 4, leaseUsed: 0, joy: 3, singles: false },
+  // BTO prices are the middle of HDB's ranges for Standard projects (June 2026 launch).
+  { id: 'flexi2', label: '2-room Flexi BTO', price: 180000, kind: 'hdb', rooms: 2, leaseUsed: 0, joy: 1, singles: true },
+  { id: 'bto3', label: '3-room BTO flat', price: 300000, kind: 'hdb', rooms: 3, leaseUsed: 0, joy: 2 },
+  { id: 'bto4', label: '4-room BTO flat', price: 390000, kind: 'hdb', rooms: 4, leaseUsed: 0, joy: 3, singles: false },
   { id: 'resale5', label: '5-room resale flat', price: 720000, kind: 'hdb', rooms: 5, leaseUsed: 25, joy: 4, singles: true },
   { id: 'condo', label: 'Condominium', price: 1600000, kind: 'private', rooms: 4, leaseUsed: 0, joy: 5, singles: true },
 ];
@@ -44,30 +46,66 @@ export function loanFor(home, years, age = 30) {
   return { type: 'Bank loan', rate: BANK_LOAN_RATE, ltv: long ? 0.55 : 0.75, minCashPct: long ? 0.1 : 0.05 };
 }
 
+// ---------- CPF housing grants for first-timers ----------
+
+// Enhanced CPF Housing Grant (EHG) for couples and families, by average monthly
+// household income (HDB, from August 2024). For BTO and resale flats.
+const EHG = [[1500, 120000], [2000, 110000], [2500, 105000], [3000, 95000], [3500, 90000], [4000, 80000], [4500, 70000],
+  [5000, 65000], [5500, 55000], [6000, 50000], [6500, 40000], [7000, 30000], [7500, 25000], [8000, 20000], [8500, 10000], [9000, 5000]];
+// Singles get half, with income bands half as wide.
+export function ehg(income, single = false) {
+  const band = EHG.find(([max]) => (single ? income * 2 : income) <= max);
+  return band ? band[1] / (single ? 2 : 1) : 0;
+}
+// Resale flats also get the CPF Housing Grant: $80,000 for couples ($50,000 for 5-room or
+// bigger); singles get the Singles Grant of $40,000 ($25,000 for 5-room or bigger).
+export function resaleGrant(home, single = false) {
+  const big = home.rooms >= 5;
+  return single ? (big ? 25000 : 40000) : big ? 50000 : 80000;
+}
+export function grantsFor(home, income, single = false) {
+  if (home.kind !== 'hdb') return { ehg: 0, resale: 0, total: 0 };
+  const e = ehg(income, single);
+  const r = home.leaseUsed > 0 ? resaleGrant(home, single) : 0;
+  return { ehg: e, resale: r, total: e + r };
+}
+
+// The most a monthly payment can repay over `years` at `rate`.
+const maxLoan = (monthly, rate, years) => Math.max(0, monthly / cpf.monthlyInstalment(1, rate, years));
+
 // What a home costs this household. `share` is the player's part (0.5 with a working spouse).
-export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash, years = 25, age = 30 }) {
-  const price = home.price * share;
+// `grant` is the household's CPF housing grants. Loan limits don't block a purchase: they cap
+// the loan, and you pay the rest upfront.
+export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash, years = 25, age = 30, grant = 0 }) {
   const hdb = home.kind === 'hdb';
   years = hdb ? Math.min(years, 30) : years;
   const terms = loanFor(home, years, age);
-  const loan = price * terms.ltv;
-  const down = price - loan;
-  const minCash = price * terms.minCashPct; // bank loans need part of the down payment in cash
-  const bsd = buyersStampDuty(home.price) * share;
   const rate = terms.rate;
+  const full = home.price;
+  grant = Math.min(grant, full);
+  // The loan, worked out for the whole household: up to the LTV limit, and no more than
+  // a repayment of 30% of income (MSR, HDB flats) and 55% for all debts (TDSR), tested at
+  // 3% for HDB loans and 4% for bank loans.
+  const floor = terms.type === 'HDB loan' ? HDB_LOAN_FLOOR : TDSR_STRESS_RATE;
+  const byLtv = Math.min(full * terms.ltv, full - grant);
+  const byMsr = hdb ? maxLoan(MSR * grossIncome, floor, years) : Infinity;
+  const byTdsr = maxLoan(TDSR * grossIncome - otherDebt, floor, years);
+  const fullLoan = Math.min(byLtv, byMsr, byTdsr);
+  const cappedBy = fullLoan >= byLtv - 1 ? null : byMsr <= byTdsr ? 'MSR' : 'TDSR';
+  const price = full * share;
+  const loan = fullLoan * share;
+  const myGrant = grant * share;
+  const down = price - myGrant - loan;
+  const minCash = price * terms.minCashPct; // bank loans need part of the down payment in cash
+  const bsd = buyersStampDuty(full) * share;
   const instalment = cpf.monthlyInstalment(loan, rate, years);
-  // Loan limits use the whole household's income and the whole loan.
-  const fullInstalment = instalment / share;
-  const stressInstalment = cpf.monthlyInstalment(loan / share, hdb ? rate : TDSR_STRESS_RATE, years);
-  const msrOk = !hdb || fullInstalment <= MSR * grossIncome;
-  const tdsrOk = stressInstalment + otherDebt <= TDSR * grossIncome;
   const upfront = down + bsd;
-  const fromOa = Math.min(oa, upfront - minCash);
+  const fromOa = Math.min(oa, Math.max(0, upfront - minCash));
   const fromCash = upfront - fromOa;
   return {
-    ...home, share, price, loan, ltv: terms.ltv, loanType: terms.type, down, bsd, rate, years, instalment, fullInstalment, stressInstalment,
-    msrOk, tdsrOk, fromOa, fromCash, minCash, affordable: msrOk && tdsrOk && fromCash <= cash,
-    msrPct: fullInstalment / grossIncome, tdsrPct: (stressInstalment + otherDebt) / grossIncome,
+    ...home, share, price, grant: myGrant, loan, ltv: terms.ltv, loanType: terms.type, down, bsd, rate, years, instalment,
+    maxLtvLoan: byLtv * share, cappedBy, fromOa, fromCash, minCash, affordable: fromCash <= cash,
+    msrPct: instalment / share / grossIncome, tdsrPct: (cpf.monthlyInstalment(fullLoan, floor, years) + otherDebt) / grossIncome,
   };
 }
 
@@ -85,7 +123,7 @@ export function newHome(q, age) {
     loanType: q.loanType,
     payWith: 'oa', // 'oa' if any of the instalment comes from CPF, 'cash' if none
     oaShare: 1, // how much of each instalment comes from your OA (the rest in cash)
-    cpfPrincipal: q.fromOa, // CPF used so far, refunded to your OA when you sell
+    cpfPrincipal: q.fromOa + (q.grant || 0), // CPF used so far (grants count too), refunded to your OA when you sell
     cpfAccrued: 0,
     lbsDone: false,
   };
