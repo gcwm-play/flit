@@ -324,13 +324,26 @@ export const FACTS = {
 // Holidays you can plan from the Holidays panel. Cost is per traveller, return
 // flights and a typical stay, in today's dollars.
 export const HOLIDAYS = [
-  { id: 'jb', name: 'Weekend in Johor Bahru', place: 'Malaysia', icon: '🚗', cost: 250, joy: 1, days: 2 },
-  { id: 'cruise', name: 'Cruise to nowhere', place: 'From Marina Bay', icon: '🛳️', cost: 600, joy: 1, days: 3 },
-  { id: 'bangkok', name: 'Bangkok', place: 'Thailand', icon: '🛕', cost: 900, joy: 2, days: 4 },
-  { id: 'bali', name: 'Bali', place: 'Indonesia', icon: '🏝️', cost: 1200, joy: 2, days: 5 },
-  { id: 'tokyo', name: 'Tokyo', place: 'Japan', icon: '🗻', cost: 3000, joy: 3, days: 7 },
-  { id: 'sydney', name: 'Sydney', place: 'Australia', icon: '🦘', cost: 3500, joy: 3, days: 8 },
-  { id: 'paris', name: 'Paris', place: 'France', icon: '🗼', cost: 6000, joy: 4, days: 10 },
+  { id: 'jb', name: 'Weekend in Johor Bahru', place: 'Malaysia', icon: '🚗', cost: 250, joy: 1, days: 2, group: 'near' },
+  { id: 'cruise', name: 'Cruise to nowhere', place: 'From Marina Bay', icon: '🛳️', cost: 600, joy: 1, days: 3, group: 'near' },
+  { id: 'bangkok', name: 'Bangkok', place: 'Thailand', icon: '🛕', cost: 900, joy: 2, days: 4, group: 'near' },
+  { id: 'bali', name: 'Bali', place: 'Indonesia', icon: '🏝️', cost: 1200, joy: 2, days: 5, group: 'near' },
+  { id: 'seoul', name: 'Seoul', place: 'South Korea', icon: '🏯', cost: 2200, joy: 3, days: 6, group: 'asia' },
+  { id: 'tokyo', name: 'Tokyo', place: 'Japan', icon: '🗻', cost: 3000, joy: 3, days: 7, group: 'asia' },
+  { id: 'sydney', name: 'Sydney', place: 'Australia', icon: '🦘', cost: 3500, joy: 3, days: 8, group: 'asia' },
+  { id: 'maldives', name: 'Maldives water villa', place: 'Maldives', icon: '🐠', cost: 4500, joy: 4, days: 5, group: 'asia' },
+  { id: 'nz', name: 'New Zealand road trip', place: 'South Island', icon: '🐑', cost: 5000, joy: 4, days: 10, group: 'asia' },
+  { id: 'paris', name: 'Paris', place: 'France', icon: '🗼', cost: 6000, joy: 4, days: 10, group: 'far' },
+  { id: 'swiss', name: 'Swiss Alps by train', place: 'Switzerland', icon: '🏔️', cost: 7500, joy: 5, days: 10, group: 'far' },
+  { id: 'iceland', name: 'Northern lights', place: 'Iceland', icon: '🌌', cost: 8000, joy: 5, days: 9, group: 'far' },
+  { id: 'kenya', name: 'Safari', place: 'Kenya', icon: '🦒', cost: 9000, joy: 5, days: 8, group: 'far' },
+  { id: 'antarctica', name: 'Antarctica expedition', place: 'Via Argentina', icon: '🐧', cost: 20000, joy: 6, days: 14, group: 'far' },
+];
+
+export const HOLIDAY_GROUPS = [
+  { id: 'near', label: 'Short trips' },
+  { id: 'asia', label: 'Asia and Oceania' },
+  { id: 'far', label: 'Bucket list' },
 ];
 
 // Career switches offered when a stat (45+) or a hybrid stat (25+) gets very high.

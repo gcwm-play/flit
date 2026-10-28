@@ -529,3 +529,16 @@ test('MediSave above the BHS goes to the SA, or the OA once the SA is at the FRS
   assert.equal(b.sa, cpf.RETIREMENT_SUMS.FRS);
   assert.equal(b.oa, 300);
 });
+
+test('every holiday has a postcard and a tab, and trips record who went', async () => {
+  const { HOLIDAYS, HOLIDAY_GROUPS } = await import('../js/data.js');
+  const { postcard } = await import('../js/postcards.js');
+  for (const h of HOLIDAYS) {
+    assert.ok(postcard(h.id).includes('<svg'), `${h.id} has no postcard`);
+    assert.ok(HOLIDAY_GROUPS.some((g) => g.id === h.group), `${h.id} has no tab`);
+  }
+  const s = sim.newGame('T', { animal: 'cat' });
+  s.age = 30; s.stage = 'adult'; s.bank = 50000; s.holidayPlans = [{ id: 'kenya', mode: 'times', left: 1 }];
+  sim.advanceYears(s, 1);
+  assert.deepEqual(s.trips.at(-1), { age: 30, id: 'kenya', party: 'solo' });
+});

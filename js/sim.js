@@ -967,7 +967,8 @@ function takeHolidays(s, sum) {
     // The first few visits to a place are the most memorable.
     const visits = (s.trips || []).filter((t) => t.id === p.id).length;
     s.joy += h.joy * (visits >= 3 ? 0.5 : 1);
-    (s.trips ||= []).push({ age: s.age, id: p.id });
+    const kids = (s.children || []).filter((c) => s.age - c.bornAge < 21).length;
+    (s.trips ||= []).push({ age: s.age, id: p.id, party: kids ? 'family' : s.spouse ? 'couple' : 'solo' });
     if (p.mode !== 'yearly') p.left--;
   }
   s.holidayPlans = (s.holidayPlans || []).filter((p) => p.mode === 'yearly' || p.left > 0);
