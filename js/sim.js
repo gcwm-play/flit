@@ -217,7 +217,9 @@ export function canTopUpCpf(s) {
 }
 
 export function educationFor(s) {
-  if (s.stats.knowledge >= EDUCATION.university.minKnowledge) return 'university';
+  // Men choose after NS: university, or start work with what they finished before NS.
+  if (s.postNs === 'uni') return 'university';
+  if (s.postNs !== 'work' && s.stats.knowledge >= EDUCATION.university.minKnowledge) return 'university';
   if (s.stats.knowledge >= EDUCATION.poly.minKnowledge) return 'poly';
   return 'ite';
 }
@@ -373,7 +375,7 @@ export function ageStage(age) {
 
 export function yearsThisTurn(s) {
   const st = STAGES[s.stage];
-  // Men finish studying after NS: the turn stops when it's time to find a first job.
+  // Men at university after NS: the turn stops when it's time to find a first job.
   if (isStudying(s)) return Math.min(st.yearsPerTurn, firstJobAge(s) - s.age);
   return Math.min(st.yearsPerTurn, st.endAge - s.age);
 }
@@ -387,8 +389,12 @@ export function yearsThisTurn(s) {
 export const NS = { startAge: 18, years: 2, allowance: { 18: 790, 19: 980 } };
 export const doesNs = (s) => !!(s.look && s.look.gender === 'male');
 export const isNsf = (s, age = s.age) => doesNs(s) && age >= NS.startAge && age < NS.startAge + NS.years;
-// The game starts working life at 21; men start two years later because of NS.
-export const firstJobAge = (s) => STAGES.adult.startAge + (doesNs(s) ? NS.years : 0);
+// The game starts working life at 21. Men who go to university after NS start two years later;
+// men who go straight to work after NS start at 21 too. (Poly and JC come before NS.)
+export const firstJobAge = (s) => STAGES.adult.startAge + (doesNs(s) && s.postNs !== 'work' ? NS.years : 0);
+export const canGoToUniversity = (s) => s.stats.knowledge >= EDUCATION.university.minKnowledge;
+// What you finished before NS, from your Knowledge.
+export const preNsQualification = (s) => (canGoToUniversity(s) ? 'A-levels or a polytechnic diploma' : s.stats.knowledge >= EDUCATION.poly.minKnowledge ? 'a polytechnic diploma' : 'an ITE Nitec');
 export const isStudying = (s) => s.stage === 'adult' && !s.career && s.age < firstJobAge(s);
 
 // ---------- the money simulation ----------
@@ -1061,8 +1067,8 @@ export function leaseBuyback(s) {
 // What you're doing for a living, in words.
 export function workStatus(s) {
   if (s.stage === 'child') return 'At school';
-  if (s.stage === 'teen') return isNsf(s) ? 'National Service' : s.age >= 17 ? 'Studying' : 'At school';
-  if (isStudying(s)) return 'Studying after NS';
+  if (s.stage === 'teen') return isNsf(s) ? 'National Service' : doesNs(s) && s.age >= NS.startAge + NS.years ? 'Finished NS' : s.age >= 17 ? 'Studying' : 'At school';
+  if (isStudying(s)) return 'At university';
   if (s.stage === 'adult') return s.selfEmployed ? 'Running your own business' : 'Working full-time';
   if (s.age >= 70 || s.workMode === 'retired') return 'Retired';
   return s.workMode === 'part' ? 'Working part-time' : 'Working full-time';

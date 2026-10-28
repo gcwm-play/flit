@@ -175,3 +175,20 @@ test('top-ups from 18: your own, to any account; CPF nomination is cancelled by 
   sim.nominate(s, 'family');
   assert.ok(!sim.nominationNeedsReview(s));
 });
+
+test('after NS: start work at 21, or university until 23 if Knowledge allows', () => {
+  const m = adult(21, 0);
+  Object.assign(m, { career: null, salary: 0, look: { gender: 'male', outfit: 0 } });
+  m.stats.knowledge = 40;
+  assert.equal(sim.firstJobAge(m), 23);
+  assert.ok(sim.canGoToUniversity(m));
+  m.postNs = 'work';
+  assert.equal(sim.firstJobAge(m), 21);
+  assert.ok(!sim.isStudying(m));
+  assert.equal(sim.educationFor(m), 'poly');
+  m.postNs = 'uni';
+  assert.equal(sim.firstJobAge(m), 23);
+  assert.equal(sim.educationFor(m), 'university');
+  m.stats.knowledge = 10;
+  assert.ok(!sim.canGoToUniversity(m));
+});
