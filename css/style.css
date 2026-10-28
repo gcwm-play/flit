@@ -541,3 +541,27 @@ details.spend .sub { margin: 4px 0 6px 14px; font-size: 13px; }
   .top-row { grid-template-columns: 1fr; }
   .play .top-row .scene { max-width: 520px; width: 100%; margin: 0 auto; }
 }
+
+/* ---------- life recap ---------- */
+.recap { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 12px; text-align: left; margin: 12px 0 8px; }
+.recap-card { background: #fff8ea; border: 3px solid var(--line); padding: 12px 14px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.recap-card.wide { grid-column: 1 / -1; }
+.recap-card h3 { margin: 0; font-size: 11px; display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.recap-card p { margin: 0; }
+.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 14px; }
+.timeline li { display: grid; grid-template-columns: 26px 1fr; gap: 6px; }
+.recap-nums { display: grid; grid-template-columns: 1fr auto; gap: 3px 10px; font-size: 13px; border-top: 2px dotted #cfc5b5; padding-top: 6px; margin-top: auto; font-variant-numeric: tabular-nums; }
+.recap-nums:empty { display: none; }
+.recap-nums b { text-align: right; }
+.recap-nums small { color: var(--muted); font-weight: 600; }
+.recap-word { font-size: 22px; font-weight: 800; }
+.recap-word small { font-size: 14px; color: var(--muted); }
+.recap .moments { margin: 0; font-size: 15px; }
+
+/* close button that floats in the corner of a scrolling panel */
+.modal-x {
+  position: sticky; top: 0; float: right; z-index: 3; margin: -8px -8px 0 8px;
+  width: 44px; height: 44px; font: 800 20px 'Nunito', sans-serif; line-height: 1; color: var(--ink);
+  background: #ffd25e; border: 3px solid var(--line); box-shadow: 3px 3px 0 var(--line); cursor: pointer;
+}
+.modal-x:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--line); }

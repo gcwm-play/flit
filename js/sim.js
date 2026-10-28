@@ -7,9 +7,8 @@ import {
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
 } from './data.js';
 
-// Cash you leave untouched for a whole year earns about what a 12-month fixed
-// deposit paid in 2026; money you dip into only earns the savings-account base rate.
-export const SAVINGS_INTEREST = { untouched: 0.015, base: 0.0005 };
+// Cash earns the base rate of a normal Singapore bank savings account (0.05% a year in 2026).
+export const SAVINGS_RATE = 0.0005;
 export const DEBT_INTEREST = 0.25; // typical credit card interest (it compounds fast!)
 // Debt Consolidation Plan: banks roll card debts into one loan at about 6-8% EIR,
 // repaid in fixed instalments over up to 10 years.
@@ -25,7 +24,7 @@ export function newGame(name, look) {
     stats: Object.fromEntries(Object.keys(STATS).map((k) => [k, 0])),
     hybrids: {},
     bank: 20, // your cash: savings you can spend anywhere
-    cashLow: 20, // lowest cash balance this year: the untouched part earns more interest
+    cashLow: 20, // lowest cash balance this year
     holdings: [],
     debt: 0, // unsecured debt (credit cards), or a Debt Consolidation Plan when s.dcp is set
     dcp: null,
@@ -53,6 +52,7 @@ export function newGame(name, look) {
     shortfallAge: null,
     history: [],
     log: [],
+    story: [], // the big moments, for the life recap: { age, kind, icon, text, ...numbers }
     done: false,
   };
   // MediSave Grant for Newborns, grown with interest from birth to the starting age.
@@ -109,17 +109,22 @@ export function ownedItems(s) {
   return s.room.map((id) => all.find((i) => i.id === id)).filter(Boolean);
 }
 
+// Remembers a big moment for the life recap at the end.
+export function story(s, kind, icon, text, data = {}) {
+  (s.story ||= []).push({ age: s.age, kind, icon, text, ...data });
+}
+
 export function buy(s, item) {
   if (s.bank < item.price || s.room.includes(item.id)) return false;
   spendCash(s, item.price);
   s.room.push(item.id);
   s.joy += item.joy;
   s.log.push(`Age ${s.age}: bought ${item.name} for ${money(item.price)}`);
+  story(s, 'buy', item.icon, item.name, { amount: item.price, joy: item.joy });
   return true;
 }
 
-// Takes money out of cash. Dipping into savings means that money doesn't earn the
-// higher rate for untouched savings this year.
+// Takes money out of cash, keeping track of the year's lowest balance.
 export function spendCash(s, amount) {
   s.bank -= amount;
   s.cashLow = Math.min(s.cashLow ?? s.bank, s.bank);
@@ -134,7 +139,11 @@ export function allocateGift(s, { cash = 0, treat = 0, charity = 0, cpf: toCpf =
   s.bank += cash;
   const joy = Math.min(6, (treat + charity * 1.3) * joyPerDollar(s));
   s.joy += joy;
-  if (charity > 0) s.stats.communication += Math.min(2, charity * joyPerDollar(s));
+  if (charity > 0) {
+    s.stats.communication += Math.min(2, charity * joyPerDollar(s));
+    s.given = (s.given || 0) + charity;
+    story(s, 'give', '💝', `Gave ${money(charity)} to charity`, { amount: charity });
+  }
   let refused = 0, matched = 0;
   if (toCpf > 0) {
     const r = topUpCpf(s, toCpf);
@@ -172,7 +181,10 @@ export function chooseCareer(s, careerId) {
   s.salary = c.startPay;
   s.careerStartAge = s.age;
   s.cpfWorked = true;
+  story(s, 'job', c.icon, `Started work as ${aOrAn(c.title || c.label)} ${c.title || c.label}`, { pay: c.startPay });
 }
+
+export const aOrAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
 
 // The job you have now, whether you started in it or switched into it later.
 export function careerInfo(s) {
@@ -197,6 +209,7 @@ export function switchCareer(s, id) {
   s.selfEmployed = !!c.selfEmployed;
   s.salary = c.pay;
   s.log.push(`Age ${s.age}: became a ${c.label}`);
+  story(s, 'job', c.icon, `Switched careers to become ${aOrAn(c.label)} ${c.label}`, { pay: c.pay });
 }
 
 // ---------- the job market ----------
@@ -246,12 +259,16 @@ export function jobOffers(s, economy = 'normal') {
 }
 
 export function takeJob(s, offer) {
+  const prevCareer = s.career;
   if (offer.id !== s.career) s.careerStartAge = Math.min(s.careerStartAge ?? 21, s.age); // experience carries over
   s.career = offer.id;
   s.selfEmployed = !!offer.selfEmployed;
   s.salary = offer.pay;
   s.jobChangedAge = s.age;
   s.log.push(`Age ${s.age}: started work as ${offer.label} (${money(offer.pay)}/month)`);
+  const job = careerInfo(s);
+  const label = job ? job.title || job.label : offer.label;
+  story(s, 'job', offer.icon, offer.id === prevCareer ? `Moved to a new ${label} job` : `Became ${aOrAn(label)} ${label}`, { pay: offer.pay });
 }
 
 export function ageStage(age) {
@@ -269,7 +286,7 @@ export function yearsThisTurn(s) {
 // Returns a summary of what happened to the money.
 export function advanceYears(s, years, opts = {}) {
   const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0,
-    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cashStart: s.bank };
+    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cpfInterest: 0, bankInterest: 0, cashStart: s.bank };
   for (let y = 0; y < years; y++) {
     // One-off effects (like months without pay) only hit the first year.
     oneYear(s, sum, y === 0 ? opts : { jobWage: opts.jobWage });
@@ -400,13 +417,14 @@ function oneYear(s, sum, opts) {
   // Children's CPF top-ups grow at the SA rate plus 1% extra interest.
   for (const c of s.children || []) if (c.cpfSa) c.cpfSa *= 1 + cpf.INTEREST.sa + 0.01;
 
-  // Savings interest: the higher rate on what you never touched this year.
-  const untouched = Math.max(0, Math.min(s.cashLow ?? 0, s.bank));
-  const bankInt = untouched * SAVINGS_INTEREST.untouched + Math.max(0, s.bank - untouched) * SAVINGS_INTEREST.base;
+  // Bank savings interest on the cash you have.
+  const bankInt = Math.max(0, s.bank) * SAVINGS_RATE;
   s.bank += bankInt;
   s.cashLow = s.bank;
   const invRet = invest.yearPassed(s, opts.market);
   sum.interest += interest + bankInt;
+  sum.cpfInterest += interest;
+  sum.bankInterest += bankInt;
   sum.investReturn += invRet;
   // Credit card debt: 25% a year, and any spare cash pays it off first.
   if (s.debt > 0 && !s.dcp) {
@@ -584,6 +602,7 @@ export function pledgeToBrs(s) {
   s.bank += extra;
   s.retirementTarget = 'BRS';
   s.pledged = true;
+  story(s, 'cpf', '🏠', `Pledged your home to keep only the BRS, and withdrew ${money(extra)}`, { amount: extra });
   return extra;
 }
 
@@ -593,6 +612,7 @@ export function transferOaToRa(s, amount) {
   s.cpf.oa -= a;
   s.cpf.ra += a;
   if (s.cpf.ra > cpf.RETIREMENT_SUMS.FRS) s.retirementTarget = 'ERS';
+  if (a > 0) story(s, 'cpf', '🏛️', `Moved ${money(a)} from your OA to your RA for bigger payouts`, { amount: a });
   return a;
 }
 
@@ -602,6 +622,7 @@ export function withdrawOa(s, amount) {
   s.cpf.oa -= fromOa;
   s.cpf.ra -= fromRa;
   s.bank += fromOa + fromRa;
+  if (fromOa + fromRa > 0) story(s, 'cpf', '💵', `Withdrew ${money(fromOa + fromRa)} of CPF at 55`, { amount: fromOa + fromRa });
   settleDebt(s);
 }
 
@@ -621,6 +642,7 @@ export function startCpfLife(s, startAge, plan = 'standard') {
     s.life.premium = s.cpf.ra;
     s.cpf.ra = 0;
   }
+  story(s, 'cpf', '🏛️', `Chose the CPF LIFE ${LIFE_PLANS[plan].label} plan, starting at ${startAge}`);
 }
 
 export function retirementIncome(s) {
@@ -635,6 +657,11 @@ export function record(s) {
     cpfInvested: Math.round(invest.total(s, 'oa') + invest.total(s, 'sa')),
     cash: Math.round(s.bank + invest.total(s, 'cash') - s.debt),
     oa: Math.round(c.oa), sa: Math.round(c.sa), ma: Math.round(c.ma), ra: Math.round(c.ra),
+    job: isWorking(s) ? s.career : null,
+    pay: Math.round(currentWage(s)),
+    part: s.stage === 'senior' && s.workMode === 'part',
+    style: s.stage === 'adult' || s.stage === 'senior' ? (s.age > 55 && s.retirementLifestyle) || s.lifestyle : null,
+    home: s.home ? s.home.label : null,
   });
 }
 
@@ -664,6 +691,7 @@ export function marry(s, weddingCost) {
   };
   coverShortfall(s, weddingCost / 2);
   s.log.push(`Age ${s.age}: got married`);
+  story(s, 'family', '💍', 'Got married', { amount: weddingCost / 2 });
 }
 
 // Government support for each new baby (children born from 18 Feb 2025).
@@ -683,6 +711,7 @@ export function haveChild(s) {
   });
   s.joy += 4;
   s.log.push(`Age ${s.age}: welcomed child number ${s.children.length}`);
+  story(s, 'family', '👶', `Welcomed child number ${s.children.length}`);
   return babySupport(s.children.length);
 }
 
@@ -737,6 +766,7 @@ export function buyHome(s, id) {
   s.home = housing.newHome(q, s.age);
   s.joy += q.joy;
   s.log.push(`Age ${s.age}: bought a ${q.label}`);
+  story(s, 'home', '🔑', `Bought ${aOrAn(q.label)} ${q.label}`, { price: q.price, oa: q.fromOa, cash: q.fromCash, instalment: q.instalment });
   return q;
 }
 
@@ -746,6 +776,7 @@ export function sellHome(s) {
   housing.creditHousingRefund(s.cpf, s.age, b.refund);
   s.bank += b.cash;
   s.log.push(`Age ${s.age}: sold the ${s.home.label}`);
+  story(s, 'home', '🏷️', `Sold the ${s.home.label}`, { sale: b.sale, refund: b.refund, cash: b.cash });
   s.home = null;
   return b;
 }
@@ -754,6 +785,7 @@ export function voluntaryHousingRefund(s, amount) {
   const a = Math.min(amount, s.bank, s.home ? housing.cpfToRefund(s.home) : 0);
   if (a <= 0) return 0;
   housing.voluntaryRefund(s.home, a);
+  story(s, 'cpf', '🏛️', `Refunded ${money(a)} of housing CPF to your OA (Voluntary Housing Refund)`, { amount: a });
   spendCash(s, a);
   housing.creditHousingRefund(s.cpf, s.age, a);
   return a;
@@ -771,6 +803,7 @@ export function leaseBuyback(s) {
   s.home.leaseLeft = q.keep;
   s.home.lbsDone = true;
   s.home.lbsAge = s.age;
+  story(s, 'home', '🏛️', `Sold ${q.sell} years of lease back to HDB (Lease Buyback Scheme)`, { amount: q.topUp + q.cash });
   return q;
 }
 
@@ -902,6 +935,7 @@ export function topUpCpf(s, amount) {
   const accepted = cpf.cashTopUp(s.cpf, s.age, amount, s.life ? s.life.premium : 0);
   const before = topUpsThisYear(s);
   s.topUps = { age: s.age, amount: before + accepted };
+  s.lifeTopUps = (s.lifeTopUps || 0) + accepted;
   let matched = 0;
   if (s.age >= 55 && accepted > 0 && s.cpf.ra - accepted < cpf.RETIREMENT_SUMS.BRS) {
     const usedThisYear = s.mrss && s.mrss.age === s.age ? s.mrss.amount : 0;

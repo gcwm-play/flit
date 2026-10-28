@@ -171,17 +171,17 @@ test('event and data modules load', async () => {
   assert.ok(events.WORLD_EVENTS.length > 0);
 });
 
-test('untouched cash earns the fixed-deposit rate, spent cash only the base rate', () => {
+test('cash earns the bank savings rate', () => {
   const s = sim.newGame('Cash', { gender: 'male', animal: 'cat', outfit: 0 });
-  s.bank = 10000;
-  s.cashLow = 10000;
   s.stage = 'adult';
   s.age = 30;
   s.salary = 0;
-  s.lifestyle = 'simple';
-  // Living costs with no income come out of cash, so most of it is touched.
-  sim.spendCash(s, 4000);
-  assert.equal(s.cashLow, 6000);
+  s.bank = 100000;
+  s.budget = sim.newBudget();
+  const sum = sim.advanceYears(s, 1);
+  assert.ok(Math.abs(sum.bankInterest - sum.cashEnd * sim.SAVINGS_RATE / (1 + sim.SAVINGS_RATE)) < 1);
+  assert.ok(sum.cpfInterest > 0);
+  assert.ok(Math.abs(sum.interest - sum.cpfInterest - sum.bankInterest) < 0.01);
 });
 
 test('debt stays bounded: credit limits, then a Debt Consolidation Plan', () => {

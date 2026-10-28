@@ -142,7 +142,7 @@ export const CAREERS = [
   { id: 'designer', label: 'Designer', icon: '🎨', pay: 3900, needs: { creativity: 20 } },
   { id: 'coach', label: 'Sports coach', icon: '🏅', pay: 3600, needs: { fitness: 20 } },
   { id: 'sales', label: 'Sales executive', icon: '📣', pay: 3600, needs: { communication: 18 } },
-  { id: 'founder', label: 'Start my own business', icon: '🚀', pay: 4500, needs: { moneySense: 10, creativity: 14 }, selfEmployed: true },
+  { id: 'founder', label: 'Start my own business', title: 'Business owner', icon: '🚀', pay: 4500, needs: { moneySense: 10, creativity: 14 }, selfEmployed: true },
   { id: 'admin', label: 'Office administrator', icon: '🗂️', pay: 3000, needs: {} },
 ];
 
