@@ -244,10 +244,11 @@ export function checkJobTitle(raw) {
   return bad ? 'Please choose a different job title. This one can\'t be used in the game.' : '';
 }
 
-// Takes your own job: a title, yearly income and how fast your pay grows each year.
-export function takeCustomJob(s, { title, annual, growth, selfEmployed }) {
+// Takes your own job: a title, yearly income, and how fast and for how many years your pay grows.
+export function takeCustomJob(s, { title, annual, growth = 0, growthYears = 65 - s.age, selfEmployed }) {
   const id = `custom-${Object.keys(s.customJobs || {}).length + 1}`;
-  (s.customJobs ||= {})[id] = { id, label: title.trim(), icon: '💼', growth, selfEmployed: !!selfEmployed, custom: true };
+  const growthUntil = Math.min(65, s.age + growthYears);
+  (s.customJobs ||= {})[id] = { id, label: title.trim(), icon: '💼', growth, growthUntil, selfEmployed: !!selfEmployed, custom: true };
   const first = !s.career;
   takeJob(s, { id, label: title.trim(), icon: '💼', selfEmployed, pay: Math.round(annual / 12) });
   if (first) { s.careerStartAge = s.age; s.cpfWorked = true; }
@@ -542,9 +543,9 @@ function oneYear(s, sum, opts) {
   if (s.debt > 0 && s.age >= 55 && !s.shortfallAge) s.shortfallAge = age;
 
   // Pay rises: faster early in your career.
-  // Real pay growth, after inflation. Your own job (Advanced) grows at the rate you chose, until 65.
+  // Real pay growth, after inflation. Your own job (Advanced) grows at the rate and for the years you chose.
   const own = (s.customJobs || {})[s.career];
-  const growth = own ? (age < 65 ? own.growth : 0) : age < 45 ? 0.025 : age < 55 ? 0.005 : 0;
+  const growth = own ? (age < (own.growthUntil ?? 65) ? own.growth : 0) : age < 45 ? 0.025 : age < 55 ? 0.005 : 0;
   if (s.salary && !young) s.salary = own ? s.salary * (1 + growth) : Math.min(15000, s.salary * (1 + growth));
   if (s.spouse) s.spouse.salary *= 1 + growth;
   if (s.home) housing.yearPassed(s.home);

@@ -1356,39 +1356,67 @@ function advancedJobHtml() {
 
 async function customJobDialog() {
   const cur = (S.customJobs || {})[S.career];
+  const maxYears = Math.max(1, 65 - S.age);
   let title = cur ? cur.label : '';
   let annual = cur ? Math.round(S.salary * 12) : 60000;
-  let growth = cur ? cur.growth : 0.03;
+  let rises = cur ? cur.growth > 0 && (cur.growthUntil ?? 65) > S.age : true;
+  let growth = cur && cur.growth > 0 ? cur.growth : 0.03;
+  let years = Math.min(maxYears, cur && cur.growthUntil ? Math.max(1, cur.growthUntil - S.age) : 10);
   let selfEmployed = cur ? cur.selfEmployed : false;
   let error = '';
+  const segBtn = (attr, val, on, label) => `<button type="button" class="seg-btn ${on ? 'on' : ''}" data-${attr}="${val}">${label}</button>`;
   for (;;) {
     const c = dialog(`
       <h2>⚙️ Your own job</h2>
       <p class="small">The game uses your numbers from now on. Your job title appears in your life recap.</p>
       <label class="field"><span>Job title</span><input id="cj-title" maxlength="32" autocomplete="off" placeholder="e.g. Marketing manager" value="${esc(title)}"></label>
       ${error ? `<p class="small neg" role="alert">${error}</p>` : ''}
+      <p class="field-label">How are you employed?</p>
+      <div class="seg" role="group" aria-label="How are you employed">${segBtn('emp', 'salaried', !selfEmployed, 'Salaried employee')}${segBtn('emp', 'self', selfEmployed, 'Self-employed')}</div>
+      <p class="small" id="cj-emp-note"></p>
       <p class="field-label">Yearly income (before CPF, including bonuses)</p>
       ${amountControl('cj-annual', 600000, 'Yearly income')}
-      <p class="field-label">Pay rise each year: <b id="cj-growth-val">${(growth * 100).toFixed(1)}%</b></p>
-      <input type="range" id="cj-growth" min="0" max="10" step="0.5" value="${growth * 100}" aria-label="Pay rise each year">
-      <p class="small">Game amounts are in today's dollars, so use a rise above inflation: 2% to 3% is typical, 0% if your pay keeps pace with prices only. It stops at 65.</p>
-      <label class="check"><input type="checkbox" id="cj-self" ${selfEmployed ? 'checked' : ''}> I'm self-employed (no employer CPF, only MediSave)</label>
-      <p class="small muted-ink" id="cj-month"></p>
+      <p class="cj-month" id="cj-month" aria-live="polite"></p>
+      <p class="field-label">Pay rises</p>
+      <div class="seg" role="group" aria-label="Pay rises">${segBtn('rise', 'no', !rises, 'No pay rises')}${segBtn('rise', 'yes', rises, 'Yearly pay rise')}</div>
+      <div id="cj-rise-box" ${rises ? '' : 'hidden'}>
+        <p class="field-label">Pay rise each year: <b id="cj-growth-val">${(growth * 100).toFixed(1)}%</b></p>
+        <input type="range" class="cj-range" id="cj-growth" min="0.5" max="10" step="0.5" value="${growth * 100}" aria-label="Pay rise each year">
+        <p class="field-label">For how many years: <b id="cj-years-val"></b></p>
+        <input type="range" class="cj-range" id="cj-years" min="1" max="${maxYears}" step="1" value="${years}" aria-label="Years of pay rises">
+        <p class="small">Game amounts are in today's dollars, so use a rise above inflation: 2% to 3% is typical. Most people's pay stops growing at some point, so pick when yours levels off.</p>
+      </div>
+      <p class="small" id="cj-rise-note"></p>
       <div class="row">${btn('save', 'Start this job', 'primary')}${btn('cancel', 'Cancel')}</div>`, { wide: true });
     const box = $('[data-amt="cj-annual"]', modalBox);
     const [range, num] = box.querySelectorAll('input');
     range.value = num.value = annual;
-    const month = () => { $('#cj-month', modalBox).textContent = annual > 0 ? `That's about ${money(annual / 12)} a month.` : ''; };
-    wireAmount(modalBox, 'cj-annual', (v) => Math.min(v, 600000), (v) => { annual = v; month(); });
-    month();
+    const refresh = () => {
+      $('#cj-month', modalBox).innerHTML = annual > 0 ? `That's about <b>${money(annual / 12)} a month</b>.` : '';
+      $('#cj-emp-note', modalBox).textContent = selfEmployed
+        ? 'No employer CPF. You must pay MediSave on your net trade income, and anything for retirement is up to you.'
+        : 'You and your employer both pay CPF from your monthly pay.';
+      $('#cj-years-val', modalBox).textContent = `${years} year${years === 1 ? '' : 's'}`;
+      const stopAge = S.age + years;
+      $('#cj-rise-note', modalBox).textContent = !rises
+        ? `Your pay stays at ${money(annual)} a year until you change jobs.`
+        : annual > 0 ? `By age ${stopAge} you'd earn about ${money(annual * (1 + growth) ** years)} a year (${money(annual * (1 + growth) ** years / 12)} a month), then it stays flat.` : '';
+      modalBox.querySelectorAll('[data-emp]').forEach((b) => b.classList.toggle('on', (b.dataset.emp === 'self') === selfEmployed));
+      modalBox.querySelectorAll('[data-rise]').forEach((b) => b.classList.toggle('on', (b.dataset.rise === 'yes') === rises));
+      $('#cj-rise-box', modalBox).hidden = !rises;
+    };
+    wireAmount(modalBox, 'cj-annual', (v) => Math.min(v, 600000), (v) => { annual = v; refresh(); });
     $('#cj-title', modalBox).oninput = (e) => (title = e.target.value);
-    $('#cj-growth', modalBox).oninput = (e) => { growth = +e.target.value / 100; $('#cj-growth-val', modalBox).textContent = `${(+e.target.value).toFixed(1)}%`; };
-    $('#cj-self', modalBox).onchange = (e) => (selfEmployed = e.target.checked);
+    $('#cj-growth', modalBox).oninput = (e) => { growth = +e.target.value / 100; $('#cj-growth-val', modalBox).textContent = `${(+e.target.value).toFixed(1)}%`; refresh(); };
+    $('#cj-years', modalBox).oninput = (e) => { years = +e.target.value; refresh(); };
+    modalBox.querySelectorAll('[data-emp]').forEach((b) => (b.onclick = () => { selfEmployed = b.dataset.emp === 'self'; refresh(); }));
+    modalBox.querySelectorAll('[data-rise]').forEach((b) => (b.onclick = () => { rises = b.dataset.rise === 'yes'; refresh(); }));
+    refresh();
     const choice = await c;
     if (choice !== 'save') return false;
     error = sim.checkJobTitle(title) || (annual < 1200 ? 'Enter a yearly income of at least $1,200.' : '');
     if (error) continue;
-    sim.takeCustomJob(S, { title, annual, growth, selfEmployed });
+    sim.takeCustomJob(S, { title, annual, growth: rises ? growth : 0, growthYears: rises ? years : 0, selfEmployed });
     logEvent(`💼 New job: ${title.trim()} (${money(annual)}/year)`);
     toast(`💼 You start as ${title.trim()} at ${money(annual / 12)} a month.`);
     return true;
