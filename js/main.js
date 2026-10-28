@@ -92,19 +92,36 @@ async function rewindDialog(reason = '') {
 }
 
 // What comes in and goes out each month under the current plan.
+// How the home loan instalment will be paid each month: from the OA (as far as
+// it lasts, counting what your pay adds to it) and the rest in cash.
+function loanSplit() {
+  const h = S.home;
+  if (!h || h.loanBalance <= 1) return { fromOa: 0, fromCash: 0 };
+  if (h.payWith !== 'oa') return { fromOa: 0, fromCash: h.instalment };
+  const wage = sim.currentWage(S);
+  const oaIn = wage > 0 ? cpf.monthlyContribution(S.age, wage, { selfEmployed: S.selfEmployed }).oa : 0;
+  const fromOa = Math.min(h.instalment, oaIn + S.cpf.oa / 12);
+  return { fromOa, fromCash: h.instalment - fromOa };
+}
+
 function monthlyPlan() {
   const b = { ...sim.newBudget(), ...(S.budget || {}) };
   const share = S.spouse ? 0.5 : 1;
   const payout = S.life && S.age >= S.life.startAge ? S.life.monthly : 0;
-  const income = sim.takeHome(S) + payout;
-  const living = sim.monthlySpend(S);
+  const pay = sim.takeHome(S);
+  const income = pay + payout;
+  const parts = sim.spendBreakdown(S);
+  const living = parts.total;
   const rent = !S.home && (S.age >= 30 || S.spouse) ? RENT_MONTHLY * share : 0;
-  const loanCash = S.home && S.home.loanBalance > 1 && S.home.payWith === 'cash' ? S.home.instalment : 0;
+  const loan = loanSplit();
+  const loanCash = loan.fromCash;
   const dcp = S.dcp ? S.dcp.monthly : 0;
-  const fun = b.hobbies + b.shopping + sim.holidayMonthly(S);
+  const holidays = sim.holidayMonthly(S);
+  const fun = b.hobbies + b.shopping + holidays;
   const kids = (S.children || []).filter((c) => S.age - c.bornAge < 21).length;
   const saving = b.cpfSelf + b.kidsCpf * kids + b.investAmt;
-  return { income, living, rent, loanCash, dcp, fun, saving, out: living + rent + loanCash + dcp + fun, left: income - (living + rent + loanCash + dcp + fun) };
+  const out = living + rent + loanCash + dcp + fun;
+  return { pay, payout, income, parts, living, rent, loan, loanCash, dcp, holidays, b, kids, fun, saving, out, left: income - out };
 }
 
 // Warns before a turn if the plan spends more than comes in.
@@ -300,6 +317,8 @@ function render() {
     </div>`;
   if (S.ledgerFresh) S.ledgerFresh = false;
   app.querySelectorAll('[data-panel]').forEach((b) => (b.onclick = () => openPanel(b.dataset.panel)));
+  const spend = app.querySelector('details.spend');
+  if (spend) spend.ontoggle = () => (spendOpen = spend.open);
   app.querySelectorAll('[data-activity]').forEach((b) => (b.onclick = () => takeTurn(b.dataset.activity)));
   const endBtn = app.querySelector('[data-choice="end"]');
   if (endBtn) endBtn.onclick = endScreen;
@@ -399,7 +418,8 @@ async function takeTurn(activityId) {
       const w = world.run(S);
       opts = { ...opts, ...(w.opts || {}) };
       logEvent(`${w.icon} ${w.title}`);
-      await dialog(`<div class="event world"><div class="e-icon">${w.icon}</div><p class="eyebrow">World event</p><h2>${w.title}</h2><p>${w.text}</p></div>${btn('ok', 'OK', 'primary')}`);
+      await dialog(`<div class="event world"><div class="e-icon">${w.icon}</div><p class="eyebrow">World event</p><h2>${w.title}</h2><p>${w.text}</p></div>${btn('ok', w.opts?.retrenched ? 'Look for a job' : 'OK', 'primary')}`);
+      if (w.opts?.retrenched) await jobHunt('retrenched', 'recession');
     }
 
     const before = { stats: { ...S.stats } };
@@ -411,6 +431,7 @@ async function takeTurn(activityId) {
     recordTurn(startAge, years, sum, opts, activity, gains);
     S.ledgerFresh = true;
     await rateChangeNotice(startAge, S.age);
+    if (sum.oaRanOut) await oaRanOutNotice(sum);
 
     // Personal events and gifts.
     const personal = rollPersonalEvent(S);
@@ -425,6 +446,28 @@ async function takeTurn(activityId) {
   } finally {
     busy = false;
   }
+}
+
+// The home loan was set to come from the OA, but the OA ran dry.
+async function oaRanOutNotice(sum) {
+  if (S.oaRanOutSeen && S.age - S.oaRanOutSeen < 10) return;
+  S.oaRanOutSeen = S.age;
+  const wage = sim.currentWage(S);
+  const oaIn = wage > 0 ? cpf.monthlyContribution(S.age, wage, { selfEmployed: S.selfEmployed }).oa : 0;
+  const why = S.selfEmployed
+    ? `You're self-employed, so the only CPF you must pay is MediSave. <b>Nothing new goes into your OA</b>, but your home loan kept taking ${money(S.home.instalment)} from it every month until it was empty.`
+    : wage <= 0
+      ? `You have no salary right now, so nothing new goes into your OA, but your home loan kept taking ${money(S.home.instalment)} from it every month.`
+      : `Your job adds about ${money(oaIn)} a month to your OA, but your home loan takes ${money(S.home.instalment)} a month, so the OA kept shrinking until it was empty.`;
+  await dialog(`<div class="event"><div class="e-icon">🏛️</div><p class="eyebrow">Why is my OA at $0?</p><h2>Your OA has run out</h2>
+    <p>${why}</p>
+    <p>From now on the part your OA can't cover comes out of your cash: ${money(sum.oaRanOut)} so far. That's how it works in real life too: CPF pays the loan only while there's money in the OA.</p></div>
+    <ul class="small">
+      <li>Self-employed people can make <b>Voluntary Contributions</b> to CPF, which go into the OA, SA and MediSave like a salary would.</li>
+      <li>Paying the loan in cash instead keeps your OA growing at 2.5% for retirement (change this in 🏠 Home).</li>
+      <li>At 55, the money in your OA and SA forms your Retirement Account, so a low OA can mean smaller CPF LIFE payouts.</li>
+    </ul>
+    ${btn('ok', 'OK', 'primary')}`);
 }
 
 // CPF contribution and allocation rates change at set ages. Tell the player when they cross one.
@@ -471,10 +514,11 @@ function recordTurn(startAge, years, sum, opts, activity, gains) {
     rows.push(['Pocket money and earnings', money(sum.income), 'in']);
     if (sum.cpfIn) rows.push([`Into CPF from your job (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn), 'in']);
   } else {
-    rows.push(['Take-home pay and payouts', money(sum.income), 'in']);
+    if (sum.income - sum.payouts > 0.5) rows.push(['Take-home pay', money(sum.income - sum.payouts), 'in']);
     rows.push(['Living costs (incl. housing and kids)', `−${money(sum.spend - (sum.fun || 0))}`, 'out']);
     if (sum.cpfIn) rows.push([`Into CPF (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn), 'in']);
     if (sum.housingOa) rows.push(['Home loan paid from OA', `−${money(sum.housingOa)}`, 'out']);
+    if (sum.oaRanOut) rows.push(['Home loan paid in cash because your OA ran out', `−${money(sum.oaRanOut)}`, 'out']);
     if (sum.payouts) rows.push(['CPF LIFE payouts', money(sum.payouts), 'in']);
     if (sum.fun) rows.push(['Hobbies and shopping', `−${money(sum.fun)}`, 'out']);
     if (sum.holidays) rows.push(['Holidays', `−${money(sum.holidays)}`, 'out']);
@@ -489,7 +533,7 @@ function recordTurn(startAge, years, sum, opts, activity, gains) {
   }
   rows.push(['Interest earned (CPF and savings)', money(sum.interest), 'in']);
   if (opts.noPayMonths) rows.push([`Months without pay`, String(opts.noPayMonths), 'out']);
-  S.lastTurn = { span, rows };
+  S.lastTurn = { span, rows, years };
   const g = Object.entries(gains).map(([k, v]) => `${STATS[k].icon}+${v}`).join(' ');
   logEvent(`${activity.icon} ${activity.label} ${g}`, startAge);
 }
@@ -513,6 +557,7 @@ function ledgerHtml() {
         </button>
         ${S.life ? `<p class="small">CPF LIFE ${S.age >= S.life.startAge ? `pays <b>${money(S.life.monthly)}</b>/month` : `starts at ${S.life.startAge}`}</p>` : ''}
       </section>
+      ${S.stage === 'adult' || S.stage === 'senior' ? workHtml() : ''}
       <section>
         <button class="ledger-link" data-panel="stats" title="See all your stats">
         <h3>📊 Stats <span class="ledger-sub">😊 Joy ${Math.round(S.joy)}</span></h3>
@@ -532,7 +577,7 @@ function ledgerHtml() {
         ${S.debt > 0 && S.bank > 1000 ? `<button class="tip" data-panel="money">💡 You have ${money(S.bank)} in cash but owe ${money(S.debt)} at ${pctText(S.dcp ? sim.DCP.rate : sim.DEBT_INTEREST)}. Repaying is like earning that rate risk-free. Tap to repay.</button>` : ''}
       </section>
       <section>
-        <h3>⏳ Last turn${t ? ` <span class="ledger-sub">${t.span}</span>` : ''}</h3>
+        <h3>⏳ Last turn${t ? ` <span class="ledger-sub">${t.span}${t.years > 1 ? ', totals' : ''}</span>` : ''}</h3>
         ${t ? `<div class="turn-rows">${t.rows.map(([a, b, k]) => `<span>${a}</span><b class="${k === 'out' ? 'neg' : 'pos'}">${b}</b>`).join('')}</div>`
           : '<p class="small muted-ink">Pick an activity below to start. What happens to your money each turn shows up here.</p>'}
       </section>
@@ -541,6 +586,54 @@ function ledgerHtml() {
         <ol class="journal">${(S.journal || []).slice(0, 12).map((j) => `<li><span class="j-age">${j.age}</span>${esc(j.text)}</li>`).join('') || '<li class="muted-ink">Your story starts here.</li>'}</ol>
       </section>
     </aside>`;
+}
+
+// Your job and a month of money: what comes in, where it goes, what's left.
+let spendOpen = false;
+function workHtml() {
+  const p = monthlyPlan();
+  const job = sim.careerInfo(S);
+  const working = sim.isWorking(S);
+  const wage = sim.currentWage(S);
+  const c = wage > 0 ? cpf.monthlyContribution(S.age, wage, { selfEmployed: S.selfEmployed }) : null;
+  const canHunt = S.stage === 'adult' || (working && S.age < 65);
+  const ls = S.stage === 'senior' && S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle] : LIFESTYLES[S.lifestyle];
+  const line = (label, v, cls = 'neg') => (v > 0.5 ? `<span>${label}</span><b class="${cls}">${cls === 'neg' ? '−' : ''}${money(v)}</b>` : '');
+  return `
+      <section>
+        <h3>💼 Work and money <span class="ledger-sub">per month</span></h3>
+        <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : `🌅 <b>Retired</b>, no salary`}
+          ${canHunt ? `<button class="link-btn" data-panel="job">${working ? 'Look for a new job' : 'Find a job'}</button>` : ''}</p>
+        <div class="cash-rows">
+          ${wage > 0 ? `<span>Pay before CPF</span><b>${money(wage)} <small>(${money(wage * 12)}/yr)</small></b>
+          <span>Your CPF${S.selfEmployed ? ' (MediSave only)' : ''}</span><b class="neg">−${money(c.employee)}</b>
+          <span>Take-home pay</span><b class="pos">${money(p.pay)}</b>` : ''}
+          ${p.payout ? `<span>CPF LIFE payout</span><b class="pos">${money(p.payout)}</b>` : ''}
+          ${!p.income ? '<span>Money coming in</span><b>$0</b>' : ''}
+        </div>
+        <details class="spend" ${spendOpen ? 'open' : ''}>
+          <summary><span>Spending</span><b class="neg">−${money(p.out)}</b></summary>
+          <div class="cash-rows sub">
+            ${line(`Everyday living (${ls.label})`, p.parts.living)}
+            ${line(`Children (${p.parts.kidsCount})`, p.parts.kids)}
+            ${line('Car', p.parts.car)}
+            ${p.parts.allowance ? `<span>Allowance from grown-up children</span><b class="pos">+${money(p.parts.allowance)}</b>` : ''}
+            ${line('Rent', p.rent)}
+            ${line(p.loan.fromOa > 0.5 ? 'Home loan (the part your OA can\'t cover)' : 'Home loan', p.loanCash)}
+            ${p.loan.fromOa > 0.5 ? `<span class="muted-ink">Home loan from your OA (not cash)</span><b class="muted-ink">${money(p.loan.fromOa)}</b>` : ''}
+            ${line('Debt plan', p.dcp)}
+            ${line('Hobbies', p.b.hobbies)}
+            ${line('Shopping and treats', p.b.shopping)}
+            ${line('Holidays (averaged)', p.holidays)}
+          </div>
+          <button class="link-btn" data-panel="budget">Change my budget</button>
+        </details>
+        <div class="cash-rows">
+          ${p.saving ? `<span>Planned saving and investing</span><b>${money(p.saving)}</b>` : ''}
+          <span><b>${p.left - p.saving < 0 ? 'Short each month' : 'Left over'}</b></span><b class="${p.left - p.saving < 0 ? 'neg' : 'pos'}">${p.left - p.saving < 0 ? '−' : ''}${money(Math.abs(p.left - p.saving))}</b>
+        </div>
+        ${p.left - p.saving < 0 && S.bank > 0 ? `<p class="small muted-ink">Taken from your ${money(S.bank)} cash savings${S.age >= 55 ? ', then your OA' : ''}.</p>` : ''}
+      </section>`;
 }
 
 function ledgerStats() {
@@ -702,6 +795,48 @@ async function milestones() {
     await dialog(`<div class="event"><div class="e-icon">🎉</div><h2>Happy retirement!</h2><p>At 70 you stop working for good. From now on your income is CPF LIFE plus whatever you saved.</p></div>${btn('ok', 'OK', 'primary')}`);
   }
   closeModal();
+}
+
+// Looking for a job: after a retrenchment, or any time you want a change.
+// Offers depend on your stats, experience and the economy; better jobs unlock as you upskill.
+async function jobHunt(reason, economy) {
+  if (reason === 'choice' && S.jobChangedAge === S.age) {
+    await dialog(`<div class="event"><div class="e-icon">💼</div><h2>You've just changed jobs</h2><p>Give it a year before looking again.</p></div>${btn('ok', 'OK', 'primary')}`);
+    return;
+  }
+  // Offers are fixed for this age, so closing and reopening doesn't re-roll them.
+  if (!S.jobMarket || S.jobMarket.age !== S.age || S.jobMarket.reason !== reason) {
+    const eco = economy || (Math.random() < 0.15 ? 'boom' : Math.random() < 0.15 ? 'recession' : 'normal');
+    S.jobMarket = { age: S.age, reason, ...sim.jobOffers(S, eco) };
+  }
+  const m = S.jobMarket;
+  const now = sim.careerInfo(S);
+  const working = sim.isWorking(S) && reason !== 'retrenched';
+  const statName = (k, hybrid) => (hybrid ? `${HYBRIDS[k].icon} ${HYBRIDS[k].label}` : `${STATS[k].icon} ${STATS[k].label}`);
+  const change = (pay) => {
+    if (!working || !S.salary) return '';
+    const d = pay / S.salary - 1;
+    return `<em class="${d >= 0 ? 'pos' : 'neg'}">${d >= 0 ? '+' : ''}${Math.round(d * 100)}%</em>`;
+  };
+  const c = await dialog(`<div class="event"><div class="e-icon">💼</div>
+    <p class="eyebrow">The job market is ${sim.ECONOMY[m.economy].label}</p>
+    <h2>${reason === 'retrenched' ? 'Find your next job' : 'Look for a new job'}</h2>
+    <p>${reason === 'retrenched'
+      ? `You were retrenched${now ? ` as ${now.label}` : ''}. Employers are paying less in a recession, but your skills still count. Pick a job to start once your months out of work are over.`
+      : `You earn ${money(S.salary)} a month${now ? ` as ${now.label}` : ''}. Offers depend on your stats, your years of experience, your Career Skills and the economy.`}</p></div>
+    <div class="careers">${m.offers.map((o, i) => `
+      <button class="career" data-choice="${i}"><b>${o.icon} ${o.label}</b><span>${money(o.pay)}/month ${change(o.pay)}</span>
+      <small>${o.selfEmployed ? '⚠️ Self-employed: no employer CPF, only MediSave is compulsory, so your OA and SA stop growing unless you top them up.' : `Employer adds ${money(cpf.monthlyContribution(S.age, o.pay).employer)} a month to your CPF.`}${o.desc ? ` ${o.desc}` : ''}</small></button>`).join('')}
+    </div>
+    ${m.locked.length ? `<h3>Better jobs you could reach</h3><ul class="small locked-jobs">${m.locked.map((o) => `<li>${o.icon} <b>${o.label}</b>, about ${money(o.pay)}/month: needs ${o.needs.map(([k, v]) => `${statName(k, o.hybrid)} ${v}`).join(' and ')}</li>`).join('')}</ul>
+    <p class="small">Upskill with a SkillsFuture course or other activities to raise these stats.</p>` : ''}
+    <div class="row">${working ? btn('stay', 'Stay in my job') : ''}</div>`, { wide: true });
+  if (c === 'stay' || c == null) return;
+  const o = m.offers[+c];
+  sim.takeJob(S, o);
+  S.jobMarket = null;
+  logEvent(`${o.icon} New job: ${o.label} (${money(o.pay)}/month)`);
+  toast(`${o.icon} You start as ${o.label} at ${money(o.pay)} a month.`);
 }
 
 async function careerSwitchDialog(c) {
@@ -947,7 +1082,7 @@ async function cpfLifeDecision() {
 
 async function openPanel(kind) {
   if (busy) return;
-  const panels = { stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel, budget: budgetPanel, holidays: holidaysPanel };
+  const panels = { stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel, budget: budgetPanel, holidays: holidaysPanel, job: () => jobHunt('choice') };
   await panels[kind]();
   closeModal();
   save();
@@ -1315,7 +1450,8 @@ async function budgetPanel() {
     const share = S.spouse ? 0.5 : 1;
     const living = sim.monthlySpend(S);
     const rent = !S.home && (S.age >= 30 || S.spouse) ? RENT_MONTHLY * share : 0;
-    const loanCash = S.home && S.home.loanBalance > 1 && S.home.payWith === 'cash' ? S.home.instalment : 0;
+    const loan = loanSplit();
+    const loanCash = loan.fromCash;
     const dcp = S.dcp ? S.dcp.monthly : 0;
     const holidays = sim.holidayMonthly(S);
     const kids = (S.children || []).filter((c) => S.age - c.bornAge < 21);
@@ -1333,7 +1469,7 @@ async function budgetPanel() {
         <tr><th colspan="2">Must-pays</th></tr>
         <tr><td>${ls.icon || '🏠'} Everyday living: ${ls.label}${kids.length ? `, incl. ${money(sim.CHILD_COST * share * kids.length)} for ${kids.length === 1 ? 'your child' : 'your children'}` : ''}${S.car ? ', incl. $1,500 for the car' : ''} ${btn('life', 'Change')}</td><td class="neg">−${money(living)}</td></tr>
         ${rent ? `<tr><td>Rent</td><td class="neg">−${money(rent)}</td></tr>` : ''}
-        ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan ${S.home.payWith === 'oa' ? '(paid from your CPF OA, so no cash)' : '(paid in cash)'}</td><td class="neg">−${money(loanCash)}</td></tr>` : ''}
+        ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan ${money(S.home.instalment)}: ${S.home.payWith === 'oa' ? (loanCash > 1 ? `your OA only covers ${money(loan.fromOa)}, so the rest is cash` : 'paid from your CPF OA, so no cash') : 'paid in cash'}</td><td class="neg">−${money(loanCash)}</td></tr>` : ''}
         ${dcp ? `<tr><td>Debt Consolidation Plan</td><td class="neg">−${money(dcp)}</td></tr>` : ''}
       </table>
       <h3>Your choices</h3>

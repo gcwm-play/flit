@@ -29,9 +29,9 @@ export const WORLD_EVENTS = [
       const hit = Math.random() > r;
       const months = hit ? Math.round(6 * (1 - r)) + (s.selfEmployed ? 2 : 0) : 0;
       const text = hit
-        ? `Companies are cutting jobs. You are out of work for ${months} months. Your ${statLine(s, keys)} cut the damage by ${pct(r)}. This is why an emergency fund of 6 months' spending matters.`
+        ? `${s.selfEmployed ? 'Your clients cut back and your business dries up.' : 'Companies are cutting jobs, and yours is one of them: you are retrenched.'} You are out of work for ${months} months while you look for a new job. Your ${statLine(s, keys)} cut the damage by ${pct(r)}. This is why an emergency fund of 6 months' spending matters.`
         : `Companies are cutting jobs, but your ${statLine(s, keys)} kept you in work. Investments still take a knock this year.`;
-      return { icon: '📉', title: 'Recession!', text, opts: { noPayMonths: months, market: -1.5 } };
+      return { icon: '📉', title: 'Recession!', text, opts: { noPayMonths: months, market: -1.5, retrenched: hit && months > 0 } };
     },
   },
   {

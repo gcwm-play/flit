@@ -170,6 +170,7 @@ export function chooseCareer(s, careerId) {
   s.career = c.id;
   s.selfEmployed = !!c.selfEmployed;
   s.salary = c.startPay;
+  s.careerStartAge = s.age;
   s.cpfWorked = true;
 }
 
@@ -196,6 +197,61 @@ export function switchCareer(s, id) {
   s.selfEmployed = !!c.selfEmployed;
   s.salary = c.pay;
   s.log.push(`Age ${s.age}: became a ${c.label}`);
+}
+
+// ---------- the job market ----------
+
+// How the economy changes what employers offer.
+export const ECONOMY = {
+  recession: { label: 'in a recession', factor: 0.88 },
+  normal: { label: 'steady', factor: 1 },
+  boom: { label: 'booming', factor: 1.06 },
+};
+
+const round50 = (n) => Math.round(n / 50) * 50;
+
+// Jobs you could move to now, best paid first. Pay depends on the job, your
+// education, your years of experience, your Career Skills and the economy.
+// `locked` lists better jobs you could reach by building up a stat.
+export function jobOffers(s, economy = 'normal') {
+  const eco = ECONOMY[economy].factor;
+  const jitter = () => 0.95 + Math.random() * 0.1;
+  const years = Math.max(0, s.age - (s.careerStartAge ?? 21));
+  const experience = 1 + Math.min(0.5, 0.02 * years);
+  const skills = 1 + Math.min(0.3, (s.stats.career || 0) / 200);
+  const offers = [];
+  const locked = [];
+  const now = careerInfo(s);
+  if (now) {
+    offers.push({ id: now.id, same: true, label: `${now.label}, at another company`, icon: now.icon, selfEmployed: !!now.selfEmployed,
+      pay: round50((s.salary || now.pay) * eco * (0.96 + Math.random() * 0.1)) });
+  }
+  for (const c of careerOptions(s)) {
+    if (c.id === s.career) continue;
+    const job = { id: c.id, label: c.label, icon: c.icon, selfEmployed: !!c.selfEmployed, pay: round50(c.startPay * experience * skills * eco * jitter()) };
+    if (c.eligible) offers.push(job);
+    else locked.push({ ...job, needs: Object.entries(c.needs).filter(([k, v]) => s.stats[k] < v) });
+  }
+  for (const c of CAREER_SWITCHES) {
+    if (c.id === s.career) continue;
+    const level = c.stat ? s.stats[c.stat] : s.hybrids[c.hybrid] ? hybridValue(s, c.hybrid) : 0;
+    const job = { id: c.id, label: c.label, icon: c.icon, selfEmployed: !!c.selfEmployed, desc: c.desc, pay: round50(c.pay * skills * eco * jitter()) };
+    if (level >= c.min) offers.push(job);
+    else locked.push({ ...job, needs: [[c.stat || c.hybrid, c.min]], hybrid: !c.stat });
+  }
+  offers.sort((a, b) => b.pay - a.pay);
+  // The jobs closest to reach come first: the ones a bit of upskilling would unlock.
+  const gap = (j) => j.needs.reduce((t, [k, v]) => t + Math.max(0, v - (j.hybrid ? hybridValue(s, k) : s.stats[k])), 0);
+  return { economy, offers, locked: locked.filter((j) => j.pay > (s.salary || 0) * 0.9).sort((a, b) => gap(a) - gap(b) || b.pay - a.pay).slice(0, 4) };
+}
+
+export function takeJob(s, offer) {
+  if (offer.id !== s.career) s.careerStartAge = Math.min(s.careerStartAge ?? 21, s.age); // experience carries over
+  s.career = offer.id;
+  s.selfEmployed = !!offer.selfEmployed;
+  s.salary = offer.pay;
+  s.jobChangedAge = s.age;
+  s.log.push(`Age ${s.age}: started work as ${offer.label} (${money(offer.pay)}/month)`);
 }
 
 export function ageStage(age) {
@@ -258,6 +314,9 @@ function oneYear(s, sum, opts) {
         const paid = housing.payMonth(s.home, s.cpf.oa);
         s.cpf.oa -= paid.fromOa;
         sum.housingOa += paid.fromOa;
+        sum.housingCash = (sum.housingCash || 0) + paid.fromCash;
+        // The loan was meant to come from the OA, but the OA ran dry.
+        if (s.home.payWith === 'oa' && paid.fromCash > 0.01) sum.oaRanOut = (sum.oaRanOut || 0) + paid.fromCash;
         out += paid.fromCash;
       } else if (age >= 30 || s.spouse) {
         out += RENT_MONTHLY * (s.spouse ? 0.5 : 1);
@@ -368,6 +427,11 @@ export function currentWage(s) {
 // Your own monthly spending. With a spouse, you share household costs;
 // each child costs the household about $1,200 a month until they are 22.
 export function monthlySpend(s) {
+  return spendBreakdown(s).total;
+}
+
+// Your monthly spending, split into its parts.
+export function spendBreakdown(s) {
   let m;
   if (s.age >= 55 && s.retirementLifestyle) {
     m = RETIREMENT_LIFESTYLES[s.retirementLifestyle].monthly;
@@ -379,15 +443,16 @@ export function monthlySpend(s) {
     const floor = s.lifestyle === 'lavish' ? l.monthly : Math.min(l.monthly, (s.lifestyle === 'simple' ? 0.6 : 0.75) * th);
     m = Math.max(floor, l.share * th);
   }
-  if (s.car) m += 1500;
+  const car = s.car ? 1500 : 0;
   const share = s.spouse ? 0.5 : 1;
+  let kids = 0, kidsCount = 0, allowance = 0;
   for (const c of s.children || []) {
     const childAge = s.age - c.bornAge;
-    if (childAge < 22) m += CHILD_COST * share;
+    if (childAge < 22) { kids += CHILD_COST * share; kidsCount++; }
     // Grown-up children often give their parents a monthly allowance.
-    else if (s.age >= 60) m -= CHILD_ALLOWANCE;
+    else if (s.age >= 60) allowance += CHILD_ALLOWANCE;
   }
-  return m;
+  return { living: m, car, kids, kidsCount, allowance, total: m + car + kids - allowance };
 }
 
 export const CHILD_COST = 1200;

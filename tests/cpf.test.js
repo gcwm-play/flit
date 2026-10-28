@@ -285,3 +285,49 @@ test('the whole family is the same animal; the spouse is the opposite gender', (
   assert.equal(s.children[0].animal, 'frog');
   assert.equal(s.look.tone, undefined);
 });
+
+test('job offers: skills unlock better jobs, and a recession lowers what employers pay', () => {
+  const s = sim.newGame('Jobs', { gender: 'male', animal: 'dog', outfit: 0 });
+  s.age = 30; s.stage = 'adult'; s.education = 'university';
+  s.stats.knowledge = 25; s.stats.creativity = 12;
+  sim.chooseCareer(s, 'engineer');
+  s.careerStartAge = 22;
+  const normal = sim.jobOffers(s, 'normal');
+  assert.equal(normal.offers.some((o) => o.same && o.id === 'engineer'), true);
+  assert.equal(normal.offers.some((o) => o.id === 'teacher'), false); // needs Communication 16
+  assert.equal(normal.locked.some((o) => o.id === 'teacher'), true);
+  s.stats.communication = 20;
+  assert.equal(sim.jobOffers(s, 'normal').offers.some((o) => o.id === 'teacher'), true);
+  const avg = (eco) => {
+    let t = 0;
+    for (let i = 0; i < 200; i++) t += sim.jobOffers(s, eco).offers.find((o) => o.id === 'teacher').pay;
+    return t / 200;
+  };
+  assert.ok(avg('recession') < avg('normal') * 0.93);
+  const offer = sim.jobOffers(s, 'normal').offers.find((o) => o.id === 'teacher');
+  sim.takeJob(s, offer);
+  assert.equal(s.career, 'teacher');
+  assert.equal(s.salary, offer.pay);
+});
+
+test('spending breakdown adds up to monthly spending', () => {
+  const s = sim.newGame('Spend', { gender: 'female', animal: 'cat', outfit: 0 });
+  s.age = 40; s.stage = 'adult'; s.salary = 6000; s.lifestyle = 'comfortable';
+  s.car = true;
+  s.children = [{ bornAge: 32 }, { bornAge: 35 }];
+  const b = sim.spendBreakdown(s);
+  assert.equal(b.kidsCount, 2);
+  assert.equal(b.car, 1500);
+  close(sim.monthlySpend(s), b.living + b.car + b.kids - b.allowance, 0.01);
+});
+
+test('a self-employed owner paying the home loan from the OA runs the OA dry, then pays cash', () => {
+  const s = sim.newGame('Oa', { gender: 'male', animal: 'frog', outfit: 0 });
+  s.age = 45; s.stage = 'adult'; s.salary = 7000; s.selfEmployed = true; s.lifestyle = 'simple'; s.career = 'founder2';
+  s.cpf.oa = 20000; s.bank = 500000;
+  s.home = { id: 'condo', kind: 'private', price: 1500000, loanBalance: 600000, instalment: 3500, rate: 0.03, payWith: 'oa', cpfPrincipal: 0, cpfAccrued: 0, leaseLeft: 99 };
+  const sum = sim.advanceYears(s, 1);
+  assert.ok(s.cpf.oa < 500, `OA should be (nearly) empty, is ${s.cpf.oa}`); // only the year's interest is left
+  close(sum.housingOa, 20000, 600);
+  assert.ok(sum.oaRanOut > 20000);
+});
