@@ -146,9 +146,9 @@ export const PERSONAL_EVENTS = [
   { id: 'birthday', stages: ['child', 'teen'], weight: 2, run: (s) => gift('🎂', 'Birthday money', 'Your grandparents give you money for your birthday.', rand(3, 10) * 10) },
   { id: 'edusave', stages: ['teen'], weight: 2, when: (s) => s.stats.knowledge >= 15, run: () => gift('🏅', 'Edusave Merit Bursary', 'Your good results earn you a bursary.', 500) },
   { id: 'contest', stages: ['child', 'teen'], weight: 1, when: (s) => s.stats.creativity >= 10, run: () => gift('🏆', 'You won an art competition!', 'Your creativity pays off with a cash prize.', 200) },
-  { id: 'bonus', stages: ['adult'], weight: 3, when: (s) => !s.selfEmployed, run: (s) => gift('💰', 'Year-end bonus', 'Your company had a good year.', s.salary * (1 + Math.min(1.5, s.stats.career / 30))) },
+  { id: 'bonus', stages: ['adult'], weight: 3, when: (s) => working(s) && !s.selfEmployed, run: (s) => gift('💰', 'Year-end bonus', 'Your company had a good year.', s.salary * (1 + Math.min(1.5, s.stats.career / 30))) },
   { id: 'sidegig', stages: ['adult'], weight: 1, when: (s) => s.stats.creativity >= 15, run: () => gift('🎨', 'Side gig', 'People pay for your creative work on weekends.', rand(10, 30) * 100) },
-  { id: 'luckydraw', stages: ['adult', 'senior'], weight: 1, run: () => gift('🎟️', 'Lucky draw win', 'You win the lucky draw at a company dinner.', rand(5, 20) * 100) },
+  { id: 'luckydraw', stages: ['adult', 'senior'], weight: 1, when: working, run: () => gift('🎟️', 'Lucky draw win', 'You win the lucky draw at a company dinner.', rand(5, 20) * 100) },
   { id: 'kidsgift', stages: ['senior'], weight: 3, run: () => gift('💝', 'A gift from family', 'Your family gives you money as a thank you.', rand(5, 20) * 100) },
 
   // Family

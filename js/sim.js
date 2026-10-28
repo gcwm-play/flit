@@ -300,8 +300,23 @@ export function ageStage(age) {
 
 export function yearsThisTurn(s) {
   const st = STAGES[s.stage];
+  // Men finish studying after NS: the turn stops when it's time to find a first job.
+  if (isStudying(s)) return Math.min(st.yearsPerTurn, firstJobAge(s) - s.age);
   return Math.min(st.yearsPerTurn, st.endAge - s.age);
 }
+
+// ---------- National Service ----------
+
+// Men enlist for two years of full-time National Service at about 18 (after JC or poly; many
+// poly students enlist at 19 or 20). NSF allowance (MINDEF, 2026): $715 a month as a recruit or
+// private, $790 as a corporal, $1,055 as a third sergeant, plus a vocation allowance from $75.
+// NSF allowances aren't wages, so no CPF is paid on them, and they aren't taxed.
+export const NS = { startAge: 18, years: 2, allowance: { 18: 790, 19: 980 } };
+export const doesNs = (s) => !!(s.look && s.look.gender === 'male');
+export const isNsf = (s, age = s.age) => doesNs(s) && age >= NS.startAge && age < NS.startAge + NS.years;
+// The game starts working life at 21; men start two years later because of NS.
+export const firstJobAge = (s) => STAGES.adult.startAge + (doesNs(s) ? NS.years : 0);
+export const isStudying = (s) => s.stage === 'adult' && !s.career && s.age < firstJobAge(s);
 
 // ---------- the money simulation ----------
 
@@ -325,7 +340,9 @@ export function advanceYears(s, years, opts = {}) {
 function oneYear(s, sum, opts) {
   const age = s.age;
   const st = STAGES[s.stage];
-  const young = s.stage === 'child' || s.stage === 'teen';
+  // Still studying after NS counts as young: no pay yet, and your parents support you.
+  const young = s.stage === 'child' || s.stage === 'teen' || isStudying(s);
+  const nsf = isNsf(s, age);
   childSupportYear(s, sum);
   const lifeOn = !!(s.life && age >= s.life.startAge);
   if (lifeOn) {
@@ -339,7 +356,7 @@ function oneYear(s, sum, opts) {
     }
   }
   const wage = young ? 0 : currentWage(s);
-  const jobMonths = young && opts.jobWage && age >= 16 ? 3 : 0; // teen holiday job
+  const jobMonths = young && opts.jobWage && age >= 16 && !nsf ? 3 : 0; // teen holiday job (not during NS)
   // Everyday spending, split into its parts so the player can see where it goes.
   const parts = young ? null : spendBreakdown(s);
   const costFactor = opts.costFactor || 1;
@@ -433,8 +450,14 @@ function oneYear(s, sum, opts) {
 
   if (young) {
     // Pocket money: half is yours to spend, your parents bank the rest.
-    const allowance = st.yearlyAllowance * (opts.allowanceFactor ?? 1);
+    const allowance = (st.yearlyAllowance ?? STAGES.teen.yearlyAllowance) * (opts.allowanceFactor ?? 1);
     sum.income += allowance;
+    // NSF allowance: you spend about half on transport, food and your phone, and save the rest.
+    if (nsf) {
+      const ns = NS.allowance[age] * 12;
+      sum.nsPay = (sum.nsPay || 0) + ns;
+      s.bank += ns / 2;
+    }
     // Pocket money gets spent through the year, so only what you had at the start stays untouched.
     s.bank += allowance + cash;
   } else if (cash >= 0) {
@@ -958,7 +981,8 @@ export function leaseBuyback(s) {
 // What you're doing for a living, in words.
 export function workStatus(s) {
   if (s.stage === 'child') return 'At school';
-  if (s.stage === 'teen') return s.age >= 17 ? 'Studying' : 'At school';
+  if (s.stage === 'teen') return isNsf(s) ? 'National Service' : s.age >= 17 ? 'Studying' : 'At school';
+  if (isStudying(s)) return 'Studying after NS';
   if (s.stage === 'adult') return s.selfEmployed ? 'Running your own business' : 'Working full-time';
   if (s.age >= 70 || s.workMode === 'retired') return 'Retired';
   return s.workMode === 'part' ? 'Working part-time' : 'Working full-time';

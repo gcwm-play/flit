@@ -371,7 +371,8 @@ function actionTiles() {
     tiles.push(['insurance', '🩺', 'Insurance', health.PLANS[(S.insurance || {}).plan || 'msl'].label.replace(' only', '').replace(' plan', '').replace('Standard (B1 ward)', 'B1 plan')]);
     const loanYrs = S.home ? Math.ceil(housing.monthsLeft(S.home) / 12) : 0;
     tiles.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label} · ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label} · fully owned 🎉`) : sim.isRenting(S) ? 'Renting' : 'With your parents']);
-    if (S.stage === 'adult' || (working && S.age < 65)) tiles.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
+    if (sim.isStudying(S)) tiles.push(['stats', '🎓', 'Studying', `First job at ${sim.firstJobAge(S)}`]);
+    else if (S.stage === 'adult' || (working && S.age < 65)) tiles.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
   }
   if (grown) tiles.push(['donate', '💝', 'Give', sim.donationsThisYear(S) ? `${money(sim.donationsThisYear(S))} this year` : (S.budget || {}).donateYearly ? `${money(S.budget.donateYearly)} a year` : 'Help others']);
   if (grown) tiles.push(['car', '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
@@ -940,13 +941,14 @@ function scoreWord(score) {
 
 // Records what happened to the money this turn; the ledger beside the room shows it.
 function recordTurn(startAge, years, sum, opts, activity, gains) {
-  const young = S.stage === 'child' || S.stage === 'teen' || startAge < 21;
+  const young = S.stage === 'child' || S.stage === 'teen' || startAge < 21 || !S.career;
   const span = years > 1 ? `Ages ${startAge} to ${startAge + years - 1}` : `Age ${startAge}`;
   // Each row: label, amount over the whole turn, and whether it's money in, money out, or a CPF/saving move.
   const rows = [];
   const add = (label, v, kind) => { if (Math.abs(v) > 0.5) rows.push([label, v, kind]); };
   if (young) {
     add('Pocket money and earnings', sum.income, 'in');
+    add('NSF allowance (about half spent)', sum.nsPay || 0, 'in');
     add(`Into CPF from your job (employer paid ${money(sum.employerIn / years)})`, sum.cpfIn, 'cpf');
   } else {
     add('Take-home pay', sum.income - sum.payouts, 'in');
@@ -1060,11 +1062,11 @@ function workHtml() {
   const working = sim.isWorking(S);
   const wage = sim.currentWage(S);
   const c = wage > 0 ? cpf.monthlyContribution(S.age, wage, { selfEmployed: S.selfEmployed }) : null;
-  const canHunt = S.stage === 'adult' || (working && S.age < 65);
+  const canHunt = (S.stage === 'adult' && !sim.isStudying(S)) || (working && S.age < 65);
   return `
       <section>
         <h3>💼 Work and pay <span class="ledger-sub">per month</span></h3>
-        <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : `<span>🌅 <b>Retired</b>, no salary</span>`}
+        <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : sim.isStudying(S) ? `<span>🎓 <b>Studying</b> after NS: first job at ${sim.firstJobAge(S)}</span>` : `<span>🌅 <b>Retired</b>, no salary</span>`}
           ${canHunt ? `<button class="link-btn" data-panel="job">${working ? 'Look for a new job' : 'Find a job'}</button>` : ''}</p>
         <div class="cash-rows">
           ${wage > 0 ? `<span>Pay before CPF</span><b>${money(wage)} <small>(${money(wage * 12)}/yr)</small></b>
@@ -1229,6 +1231,23 @@ function topUpAccountInfo(account, room) {
 
 // ---------- stage changes and milestones ----------
 
+async function nsIntro() {
+  S.nsIntro = true;
+  const a = sim.NS.allowance;
+  sim.story(S, 'life', '🪖', `Enlisted for National Service at ${sim.NS.startAge}`);
+  logEvent(`🪖 National Service from ${sim.NS.startAge} to ${sim.NS.startAge + sim.NS.years}`);
+  await dialog(`<div class="event"><div class="e-icon">🪖</div><h2>National Service</h2></div>
+    <p>At ${sim.NS.startAge}, Singaporean men enlist for <b>two years of full-time National Service</b> (most go in after JC or poly).</p>
+    <ul class="small">
+      <li>You're paid an <b>NSF allowance</b>, not a salary: about ${money(a[18])} a month at first, rising to about ${money(a[19])} as you're promoted (rank plus vocation allowance). You spend about half and save the rest.</li>
+      <li>No CPF is paid on NSF allowances, and they aren't taxed.</li>
+      <li>No part-time job during these two years.</li>
+      <li>After NS you're an NSman: in-camp training most years until about 40, and NSman Self Relief cuts your income tax ($3,000 in a year with training, $1,500 without).</li>
+      <li>You start working two years later than women, so your CPF has two fewer years to grow.</li>
+    </ul>
+    ${btn('ok', 'Report for duty', 'primary')}`);
+}
+
 async function milestones() {
   let rewound = false;
   const stage = sim.ageStage(S.age);
@@ -1243,6 +1262,12 @@ async function milestones() {
     logEvent(`🎉 New life stage: ${STAGES[stage].label}`);
     await stageIntro(stage);
   }
+  if (S.stage === 'adult' && !S.career && S.age >= sim.firstJobAge(S)) {
+    await adultStart();
+    closeModal();
+    render();
+  }
+  if (sim.doesNs(S) && S.age >= sim.NS.startAge - 1 && S.age < sim.NS.startAge + sim.NS.years && !S.nsIntro) await nsIntro();
   if (S.stage === 'adult' && !S.home && ((S.spouse && S.homeAskedMarried == null) || (S.age >= 27 && (S.homeAskedAt == null || S.age - S.homeAskedAt >= 6)))) {
     await homeDecision();
   }
@@ -1370,10 +1395,24 @@ async function stageIntro(stage) {
     $('#grown-me').innerHTML = person(me(stage), 'walking');
   }));
   await new Promise((r) => (modalBox.onclick = (e) => e.target.closest('[data-choice]') && r()));
-  if (stage === 'adult') await adultStart();
+  if (stage === 'adult') await (sim.isStudying(S) ? studyAfterNs() : adultStart());
   if (stage === 'senior') await turning55();
   closeModal();
   render();
+}
+
+// Men: after two years of NS, they finish their studies two years later than women.
+async function studyAfterNs() {
+  S.education = sim.educationFor(S);
+  const ed = EDUCATION[S.education];
+  const start = sim.firstJobAge(S);
+  logEvent(`🎓 Studying for a ${ed.label} until ${start}`);
+  await dialog(`
+    <p class="eyebrow">After National Service</p>
+    <h2>Back to studying for your ${ed.label}</h2>
+    <p>NS took two years, so you finish your studies and start your first job at <b>${start}</b>, about two years later than women who studied the same course.</p>
+    <p class="small">Those two years matter for retirement too: your CPF starts later, so it has less time to grow. Your parents support you until then, and you can still pick activities to build your skills.</p>
+    ${btn('ok', 'OK', 'primary')}`);
 }
 
 async function adultStart() {

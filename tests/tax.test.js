@@ -116,3 +116,19 @@ test('the tax explainer credits your own top-ups and donations, and says why tax
   assert.equal(zero.tax, 0);
   assert.match(tax.zeroReason(zero), /first \$20,000/);
 });
+
+test('men do two years of NS at 18 with an allowance and no CPF, and start work at 23', () => {
+  const m = sim.newGame('NS', { gender: 'male', animal: 'cat', outfit: 0 });
+  Object.assign(m, { age: 17, stage: 'teen' });
+  const cpfBefore = cpf.cpfTotal(m.cpf);
+  const sum = sim.advanceYears(m, 2, { jobWage: 1000 });
+  assert.equal(sum.nsPay, sim.NS.allowance[18] * 12);
+  assert.equal(sum.cpfIn, 3000 * 0.37); // only the age-17 holiday job pays CPF
+  assert.ok(cpf.cpfTotal(m.cpf) > cpfBefore);
+  assert.equal(sim.firstJobAge(m), 23);
+  const f = sim.newGame('F', { gender: 'female', animal: 'cat', outfit: 0 });
+  assert.equal(sim.firstJobAge(f), 21);
+  Object.assign(m, { age: 21, stage: 'adult' });
+  assert.ok(sim.isStudying(m));
+  assert.equal(sim.yearsThisTurn(m), 2);
+});
