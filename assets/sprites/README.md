@@ -1,31 +1,42 @@
 # Character sprites
 
-The game currently draws simple placeholder characters in code (`js/sprites.js`).
-To use your own art, add one PNG per life stage, gender and skin tone here and
-set `CUSTOM_SPRITES = true` in `js/sprites.js`.
+The family is a family of animals: the player picks a capybara, cat, unicorn,
+dog or frog, and their spouse and children are the same animal. Until custom
+art is added, the game draws placeholder animals in code (`js/sprites.js`).
 
-## File names
+Drop PNGs into this folder and the game picks them up automatically. Any file
+that is missing falls back to the drawn placeholder, so art can arrive in
+batches.
 
-`{stage}-{gender}-{tone}.png`
+## Walk sheets
 
-| Part   | Values                                      |
-|--------|---------------------------------------------|
-| stage  | `baby`, `child`, `teen`, `adult`, `senior`  |
-| gender | `male`, `female`                            |
-| tone   | `0` Light, `1` Fair, `2` Medium, `3` Tan, `4` Deep |
+`{animal}-{stage}-walk.png`
 
-That is 5 × 2 × 5 = 50 files, for example `adult-female-3.png`.
+| Part   | Values                                         |
+|--------|------------------------------------------------|
+| animal | `capybara`, `cat`, `unicorn`, `dog`, `frog`    |
+| stage  | `baby`, `child`, `teen`, `adult`, `senior`     |
 
-## How they are used
+That is 5 × 5 = 25 files, for example `capybara-adult-walk.png`.
 
-- The player picks gender and skin tone at the start. The spouse is the other
-  gender with the same skin tone, and children share it too.
-- Children appear as `baby` (under 3), `child` (3–12), `teen` (13–20) and
-  `adult` (21+).
-- Draw each sprite facing forward on a transparent background, with the feet
-  touching the bottom edge. Keep one pixel scale across all files: the game
-  scales them up with nearest-neighbour so they stay crisp.
-- Heights the placeholders use (in pixels), so family members keep sensible
-  sizes next to each other: baby 16, child 23, teen 28, adult 30, senior 29.
-  If your art uses different heights, update `SHAPES` in `js/sprites.js`.
-- Outfit colours only apply to the placeholder art.
+- 4 square frames side by side (64 × 64 each, so 256 × 64), transparent background.
+- The animal faces **right**. The game mirrors it to walk left.
+- Frames: contact, passing (body 2–3 px higher), contact with the other leg, passing.
+  The frog hops instead: crouch, push off, in the air, land.
+- Feet stand on the same row near the bottom of every frame. Younger animals are
+  drawn smaller inside the same 64 × 64 frame, so they line up when they stand together.
+
+Optional: `{animal}-{stage}-she-walk.png` (for example `cat-adult-she-walk.png`)
+is used for female family members, for example with a bow.
+
+Children appear as `baby` (under 3), `child` (3–12), `teen` (13–20) and
+`adult` (21+). The player is `child` from 7, `teen` from 13, `adult` from 21 and
+`senior` from 65.
+
+## Shop items
+
+`item-{id}.png`, 64 × 64 (or 128 × 64 for wide furniture). The ids are in
+`SHOP` in `js/data.js`. Items still show as emoji for now.
+
+The image-generation prompts for all of these, with exact sizes, are in the
+"FLIT art prompts: animal family and shop items" doc.

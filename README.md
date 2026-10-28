@@ -60,8 +60,8 @@ js/invest.js        investment products and CPFIS rules
 js/postcards.js     pixel postcards for holidays
 js/minigames.js     the four mini games (switched off for now)
 js/main.js          screens, dialogs and game flow
-js/sprites.js       characters: placeholder pixel art drawn in code (see assets/sprites/README.md)
-assets/sprites/     drop-in folder for custom character art
+js/sprites.js       the animal family: walking placeholder pixel art drawn in code (see assets/sprites/README.md)
+assets/sprites/     drop-in folder for custom animal and shop-item art
 tests/              node --test unit tests for the CPF and housing rules
 ```
 

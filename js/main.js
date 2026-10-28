@@ -4,7 +4,7 @@ import * as sim from './sim.js';
 import * as housing from './housing.js';
 import * as invest from './invest.js';
 import { postcard } from './postcards.js';
-import { characterSrc, lookOf, spriteHeight, SKIN_TONES, GENDERS, OUTFITS } from './sprites.js';
+import { characterHtml, itemHtml, lookOf, ANIMALS, GENDERS, OUTFITS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent } from './events.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION,
@@ -170,8 +170,15 @@ function toast(text) {
 }
 
 const btn = (choice, label, cls = '') => `<button class="btn ${cls}" data-choice="${choice}">${label}</button>`;
-const person = (look, cls = '', alt = '') =>
-  `<img class="pixel person ${cls}" style="--h:${spriteHeight(look.stage)}" src="${characterSrc(look)}" alt="${alt}">`;
+const person = (look, cls = '', alt = '') => characterHtml(look, cls, alt);
+// A character strolling left and right across the room. `lane` spreads the family out.
+const walker = (look, cls, alt, lane, count) => {
+  const span = 100 / count;
+  const from = Math.round(lane * span * 0.85);
+  const to = Math.round(Math.min(78, from + span * 0.85 + 18));
+  const dur = 9 + ((lane * 3.7) % 5);
+  return `<span class="walker lane-${lane}" style="--from:${from}%;--to:${to}%;--dur:${dur.toFixed(1)}s;--delay:-${(lane * 2.3).toFixed(1)}s">${person(look, `walking ${cls}`, alt)}</span>`;
+};
 const me = (stage = S.stage) => lookOf(S.look, stage);
 
 // Outfit colour swatches, used when you grow into a new life stage.
@@ -184,7 +191,8 @@ function outfitPicker(selected) {
 
 function titleScreen() {
   const saved = loadSave();
-  const look = { gender: Math.random() < 0.5 ? 'male' : 'female', tone: Math.floor(Math.random() * SKIN_TONES.length), outfit: 0 };
+  const animals = Object.keys(ANIMALS);
+  const look = { animal: animals[Math.floor(Math.random() * animals.length)], gender: Math.random() < 0.5 ? 'male' : 'female', outfit: 0 };
   app.innerHTML = `
     <div class="title-screen">
       <h1 class="logo">FLIT</h1>
@@ -193,10 +201,11 @@ function titleScreen() {
       <div class="card start-card">
         <p>Grow up, build your skills, make money choices and see where they lead when you retire.</p>
         <label class="field">Your name <input id="name" maxlength="16" placeholder="Alex" autocomplete="off"></label>
+        <p class="pick-label">Pick your animal <small>(your partner and children will be the same animal)</small></p>
+        <div class="animal-pick" role="group" aria-label="Animal">${Object.entries(ANIMALS).map(([k, a]) => `<button class="animal-btn" data-animal="${k}">${person({ stage: 'adult', animal: k, gender: 'male', outfit: 1 }, 'tiny')}<span>${a.label}</span></button>`).join('')}</div>
+        <p class="small muted">Everyone in this Singapore is an animal, but the rules are real: the same CPF, HDB and marriage rules apply.</p>
         <p class="pick-label">You are</p>
-        <div class="seg" role="group" aria-label="Gender">${Object.entries(GENDERS).map(([k, l]) => `<button class="seg-btn" data-gender="${k}">${l}</button>`).join('')}</div>
-        <p class="pick-label">Skin tone <small>(your partner and children will share it)</small></p>
-        <div class="swatches" role="group" aria-label="Skin tone">${SKIN_TONES.map((t, i) => `<button class="swatch" data-tone="${i}" style="background:${t.skin}" aria-label="${t.label}"></button>`).join('')}</div>
+        <div class="seg" role="group" aria-label="He or she">${Object.entries(GENDERS).map(([k, l]) => `<button class="seg-btn" data-gender="${k}">${l}</button>`).join('')}</div>
         <p class="pick-label">Outfit colour</p>
         ${outfitPicker(look.outfit)}
         <div class="row">
@@ -207,13 +216,13 @@ function titleScreen() {
       <p class="small muted">CPF figures use the 2026 rates from cpf.gov.sg, simplified for a game. Amounts are in today's dollars.</p>
     </div>`;
   const refresh = () => {
-    $('#preview').innerHTML = ['child', 'teen', 'adult', 'senior'].map((st) => person(lookOf(look, st), 'bob')).join('');
+    $('#preview').innerHTML = ['child', 'teen', 'adult', 'senior'].map((st) => person(lookOf(look, st), 'walking')).join('');
+    app.querySelectorAll('[data-animal]').forEach((b) => b.classList.toggle('on', b.dataset.animal === look.animal));
     app.querySelectorAll('[data-gender]').forEach((b) => b.classList.toggle('on', b.dataset.gender === look.gender));
-    app.querySelectorAll('[data-tone]').forEach((b) => b.classList.toggle('on', +b.dataset.tone === look.tone));
     app.querySelectorAll('[data-outfit]').forEach((b) => b.classList.toggle('on', +b.dataset.outfit === look.outfit));
   };
   app.querySelectorAll('[data-gender]').forEach((b) => (b.onclick = () => { look.gender = b.dataset.gender; refresh(); }));
-  app.querySelectorAll('[data-tone]').forEach((b) => (b.onclick = () => { look.tone = +b.dataset.tone; refresh(); }));
+  app.querySelectorAll('[data-animal]').forEach((b) => (b.onclick = () => { look.animal = b.dataset.animal; refresh(); }));
   app.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => { look.outfit = +b.dataset.outfit; refresh(); }));
   refresh();
   $('#start').onclick = async () => {
@@ -233,7 +242,10 @@ function titleScreen() {
 
 // Saves from before the character picker used numbered sprites.
 function migrate(s) {
-  if (!s.look) s.look = { gender: 'female', tone: 2, outfit: 0 };
+  if (!s.look) s.look = { gender: 'female', outfit: 0 };
+  // People became animals: older saves become capybaras, family included.
+  if (!s.look.animal) s.look.animal = 'capybara';
+  delete s.look.tone;
   delete s.sprites;
   // One cash account: the old spending fund and bank savings are merged.
   if (s.wallet != null) { s.bank += s.wallet; delete s.wallet; }
@@ -243,8 +255,9 @@ function migrate(s) {
     delete s.invest;
   }
   if (!s.dcp && s.debt > Math.max(5000, 12 * (s.salary || 0))) sim.startDcp(s);
-  if (s.spouse && !s.spouse.gender) Object.assign(s.spouse, { gender: s.look.gender === 'male' ? 'female' : 'male', tone: s.look.tone, outfit: 2 });
-  for (const c of s.children || []) if (!c.gender) Object.assign(c, { gender: Math.random() < 0.5 ? 'male' : 'female', tone: s.look.tone, outfit: 1 });
+  if (s.spouse && !s.spouse.gender) Object.assign(s.spouse, { gender: s.look.gender === 'male' ? 'female' : 'male', outfit: 2 });
+  for (const c of s.children || []) if (!c.gender) Object.assign(c, { gender: Math.random() < 0.5 ? 'male' : 'female', outfit: 1 });
+  for (const p of [s.spouse, ...(s.children || [])]) if (p) { p.animal = s.look.animal; delete p.tone; }
   return s;
 }
 
@@ -321,14 +334,13 @@ function roomHtml() {
   const items = sim.ownedItems(S);
   const grown = S.stage === 'adult' || S.stage === 'senior';
   const spouseStage = S.stage === 'senior' ? 'senior' : 'adult';
-  const family = grown ? [
-    S.spouse ? person(lookOf(S.spouse, spouseStage), 'family-member', 'Your spouse') : '',
-    ...(S.children || []).map((c) => {
-      const age = S.age - c.bornAge;
-      const st = age < 3 ? 'baby' : age < 13 ? 'child' : age < 21 ? 'teen' : 'adult';
-      return person(lookOf(c, st), `family-member kid ${st === 'baby' ? 'baby' : ''}`, `Your child, age ${age}`);
-    }),
-  ].join('') : '';
+  const family = [[me(), 'player', esc(S.name)]];
+  if (grown && S.spouse) family.push([lookOf(S.spouse, spouseStage), 'family-member', 'Your spouse']);
+  if (grown) for (const c of S.children || []) {
+    const age = S.age - c.bornAge;
+    const st = age < 3 ? 'baby' : age < 13 ? 'child' : age < 21 ? 'teen' : 'adult';
+    family.push([lookOf(c, st), 'family-member kid', `Your child, age ${age}`]);
+  }
   return `
     <div class="room room-${kind.cls} stage-${S.stage}">
       <div class="wall">
@@ -339,7 +351,7 @@ function roomHtml() {
       <div class="floor"></div>
       <div class="bed"><div class="pillow"></div><div class="blanket"></div></div>
       <div class="items">${placeItems(items)}</div>
-      <div class="people">${person(me(), 'player bob', esc(S.name))}${family}</div>
+      <div class="people">${family.map(([look, cls, alt], i) => walker(look, cls, alt, i, family.length)).join('')}</div>
     </div>`;
 }
 
@@ -351,7 +363,7 @@ function placeItems(items) {
   return items.map((it) => {
     const onShelf = !it.floor && shelf < SHELF_SLOTS.length;
     const slot = onShelf ? SHELF_SLOTS[shelf++] : FLOOR_SLOTS[floor++ % FLOOR_SLOTS.length];
-    return `<span class="item slot-${slot}" title="${it.name}">${it.icon}</span>`;
+    return `<span class="item slot-${slot}" title="${it.name}" data-item="${it.id}">${itemHtml(it)}</span>`;
   }).join('');
 }
 
@@ -735,12 +747,12 @@ async function stageIntro(stage) {
     <p class="eyebrow">${st.label} · age ${S.age}</p>
     <h2>${st.intro.title}</h2>
     ${st.intro.body.map((p) => `<p>${p}</p>`).join('')}
-    ${stage !== 'child' ? `<div class="grown"><span id="grown-me">${person(me(stage), 'bob')}</span><div><p class="small">You've grown up! Pick a new outfit colour.</p>${outfitPicker(S.look.outfit)}</div></div>` : ''}
+    ${stage !== 'child' ? `<div class="grown"><span id="grown-me">${person(me(stage), 'walking')}</span><div><p class="small">You've grown up! Pick a new outfit colour.</p>${outfitPicker(S.look.outfit)}</div></div>` : ''}
     ${btn('ok', "Let's go", 'primary')}`, { wide: true });
   modalBox.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => {
     S.look.outfit = +b.dataset.outfit;
     modalBox.querySelectorAll('[data-outfit]').forEach((x) => x.classList.toggle('on', x === b));
-    $('#grown-me').innerHTML = person(me(stage), 'bob');
+    $('#grown-me').innerHTML = person(me(stage), 'walking');
   }));
   await new Promise((r) => (modalBox.onclick = (e) => e.target.closest('[data-choice]') && r()));
   if (stage === 'adult') await adultStart();

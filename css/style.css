@@ -62,10 +62,6 @@ p { margin: 0.5em 0; }
 .logo { font-size: clamp(40px, 12vw, 72px); color: #ffd25e; text-shadow: 5px 5px 0 var(--accent); margin: 10px 0; letter-spacing: 4px; }
 .tagline { font-family: var(--pixel); font-size: 11px; color: #cfe3ff; }
 .title-sprites { display: flex; justify-content: center; align-items: flex-end; gap: 14px; margin: 24px 0 18px; }
-.title-sprites img { height: 110px; }
-.title-sprites img:nth-child(2) { animation-delay: 0.2s; }
-.title-sprites img:nth-child(3) { animation-delay: 0.4s; }
-.title-sprites img:nth-child(4) { animation-delay: 0.6s; }
 .card { background: var(--panel); color: var(--ink); border: 3px solid var(--line); box-shadow: var(--shadow); padding: 18px; text-align: left; }
 .start-card .row { justify-content: center; }
 .field { display: block; font-weight: 700; margin: 12px 0; }
@@ -90,7 +86,6 @@ p { margin: 0.5em 0; }
   background: var(--panel); border-bottom: 4px solid var(--line); padding: 8px 16px;
 }
 .who { display: flex; align-items: center; gap: 8px; }
-.who img.mini { height: 40px; }
 .who b { display: block; font-family: var(--pixel); font-size: 11px; }
 .who span { font-size: 13px; color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
@@ -149,14 +144,7 @@ p { margin: 0.5em 0; }
 .slot-11 { left: 31%; bottom: 16%; } .slot-12 { right: 31%; bottom: 16%; }
 .slot-13 { left: 2%; bottom: 40%; } .slot-14 { right: 2%; bottom: 40%; } .slot-15 { left: 8%; bottom: 26%; }
 .slot-16 { right: 8%; bottom: 26%; } .slot-17 { right: 30%; bottom: 2%; }
-.people {
-  position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%);
-  display: flex; align-items: flex-end; gap: 4px;
-}
-.player { height: clamp(110px, 24vw, 190px); }
-.family-member { height: clamp(100px, 22vw, 175px); }
-.family-member.kid { height: clamp(70px, 15vw, 125px); }
-.family-member.kid.baby { height: clamp(44px, 9vw, 72px); }
+.people { position: absolute; left: 3%; right: 3%; bottom: 3%; height: 50%; }
 .bob { animation: bob 1.6s steps(2) infinite; }
 @keyframes bob { 50% { transform: translateY(-4px); } }
 
@@ -298,7 +286,7 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bob, .echo-show.pop, .toast { animation: none; }
+  .bob, .echo-show.pop, .toast, .person.walking, .walker { animation: none; }
 }
 
 /* furniture */
@@ -349,14 +337,43 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 }
 
 /* ---------- characters ---------- */
-/* Each sprite is sized from its pixel height (--h) times a per-context pixel size (--px). */
-.person { height: calc(var(--h) * var(--px, 4px)); width: auto; }
-.people { --px: clamp(3.5px, 0.6vw, 6px); }
-.people .player, .people .family-member, .people .family-member.kid, .people .family-member.kid.baby { height: calc(var(--h) * var(--px)); }
-.who img.mini { --px: 1.3px; height: calc(var(--h) * var(--px)); }
-.title-sprites { --px: 4px; }
-.title-sprites img { height: calc(var(--h) * var(--px)); }
-.end img.big { --px: 5px; height: calc(var(--h) * var(--px)); }
+/* Each character is a walk sheet of 4 square frames side by side. The frame is
+   the same size at every age; younger animals are drawn smaller inside it. */
+.person {
+  display: inline-block; vertical-align: bottom; width: var(--size, 96px); aspect-ratio: 1; max-width: 100%;
+  background: var(--sheet) 0 0 / 400% 100% no-repeat; image-rendering: pixelated;
+}
+.person.walking { animation: walk-frames 0.72s steps(4) infinite; }
+@keyframes walk-frames { to { background-position: 133.333% 0; } }
+.people .person { --size: clamp(84px, 17vw, 150px); }
+.walker {
+  position: absolute; bottom: 0; left: var(--from); line-height: 0;
+  animation: stroll var(--dur) linear var(--delay) infinite;
+}
+.walker.lane-1 { bottom: 5%; z-index: -1; } .walker.lane-2 { bottom: 2%; } .walker.lane-3 { bottom: 7%; z-index: -1; }
+.walker.lane-4 { bottom: 1%; } .walker.lane-5 { bottom: 6%; z-index: -1; }
+.people { isolation: isolate; }
+/* Walk right, turn round, walk back. The art faces right; scaleX(-1) mirrors it. */
+@keyframes stroll {
+  0% { left: var(--from); transform: scaleX(1); }
+  47% { left: var(--to); transform: scaleX(1); }
+  50% { left: var(--to); transform: scaleX(-1); }
+  97% { left: var(--from); transform: scaleX(-1); }
+  100% { left: var(--from); transform: scaleX(1); }
+}
+.who .person.mini { --size: 40px; }
+.title-sprites .person { --size: clamp(72px, 20vw, 120px); }
+.end .person.big { --size: 160px; }
+.grown .person { --size: 120px; }
+.item-art { display: block; height: clamp(40px, 8vw, 72px); width: auto; image-rendering: pixelated; }
+.animal-pick { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.animal-btn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 6px 2px;
+  border: 3px solid var(--line); background: #fff; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; min-width: 0;
+}
+.animal-btn .person.tiny { --size: 56px; }
+.animal-btn.on { background: #ffe7a3; box-shadow: inset 0 0 0 2px var(--accent); }
+.animal-btn span { font-size: clamp(9px, 2.7vw, 12px); max-width: 100%; overflow-wrap: anywhere; }
 .grown { display: flex; align-items: flex-end; gap: 16px; margin: 12px 0; --px: 4px; }
 .pick-label { font-weight: 800; margin: 14px 0 6px; }
 .pick-label small { font-weight: 400; color: var(--muted); }

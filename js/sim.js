@@ -21,7 +21,7 @@ export function newGame(name, look) {
     name,
     age: STAGES.child.startAge,
     stage: 'child',
-    look: { gender: look.gender, tone: look.tone, outfit: look.outfit },
+    look: { animal: look.animal, gender: look.gender, outfit: look.outfit },
     stats: Object.fromEntries(Object.keys(STATS).map((k) => [k, 0])),
     hybrids: {},
     bank: 20, // your cash: savings you can spend anywhere
@@ -578,11 +578,11 @@ function round1(n) {
 
 export function marry(s, weddingCost) {
   const ratio = 0.7 + Math.random() * 0.5;
-  // Your spouse is the opposite gender and shares your skin tone.
+  // Your spouse is the same kind of animal, of the opposite gender.
   s.spouse = {
     salary: Math.max(2500, (s.salary || 3500) * ratio),
+    animal: s.look.animal,
     gender: s.look.gender === 'male' ? 'female' : 'male',
-    tone: s.look.tone,
     outfit: (s.look.outfit + 2) % 6,
   };
   coverShortfall(s, weddingCost / 2);
@@ -599,8 +599,8 @@ export function babySupport(birthOrder) {
 export function haveChild(s) {
   s.children.push({
     bornAge: s.age,
+    animal: s.look.animal,
     gender: Math.random() < 0.5 ? 'male' : 'female',
-    tone: s.look.tone,
     outfit: Math.floor(Math.random() * 6),
     uni: null,
   });

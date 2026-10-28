@@ -1,153 +1,276 @@
-// Characters. Until custom art is added, each character is drawn as simple
-// pixel art in code from its life stage, gender, skin tone and outfit.
+// Characters: an animal family. Until custom art is added, each animal is drawn
+// as pixel art in code, as a 4-frame walk cycle facing right (the game mirrors
+// it to walk left).
 //
-// To use your own art instead, add PNGs named
-//   assets/sprites/{stage}-{gender}-{tone}.png
-// (stage: baby, child, teen, adult, senior; gender: male, female; tone: 0-4)
-// and set CUSTOM_SPRITES to true. See assets/sprites/README.md.
-export const CUSTOM_SPRITES = false;
+// Custom art: put PNG walk sheets (4 frames side by side, each frame square)
+// in assets/sprites/ named {animal}-{stage}-walk.png, and optionally
+// {animal}-{stage}-she-walk.png for female family members. Any file that is
+// missing falls back to the drawing below. See assets/sprites/README.md.
+export const ANIMALS = {
+  capybara: { label: 'Capybara', fur: '#c48f5c', shade: '#a2703f', light: '#ddb07e', ear: '#8a5a33' },
+  cat: { label: 'Cat', fur: '#f2a54e', shade: '#d4842f', light: '#fde6c4', ear: '#f7a9b8' },
+  unicorn: { label: 'Unicorn', fur: '#fbf7ff', shade: '#ddd3ee', light: '#ffe3ef', ear: '#f7c4d8' },
+  dog: { label: 'Dog', fur: '#ecc48f', shade: '#cfa46d', light: '#fff4e3', ear: '#9a6438' },
+  frog: { label: 'Frog', fur: '#82c96d', shade: '#5ea64e', light: '#f2eea4', ear: '#5ea64e' },
+};
 
-export const SKIN_TONES = [
-  { label: 'Light', skin: '#f6d5b8', shade: '#e3b896' },
-  { label: 'Fair', skin: '#e9bf96', shade: '#d4a276' },
-  { label: 'Medium', skin: '#c99366', shade: '#b07a4f' },
-  { label: 'Tan', skin: '#a26b43', shade: '#8a5634' },
-  { label: 'Deep', skin: '#6e4528', shade: '#57351d' },
-];
-
-export const GENDERS = { male: 'Male', female: 'Female' };
+export const GENDERS = { male: 'He', female: 'She' };
 
 export const OUTFITS = ['#e2574c', '#3f7fd9', '#3a9d5d', '#e0a23a', '#9a5bd1', '#2f9fb0'];
 
-const OUTLINE = '#2a2433';
-const HAIR = { young: '#2b1d16', senior: '#c9c6c2' };
-const PANTS = { child: '#3b5aa0', teen: '#2f3550', adult: '#33384d', senior: '#5b5148', baby: '#ffffff' };
-const SHOES = '#2a2433';
+export const FRAMES = 4;
+const F = 32; // each frame is F x F pixels
+const BASE = 30; // the row the feet stand on
+const OUTLINE = '#3b2a3a';
+const EYE = '#2b1d2a';
+const CHEEK = '#ff9fb2';
+const MANE = ['#ffadc8', '#ffd1a1', '#b8f0cf', '#cdb8ff'];
 
-// Body proportions in pixels for each stage.
-const SHAPES = {
-  baby: { w: 12, head: 7, body: 4, legs: 2 },
-  child: { w: 14, head: 8, body: 6, legs: 6 },
-  teen: { w: 16, head: 8, body: 8, legs: 9 },
-  adult: { w: 16, head: 8, body: 9, legs: 10 },
-  senior: { w: 16, head: 8, body: 9, legs: 9 },
+// Body proportions for each life stage, in pixels.
+const SIZES = {
+  baby: { head: 9, hw: 11, body: 4, bw: 7, legs: 2 },
+  child: { head: 10, hw: 12, body: 5, bw: 8, legs: 3 },
+  teen: { head: 10, hw: 12, body: 7, bw: 9, legs: 4 },
+  adult: { head: 11, hw: 13, body: 8, bw: 10, legs: 4 },
+  senior: { head: 11, hw: 13, body: 7, bw: 10, legs: 4 },
 };
+
+export function lookOf(person, stage) {
+  return { stage, animal: ANIMALS[person.animal] ? person.animal : 'capybara', gender: person.gender || 'female', outfit: person.outfit ?? 0 };
+}
 
 const cache = new Map();
 
-// Height in pixels of a stage's sprite, so people of different ages keep their relative sizes.
-export function spriteHeight(stage) {
-  const sh = SHAPES[stage];
-  return 1 + sh.head + sh.body + sh.legs + 2;
-}
-
-export function lookOf(person, stage) {
-  return { stage, gender: person.gender || 'female', tone: person.tone ?? 2, outfit: person.outfit ?? 0 };
-}
-
-// Returns an image URL for the character.
-export function characterSrc({ stage, gender, tone, outfit }) {
-  if (CUSTOM_SPRITES) return `assets/sprites/${stage}-${gender}-${tone}.png`;
-  const key = `${stage}|${gender}|${tone}|${outfit}`;
-  if (!cache.has(key)) cache.set(key, draw(stage, gender, tone, outfit));
+// The drawn walk sheet (FRAMES frames side by side) for a look, as an image URL.
+export function sheetSrc({ stage, animal, gender, outfit }) {
+  const key = `${stage}|${animal}|${gender}|${outfit}`;
+  if (!cache.has(key)) cache.set(key, drawSheet(stage, animal, gender === 'female', outfit));
   return cache.get(key);
 }
 
-function draw(stage, gender, toneIdx, outfitIdx) {
-  const sh = SHAPES[stage];
-  const tone = SKIN_TONES[toneIdx] || SKIN_TONES[2];
-  const shirt = OUTFITS[outfitIdx % OUTFITS.length];
-  const hair = stage === 'senior' ? HAIR.senior : HAIR.young;
-  const female = gender === 'female';
-  const W = sh.w + 2;
-  const H = 1 + sh.head + sh.body + sh.legs + 2;
-  const g = Array.from({ length: H }, () => Array(W).fill(null));
-  const put = (x, y, c) => { if (x >= 0 && x < W && y >= 0 && y < H) g[y][x] = c; };
-  const rect = (x, y, w, h, c) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, c); };
-  const cx = Math.floor(W / 2);
-
-  // Head.
-  const headW = stage === 'baby' ? 7 : 8;
-  const hx = cx - Math.floor(headW / 2);
-  const hy = 1;
-  rect(hx, hy, headW, sh.head, tone.skin);
-  rect(hx, hy + sh.head - 1, headW, 1, tone.shade);
-  // Hair: short on top for men and babies, longer at the sides for women and girls.
-  rect(hx - 1, hy - 1, headW + 2, 3, hair);
-  if (female && stage !== 'baby') {
-    rect(hx - 1, hy, 2, sh.head + (stage === 'senior' ? 1 : 3), hair);
-    rect(hx + headW - 1, hy, 2, sh.head + (stage === 'senior' ? 1 : 3), hair);
-  } else {
-    rect(hx - 1, hy, 1, 3, hair);
-    rect(hx + headW, hy, 1, 3, hair);
+// Custom PNGs are looked for once. Elements on screen switch over as soon as one loads.
+const art = new Map(); // url -> 'loading' | 'ok' | 'missing'
+function probe(url) {
+  if (!art.has(url)) {
+    art.set(url, 'loading');
+    const img = new Image();
+    img.onload = () => {
+      art.set(url, 'ok');
+      document.querySelectorAll('[data-art]').forEach((el) => {
+        const src = customSrc(JSON.parse(el.dataset.art));
+        if (src) el.style.setProperty('--sheet', `url("${src}")`);
+      });
+      document.querySelectorAll('[data-item]').forEach((el) => {
+        if (probe(itemUrl(el.dataset.item))) el.innerHTML = itemHtml({ id: el.dataset.item });
+      });
+    };
+    img.onerror = () => art.set(url, 'missing');
+    img.src = url;
   }
-  // Face.
-  const ey = hy + Math.floor(sh.head / 2);
-  put(hx + 2, ey, OUTLINE);
-  put(hx + headW - 3, ey, OUTLINE);
-  const mx = hx + Math.floor(headW / 2);
-  put(mx - 1, ey + 2, '#b5524a');
-  put(mx, ey + 2, '#b5524a');
-  if (stage === 'senior') {
-    rect(hx + 1, ey - 1, 3, 1, OUTLINE);
-    rect(hx + headW - 4, ey - 1, 3, 1, OUTLINE);
-  }
+  return art.get(url) === 'ok';
+}
 
-  // Body.
-  const by = hy + sh.head;
-  const bodyW = stage === 'baby' ? 8 : stage === 'child' ? 8 : 10;
-  const bx = cx - bodyW / 2;
-  rect(bx, by, bodyW, sh.body, shirt);
-  rect(bx, by + sh.body - 1, bodyW, 1, shade(shirt));
-  // Arms.
-  rect(bx - 2, by + 1, 2, sh.body - 1, shirt);
-  rect(bx + bodyW, by + 1, 2, sh.body - 1, shirt);
-  rect(bx - 2, by + sh.body - 1, 2, 2, tone.skin);
-  rect(bx + bodyW, by + sh.body - 1, 2, 2, tone.skin);
+function customSrc({ stage, animal, gender }) {
+  const base = `assets/sprites/${animal}-${stage}`;
+  if (gender === 'female' && probe(`${base}-she-walk.png`)) return `${base}-she-walk.png`;
+  return probe(`${base}-walk.png`) ? `${base}-walk.png` : '';
+}
 
-  // Legs: a skirt for grown women, trousers otherwise.
-  const ly = by + sh.body;
-  if (stage === 'baby') {
-    rect(bx + 1, ly, bodyW - 2, sh.legs, PANTS.baby);
-  } else if (female && stage !== 'child') {
-    rect(bx - 1, ly, bodyW + 2, Math.ceil(sh.legs * 0.6), shade(shirt));
-    const rest = sh.legs - Math.ceil(sh.legs * 0.6);
-    rect(bx + 2, ly + Math.ceil(sh.legs * 0.6), 2, rest, tone.skin);
-    rect(bx + bodyW - 4, ly + Math.ceil(sh.legs * 0.6), 2, rest, tone.skin);
-  } else {
-    rect(bx + 1, ly, 3, sh.legs, PANTS[stage]);
-    rect(bx + bodyW - 4, ly, 3, sh.legs, PANTS[stage]);
-  }
-  if (stage !== 'baby') {
-    rect(bx + 1, ly + sh.legs, 3, 1, SHOES);
-    rect(bx + bodyW - 4, ly + sh.legs, 3, 1, SHOES);
-  }
+// A shop item: custom art if there is a PNG for it, otherwise its emoji.
+const itemUrl = (id) => `assets/sprites/item-${id}.png`;
+export function itemHtml(item) {
+  return probe(itemUrl(item.id)) ? `<img class="pixel item-art" src="${itemUrl(item.id)}" alt="">` : item.icon || '';
+}
 
-  // Outline every empty pixel that touches the figure.
-  const out = g.map((row) => row.slice());
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (g[y][x]) continue;
-      const near = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => g[y + dy]?.[x + dx]);
-      if (near) out[y][x] = OUTLINE;
-    }
-  }
+// HTML for a character. Add the class "walking" to animate the walk cycle.
+export function characterHtml(look, cls = '', alt = '') {
+  const src = customSrc(look) || sheetSrc(look);
+  const data = JSON.stringify({ stage: look.stage, animal: look.animal, gender: look.gender }).replace(/"/g, '&quot;');
+  return `<span class="pixel person ${cls}" role="img" aria-label="${alt || ANIMALS[look.animal].label}" data-art="${data}" style="--sheet:url('${src}')"></span>`;
+}
 
+function drawSheet(stage, animal, she, outfitIdx) {
   const canvas = document.createElement('canvas');
-  canvas.width = W;
-  canvas.height = H;
+  canvas.width = F * FRAMES;
+  canvas.height = F;
   const ctx = canvas.getContext('2d');
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
-      if (!out[y][x]) continue;
-      ctx.fillStyle = out[y][x];
-      ctx.fillRect(x, y, 1, 1);
+  for (let f = 0; f < FRAMES; f++) {
+    const g = outline(drawFrame(stage, animal, she, OUTFITS[outfitIdx % OUTFITS.length], f));
+    for (let y = 0; y < F; y++) {
+      for (let x = 0; x < F; x++) {
+        if (!g[y][x]) continue;
+        ctx.fillStyle = g[y][x];
+        ctx.fillRect(f * F + x, y, 1, 1);
+      }
     }
   }
   return canvas.toDataURL();
 }
 
-function shade(hex) {
+// One frame of the walk (or, for the frog, hop) cycle, as a grid of colours.
+export function drawFrame(stage, animal, she, shirt, f) {
+  const a = ANIMALS[animal];
+  const sz = SIZES[stage];
+  const g = Array.from({ length: F }, () => Array(F).fill(null));
+  const put = (x, y, c) => { if (x >= 0 && x < F && y >= 0 && y < F) g[y][x] = c; };
+  const rect = (x, y, w, h, c) => { for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) put(x + i, y + j, c); };
+  const blob = (x, y, w, h, c) => { // a rectangle with its corners cut off
+    rect(x + 1, y, w - 2, h, c);
+    rect(x, y + 1, w, h - 2, c);
+  };
+
+  const frog = animal === 'frog';
+  // Walk: contact, passing (body up), contact the other way, passing.
+  // Frog: crouch, push off, in the air, land.
+  const lift = frog ? [0, -1, -4, 0][f] : f % 2 ? -1 : 0;
+  const stride = frog ? [1, -1, 0, 1][f] : [1, 0, -1, 0][f];
+  const cx = 15;
+  const bx = cx - Math.floor(sz.bw / 2);
+  const by = BASE - sz.legs - sz.body + 1 + lift;
+  const hx = cx - Math.floor(sz.hw / 2) + 1;
+  const hy = by - sz.head + 1;
+  const senior = stage === 'senior';
+
+  // Tail, behind everything.
+  if (animal === 'cat') {
+    rect(bx - 2, by - 3, 2, sz.body + 1, a.fur);
+    put(bx - 3, by - 4, a.light);
+    put(bx - 2, by - 4, a.light);
+  } else if (animal === 'dog') {
+    rect(bx - 3, by - 1, 3, 1, a.fur);
+    rect(bx - 3, by - 3, 1, 2, a.fur);
+    rect(bx - 2, by - 3, 2, 1, a.light);
+  } else if (animal === 'unicorn') {
+    for (let i = 0; i < 4; i++) rect(bx - 2 - (i >> 1), by + 1 + i, 2, 1, MANE[i]);
+  }
+
+  // Back leg and arm (the far side), drawn darker.
+  const footY = frog && f === 2 ? BASE + lift + 2 : BASE; // in the air the frog tucks its legs up
+  const legTop = by + sz.body;
+  const legH = Math.max(1, footY - legTop);
+  rect(cx - 3 - stride, legTop, 2, legH, a.shade);
+  rect(cx - 3 - stride, footY, 3, 1, a.shade);
+  rect(bx + sz.bw - 1 - stride, by + 1, 2, Math.max(2, sz.body - 2), a.shade);
+
+  // Body, then clothes.
+  blob(bx, by, sz.bw, sz.body, a.fur);
+  rect(bx + Math.floor(sz.bw / 2), by + 1, Math.ceil(sz.bw / 2) - 1, sz.body - 2, a.light);
+  if (stage === 'baby') {
+    rect(bx + 3, by, sz.bw - 4, 2, '#ffffff'); // bib
+  } else {
+    rect(bx, by, sz.bw, sz.body - 1, shirt);
+    rect(bx, by + sz.body - 2, sz.bw, 1, darken(shirt));
+    if (stage === 'adult') { put(bx + sz.bw - 3, by, '#ffffff'); put(bx + sz.bw - 2, by, '#ffffff'); } // collar
+  }
+  if (stage === 'child') rect(bx - 2, by + 1, 3, Math.max(3, sz.body - 1), '#d9473f'); // backpack
+
+  // Front leg.
+  rect(cx + 1 + stride, legTop, 2, legH, a.fur);
+  rect(cx + 1 + stride, footY, 3, 1, frog ? a.fur : a.shade);
+
+  // Head.
+  blob(hx, hy, sz.hw, sz.head, a.fur);
+  if (senior) rect(hx + 3, hy, sz.hw - 5, 1, '#e9e4ea'); // greying on top
+  const ey = hy + Math.floor(sz.head / 2) - 1;
+  const ex = hx + sz.hw - 4; // the near eye, towards the front
+
+  if (animal === 'capybara') {
+    rect(hx + sz.hw - 2, ey + 1, 3, 4, a.light); // blunt snout
+    rect(hx + sz.hw, ey + 1, 1, 1, EYE); // nose
+    rect(hx + 2, hy - 1, 2, 2, a.ear);
+    rect(hx + 6, hy - 1, 2, 2, a.ear);
+    rect(hx + 4, hy - 3, 3, 2, '#ffb22e'); // a yuzu on its head
+    put(hx + 6, hy - 4, '#4caf50');
+  } else if (animal === 'cat' || animal === 'dog') {
+    if (animal === 'cat') {
+      for (const x of [hx + 1, hx + sz.hw - 5]) {
+        rect(x, hy - 1, 4, 1, a.fur);
+        rect(x + 1, hy - 2, 2, 1, a.fur);
+        put(x + 2, hy - 1, a.ear);
+      }
+    } else {
+      // Floppy ears hanging down the side of the head.
+      rect(hx + 2, hy - 1, 4, 2, a.ear);
+      rect(hx + 1, hy + 1, 4, 4, a.ear);
+      rect(hx + 2, hy + 5, 2, 1, a.ear);
+      put(hx + 5, hy + 1, a.fur); // a gap so the ear reads as separate from the head
+    }
+    if (animal === 'cat') { put(hx + 5, hy + 1, a.shade); put(hx + 6, hy + 1, a.shade); put(hx + 5, hy + 2, a.shade); }
+    rect(hx + sz.hw - 6, ey + 2, 6, sz.head - (ey - hy) - 3, a.light); // muzzle
+    put(hx + sz.hw - 1, ey + 2, animal === 'cat' ? '#f37c95' : EYE); // nose
+    if (animal === 'dog') put(hx + sz.hw - 3, ey + 4, '#f37c95'); // tongue
+  } else if (animal === 'unicorn') {
+    rect(hx + sz.hw - 5, ey + 2, 5, sz.head - (ey - hy) - 3, a.light); // muzzle
+    put(hx + sz.hw - 2, ey + 3, '#c79ab0');
+    rect(hx + 3, hy - 1, 2, 1, a.fur);
+    put(hx + 3, hy - 1, a.ear);
+    // Horn.
+    rect(hx + sz.hw - 6, hy - 1, 2, 1, '#f5c542');
+    put(hx + sz.hw - 6, hy - 2, '#e0a92c');
+    put(hx + sz.hw - 5, hy - 3, '#f5c542');
+    put(hx + sz.hw - 5, hy - 4, '#e0a92c');
+    // Mane down the back of the head.
+    for (let i = 0; i < sz.head - 1; i++) rect(hx - 1, hy + i, 3, 1, MANE[(i >> 1) % MANE.length]);
+    rect(hx, hy - 1, 5, 1, MANE[0]);
+  } else if (frog) {
+    for (const x of [hx + 1, hx + sz.hw - 6]) {
+      rect(x, hy - 2, 4, 3, a.fur);
+      rect(x + 1, hy - 2, 2, 2, '#ffffff');
+      put(x + 2, hy - 1, EYE);
+    }
+    rect(hx + 3, ey + 3, sz.hw - 3, 1, a.shade); // wide smile
+    rect(hx + 2, ey + 4, sz.hw - 3, sz.head - (ey - hy) - 5, a.light);
+  }
+
+  // Eyes and cheeks (the frog's eyes are on top of its head).
+  if (!frog) {
+    rect(ex, ey, 2, 2, EYE);
+    put(ex, ey, '#ffffff');
+    rect(ex - 5, ey, 1, 2, EYE);
+    put(ex + 1, ey + 2, CHEEK);
+    put(ex + 2, ey + 2, CHEEK);
+  } else {
+    put(ex + 1, ey + 2, CHEEK);
+    put(hx + 2, ey + 2, CHEEK);
+  }
+
+  if (stage === 'teen') { // headphones round the neck
+    rect(bx + 1, by, sz.bw - 2, 1, '#3b3b4f');
+    rect(bx + sz.bw - 2, by - 1, 2, 2, '#ff6f91');
+  }
+  if (senior) { // glasses and a walking stick
+    rect(ex - 1, ey - 1, 4, 1, OUTLINE);
+    put(ex - 1, ey, OUTLINE);
+    put(ex + 2, ey, OUTLINE);
+    rect(bx + sz.bw + 2 + stride, by + 2, 1, BASE - by - 1 - lift, '#8a5a33');
+    put(bx + sz.bw + 3 + stride, by + 2, '#8a5a33');
+  }
+  if (she) { // a bow
+    const x = frog ? hx + 6 : hx + 1;
+    const y = frog ? hy - 1 : hy;
+    rect(x, y, 4, 2, '#ff5c93');
+    rect(x + 1, y, 2, 2, '#d9306f');
+  }
+
+  // Front arm, swinging opposite the front leg.
+  rect(bx + sz.bw - 2 + stride, by + 1, 2, Math.max(2, sz.body - 2), stage === 'baby' ? a.fur : shirt);
+  put(bx + sz.bw - 2 + stride, by + Math.max(2, sz.body - 2), a.fur);
+  return g;
+}
+
+// Draws a dark line round the figure.
+function outline(g) {
+  const out = g.map((row) => row.slice());
+  for (let y = 0; y < F; y++) {
+    for (let x = 0; x < F; x++) {
+      if (g[y][x]) continue;
+      if ([[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => g[y + dy]?.[x + dx])) out[y][x] = OUTLINE;
+    }
+  }
+  return out;
+}
+
+function darken(hex) {
   const n = parseInt(hex.slice(1), 16);
   const f = (v) => Math.max(0, Math.round(v * 0.78));
   return `#${[(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => f(v).toString(16).padStart(2, '0')).join('')}`;

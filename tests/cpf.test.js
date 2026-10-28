@@ -129,7 +129,7 @@ test('Silver Housing Bonus: $1 for every $2 topped up, up to $30,000', () => {
 });
 
 test('a whole life runs from 7 to 85 without breaking', () => {
-  const s = sim.newGame('Test', { gender: 'female', tone: 2, outfit: 0 });
+  const s = sim.newGame('Test', { gender: 'female', animal: 'cat', outfit: 0 });
   // MediSave Grant at birth: 4% a year, plus 1% extra interest paid into the SA.
   close(cpf.cpfTotal(s.cpf), 4000 * Math.pow(1.05, 7), 30);
   s.stats.knowledge = 40;
@@ -172,7 +172,7 @@ test('event and data modules load', async () => {
 });
 
 test('untouched cash earns the fixed-deposit rate, spent cash only the base rate', () => {
-  const s = sim.newGame('Cash', { gender: 'male', tone: 0, outfit: 0 });
+  const s = sim.newGame('Cash', { gender: 'male', animal: 'cat', outfit: 0 });
   s.bank = 10000;
   s.cashLow = 10000;
   s.stage = 'adult';
@@ -185,7 +185,7 @@ test('untouched cash earns the fixed-deposit rate, spent cash only the base rate
 });
 
 test('debt stays bounded: credit limits, then a Debt Consolidation Plan', () => {
-  const s = sim.newGame('Debt', { gender: 'female', tone: 1, outfit: 0 });
+  const s = sim.newGame('Debt', { gender: 'female', animal: 'cat', outfit: 0 });
   s.age = 30;
   s.stage = 'adult';
   s.salary = 2500;
@@ -198,7 +198,7 @@ test('debt stays bounded: credit limits, then a Debt Consolidation Plan', () => 
 });
 
 test('a Debt Consolidation Plan is paid off with fixed instalments', () => {
-  const s = sim.newGame('Dcp', { gender: 'female', tone: 1, outfit: 0 });
+  const s = sim.newGame('Dcp', { gender: 'female', animal: 'cat', outfit: 0 });
   s.age = 30;
   s.stage = 'adult';
   s.salary = 6000;
@@ -212,7 +212,7 @@ test('a Debt Consolidation Plan is paid off with fixed instalments', () => {
 
 test('CPFIS limits: keep $20k in the OA, 35% in stocks, SA only in funds', async () => {
   const invest = await import('../js/invest.js');
-  const s = sim.newGame('Inv', { gender: 'male', tone: 3, outfit: 0 });
+  const s = sim.newGame('Inv', { gender: 'male', animal: 'cat', outfit: 0 });
   s.age = 30;
   s.cpf.oa = 100000;
   s.cpf.sa = 30000;
@@ -230,7 +230,7 @@ test('CPFIS limits: keep $20k in the OA, 35% in stocks, SA only in funds', async
 });
 
 test('RA is formed up to the FRS; BRS needs a pledge; OA can move in up to the ERS', () => {
-  const s = sim.newGame('RA', { gender: 'male', tone: 0, outfit: 0 });
+  const s = sim.newGame('RA', { gender: 'male', animal: 'cat', outfit: 0 });
   s.age = 55;
   s.cpf = { oa: 300000, sa: 150000, ma: 50000, ra: 0 };
   s.home = { kind: 'hdb', leaseLeft: 60, boughtAge: 30 };
@@ -244,7 +244,7 @@ test('RA is formed up to the FRS; BRS needs a pledge; OA can move in up to the E
 });
 
 test('top-ups after CPF LIFE starts count the premium towards the ERS and raise payouts', () => {
-  const s = sim.newGame('Life', { gender: 'female', tone: 0, outfit: 0 });
+  const s = sim.newGame('Life', { gender: 'female', animal: 'cat', outfit: 0 });
   s.age = 66;
   s.cpf.ra = 0;
   s.life = { startAge: 65, plan: 'standard', monthly: 1780, premium: 400000 };
@@ -253,7 +253,7 @@ test('top-ups after CPF LIFE starts count the premium towards the ERS and raise 
 });
 
 test('Lease Buyback: explains why a flat with a short lease left is not eligible', () => {
-  const s = sim.newGame('LBS', { gender: 'female', tone: 0, outfit: 0 });
+  const s = sim.newGame('LBS', { gender: 'female', animal: 'cat', outfit: 0 });
   s.age = 75;
   s.home = { kind: 'hdb', leaseLeft: 30, boughtAge: 40, lbsDone: false };
   const r = sim.lbsCheck(s);
@@ -264,7 +264,7 @@ test('Lease Buyback: explains why a flat with a short lease left is not eligible
 });
 
 test('a very high stat opens a matching career switch', () => {
-  const s = sim.newGame('Switch', { gender: 'male', tone: 0, outfit: 0 });
+  const s = sim.newGame('Switch', { gender: 'male', animal: 'cat', outfit: 0 });
   s.age = 40;
   s.stage = 'adult';
   s.stats.communication = 52;
@@ -273,4 +273,15 @@ test('a very high stat opens a matching career switch', () => {
   sim.switchCareer(s, 'speaker');
   assert.equal(s.selfEmployed, true);
   assert.equal(sim.careerInfo(s).id, 'speaker');
+});
+
+test('the whole family is the same animal; the spouse is the opposite gender', () => {
+  const s = sim.newGame('Frog', { gender: 'male', animal: 'frog', outfit: 1 });
+  s.age = 30;
+  sim.marry(s, 0);
+  sim.haveChild(s);
+  assert.equal(s.spouse.animal, 'frog');
+  assert.equal(s.spouse.gender, 'female');
+  assert.equal(s.children[0].animal, 'frog');
+  assert.equal(s.look.tone, undefined);
 });
