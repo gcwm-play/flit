@@ -609,7 +609,8 @@ details.spend .sub { margin: 4px 0 6px 14px; font-size: 13px; }
 }
 .age-box b { font-family: var(--pixel); font-size: 10px; }
 .age-box small { color: var(--muted); font-weight: 700; }
-@container (max-width: 420px) { .room-label { left: 8px; transform: none; } }
+/* On narrow rooms the label sits top left and wraps, so it never runs under the age box. */
+@container (max-width: 520px) { .room-label { left: 8px; transform: none; white-space: normal; max-width: calc(100% - 150px); line-height: 1.5; } }
 
 /* loan term picker */
 .term-pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0; }
