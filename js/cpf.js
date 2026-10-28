@@ -17,6 +17,9 @@ export const LIFE_PAYOUT_ESTIMATES = { BRS: 950, FRS: 1780, ERS: 3440 };
 
 export const BASIC_HEALTHCARE_SUM = 79000; // MediSave cap for 2026
 
+// CPF Annual Limit: compulsory contributions plus Voluntary Contributions in a year.
+export const CPF_ANNUAL_LIMIT = 37740;
+
 export const MEDISAVE_NEWBORN_GRANT = 4000;
 
 export const INTEREST = { oa: 0.025, sa: 0.04, ma: 0.04, ra: 0.04 };

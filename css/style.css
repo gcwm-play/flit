@@ -638,3 +638,14 @@ details.spend .sub { margin: 4px 0 6px 14px; font-size: 13px; }
 .summary.bill tr.pay td { color: var(--muted); padding-left: 18px; }
 .summary.rates tr.on td { background: #ffe6d9; }
 @media (prefers-reduced-motion: reduce) { .fan { animation: none; } }
+
+/* Income tax and giving */
+.k-tax { background: #6b7280; } .k-give { background: #e86aa8; }
+button.cb-item.cb-link { background: none; border: 0; padding: 0 0 4px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.cb-link u { color: #2f6fb5; font-size: 12px; font-weight: 800; }
+.turn-rows .tr-link { text-align: left; font-size: inherit; }
+.tax-table td small, .tax-bands td small { color: var(--muted); font-weight: 400; }
+.tax-table tr.sub td, .tax-bands tr.sub td { border-top: 2px solid var(--line); font-weight: 800; }
+.tax-bands th:not(:first-child), .tax-bands td:not(:first-child) { text-align: right; white-space: nowrap; }
+details summary { cursor: pointer; font-weight: 800; margin: 8px 0; }
+.tax-table td:last-child { white-space: nowrap; vertical-align: middle; }

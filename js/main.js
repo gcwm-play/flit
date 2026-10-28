@@ -5,6 +5,7 @@ import * as housing from './housing.js';
 import * as invest from './invest.js';
 import * as health from './health.js';
 import * as cars from './car.js';
+import * as tax from './tax.js';
 import { postcard } from './postcards.js';
 import { characterHtml, itemHtml, itemWidth, lookOf, ANIMALS, GENDERS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS } from './events.js';
@@ -125,8 +126,11 @@ function monthlyPlan() {
   const saving = sim.cpfTopUpPerYear(S) / 12 + b.kidsCpf * kids + sim.dcaCashPerYear(S) / 12;
   // Health insurance premiums: the part MediSave can't pay comes from cash.
   const insurance = sim.insurancePremiums(S).cash / 12;
-  const out = living + rent + loanCash + dcp + fun + insurance;
-  return { pay, payout, income, parts, living, rent, loan, loanCash, dcp, holidays, insurance, b, kids, fun, saving, out, left: income - out };
+  // Income tax isn't taken from your pay in Singapore: IRAS sends one bill a year.
+  const incomeTax = sim.taxEstimate(S).tax / 12;
+  const giving = (b.donateYearly || 0) / 12;
+  const out = living + rent + loanCash + dcp + fun + insurance + incomeTax + giving;
+  return { pay, payout, income, parts, living, rent, loan, loanCash, dcp, holidays, insurance, incomeTax, giving, b, kids, fun, saving, out, left: income - out };
 }
 
 // Warns before a turn if the plan spends more than comes in.
@@ -148,6 +152,8 @@ async function overspendCheck(years) {
       ${p.loanCash ? `<tr><td>Home loan in cash</td><td class="neg">−${money(p.loanCash)}</td></tr>` : ''}
       ${p.dcp ? `<tr><td>Debt plan</td><td class="neg">−${money(p.dcp)}</td></tr>` : ''}
       ${p.fun ? `<tr><td>Hobbies, shopping and holidays</td><td class="neg">−${money(p.fun)}</td></tr>` : ''}
+      ${p.incomeTax ? `<tr><td>Income tax</td><td class="neg">−${money(p.incomeTax)}</td></tr>` : ''}
+      ${p.giving ? `<tr><td>Giving to charity</td><td class="neg">−${money(p.giving)}</td></tr>` : ''}
       <tr><td><b>Short each month</b></td><td class="neg"><b>−${money(gap)}</b></td></tr>
       <tr><td>Over the next ${years} year${years > 1 ? 's' : ''}</td><td class="neg">−${money(gap * 12 * years)}</td></tr>
     </table>
@@ -359,6 +365,7 @@ function actionTiles() {
     tiles.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label} · ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label} · fully owned 🎉`) : sim.isRenting(S) ? 'Renting' : 'With your parents']);
     if (S.stage === 'adult' || (working && S.age < 65)) tiles.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
   }
+  if (grown) tiles.push(['donate', '💝', 'Give', sim.donationsThisYear(S) ? `${money(sim.donationsThisYear(S))} this year` : (S.budget || {}).donateYearly ? `${money(S.budget.donateYearly)} a year` : 'Help others']);
   if (grown) tiles.push(['car', '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
   tiles.push(['shop', '🛍️', 'Shop', `${S.room.length} owned`]);
   tiles.push(['money', '💵', S.debt > 0 ? 'Repay debt' : 'CPF top-up', S.debt > 0 ? `−${money(S.debt)}` : 'From your cash', S.debt > 0]);
@@ -383,6 +390,8 @@ function outflows(p) {
     ['fun', 'Hobbies', p.b.hobbies, ''],
     ['fun', 'Shopping and treats', p.b.shopping, ''],
     ['trip', 'Holidays', p.holidays, 'Your planned trips, spread over the year.'],
+    ['tax', 'Income tax', p.incomeTax, 'Tap to see how your tax is worked out.'],
+    ['give', 'Giving to charity', p.giving, 'Your yearly donation, set in your budget.'],
   ].filter((r) => r[2] > 0.5);
 }
 
@@ -429,7 +438,7 @@ function cashboardHtml() {
         <div class="cb-out">
           <span class="cb-h">Where it goes</span><span class="cb-h num">a month</span><span class="cb-h num">a year</span>
           ${items.sort((a, b) => b[2] - a[2]).map((r) => `
-          <span class="cb-item" title="${r[3]}"><i class="k-${r[0]}"></i>${r[1]}<em style="width:${(r[2] / top) * 100}%" class="k-${r[0]}"></em></span><b class="num">${money(r[2])}</b><b class="num">${yr(r[2])}</b>`).join('')}
+          ${r[0] === 'tax' ? '<button class="cb-item cb-link" data-panel="tax"' : '<span class="cb-item"'} title="${r[3]}"><i class="k-${r[0]}"></i>${r[1]}${r[0] === 'tax' ? ' <u>how?</u>' : ''}<em style="width:${(r[2] / top) * 100}%" class="k-${r[0]}"></em>${r[0] === 'tax' ? '</button>' : '</span>'}<b class="num">${money(r[2])}</b><b class="num">${yr(r[2])}</b>`).join('')}
           ${p.loan.fromOa > 0.5 ? `<span class="cb-item muted-ink" title="Paid from your CPF Ordinary Account, so it doesn't come out of your cash."><i></i>Home loan from your OA (not cash)</span><b class="num muted-ink">${money(p.loan.fromOa)}</b><b class="num muted-ink">${yr(p.loan.fromOa)}</b>` : ''}
           ${allowance ? `<span class="cb-item"><i class="k-spare"></i>Allowance from your children</span><b class="num pos">+${money(allowance)}</b><b class="num pos">+${yr(allowance)}</b>` : ''}
           ${p.saving ? `<span class="cb-item"><i class="k-save"></i>Saving: ${[sim.cpfTopUpPerYear(S) && 'CPF top-ups', p.b.kidsCpf && p.kids && "kids' CPF", sim.dcaCashPerYear(S) && 'investing'].filter(Boolean).join(', ')}</span><b class="num">${money(p.saving)}</b><b class="num">${yr(p.saving)}</b>` : ''}
@@ -928,7 +937,7 @@ function recordTurn(startAge, years, sum, opts, activity, gains) {
   const add = (label, v, kind) => { if (Math.abs(v) > 0.5) rows.push([label, v, kind]); };
   if (young) {
     add('Pocket money and earnings', sum.income, 'in');
-    add(`Into CPF from your job (employer paid ${money(sum.employerIn)})`, sum.cpfIn, 'cpf');
+    add(`Into CPF from your job (employer paid ${money(sum.employerIn / years)})`, sum.cpfIn, 'cpf');
   } else {
     add('Take-home pay', sum.income - sum.payouts, 'in');
     add('CPF LIFE payouts', sum.payouts, 'in');
@@ -945,6 +954,8 @@ function recordTurn(startAge, years, sum, opts, activity, gains) {
     add('Debt plan instalments', -sum.dcpPaid, 'out');
     add('Hobbies and shopping', -sum.fun, 'out');
     add('Holidays', -sum.holidays, 'out');
+    add('Income tax', -(sum.tax || 0), 'out');
+    add('Given to charity (your budget)', -(sum.donated || 0), 'out');
     add('Your planned CPF top-ups', sum.cpfSaved, 'save');
     add('Topped up your children\'s CPF', sum.kidsCpf, 'save');
     add('Regular investing', sum.invested, 'save');
@@ -952,7 +963,7 @@ function recordTurn(startAge, years, sum, opts, activity, gains) {
     add('Borrowed on credit cards', sum.borrowed, 'warn');
     add(S.dcp ? 'Debt plan interest' : 'Card interest (25% a year)', -sum.debtInterest, 'out');
     add('Bills you couldn\'t pay (you went without)', sum.wentWithout, 'warn');
-    add(`Into CPF (employer paid ${money(sum.employerIn)})`, sum.cpfIn, 'cpf');
+    add(`Into CPF (employer paid ${money(sum.employerIn / years)})`, sum.cpfIn, 'cpf');
     add('Home loan paid from OA', -sum.housingOa, 'cpf');
     add('Health insurance premiums from MediSave', -(sum.insuranceMa || 0), 'cpf');
   }
@@ -1021,7 +1032,7 @@ function lastTurnHtml(t) {
   const cls = (v, k) => (k === 'cpf' || k === 'save' ? '' : k === 'warn' || k === 'out' || v < 0 ? 'neg' : 'pos');
   const group = (kinds, title) => {
     const rows = t.rows.filter((r) => kinds.includes(r[2]));
-    return rows.length ? `<span class="tr-h">${title}</span><span></span>${rows.map(([a, v, k]) => `<span>${a}</span><b class="${cls(v, k)}">${fmt(v)}</b>`).join('')}` : '';
+    return rows.length ? `<span class="tr-h">${title}</span><span></span>${rows.map(([a, v, k]) => `${a === 'Income tax' ? `<button class="link-btn tr-link" data-panel="tax">${a}</button>` : `<span>${a}</span>`}<b class="${cls(v, k)}">${fmt(v)}</b>`).join('')}` : '';
   };
   const old = t.rows.some((r) => typeof r[1] === 'string');
   const cashLine = t.cash ? `<p class="small">Cash went from <b>${money(t.cash[0])}</b> to <b>${money(t.cash[1])}</b>${per > 1 ? ` over the ${per} years` : ''}.</p>` : '';
@@ -1116,7 +1127,7 @@ function wireAmount(root, key, clamp, onChange) {
 async function giftDialog(e) {
   const young = S.stage === 'child' || S.stage === 'teen';
   const room = sim.topUpRoom(S);
-  const reliefLeft = Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S));
+  const reliefLeft = sim.taxReliefLeft(S);
   // Keep it as cash or top up CPF; grown-ups can also give some to charity.
   const buckets = [
     {
@@ -1129,7 +1140,7 @@ async function giftDialog(e) {
       cap: room,
     },
   ];
-  if (!young) buckets.push({ key: 'charity', icon: '💝', label: 'Give to charity', note: 'Help others. Joy and Communication go up a little.' });
+  if (!young) buckets.push({ key: 'charity', icon: '💝', label: 'Give to charity', note: `Help others. Joy and Communication go up a little, and gifts to approved charities cut your income tax (a ${tax.DONATION_DEDUCTION * 100}% deduction).` });
   const parts = { charity: 0, cpf: 0 };
   const placed = () => parts.charity + parts.cpf;
   const done = dialog(`
@@ -1159,18 +1170,49 @@ async function giftDialog(e) {
   if (parts.cpf) toast(`🏛️ ${money(parts.cpf - alloc.refused)} added to your CPF ${S.age < 55 ? 'SA' : 'RA'}${alloc.matched ? `, plus ${money(alloc.matched)} matched by the Government (MRSS)` : ''}`);
   if (parts.charity) toast(`💝 Gave ${money(parts.charity)} to charity`);
   if (alloc.refused) toast(`Your CPF is already at the top-up limit, so ${money(alloc.refused)} went to your cash.`);
-  if (parts.cpf && !young && sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP) toast('Top-ups this year are above $8,000: the extra still grows, but gets no tax relief.');
+  if (parts.cpf && !young && sim.topUpReliefThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP) toast('Top-ups this year are above $8,000: the extra still grows, but gets no tax relief.');
 }
 
 const pctText = (r) => `${(r * 100).toFixed(Math.abs(r) < 0.001 ? 2 : 1).replace(/\.0+$/, '')}%`;
 
-// Explains the two limits on cash top-ups (RSTU).
+// Explains the limits on retirement top-ups (RSTU). Children and teens don't pay tax, and
+// top-ups to a child's CPF get no relief for the parents either, so they see no tax line.
 function topUpLimitNote(room, reliefLeft) {
+  const young = S.stage === 'child' || S.stage === 'teen';
   const cap = S.age < 55 ? `your SA reaches the FRS (${money(cpf.RETIREMENT_SUMS.FRS)})` : `your RA reaches the ERS (${money(cpf.RETIREMENT_SUMS.ERS)})`;
   if (room <= 0) return S.age < 55
     ? `Your SA has reached the FRS (${money(cpf.RETIREMENT_SUMS.FRS)}), so CPF won't take more cash top-ups until you turn 55. At 55 your SA closes and you can top up your RA instead, up to the ERS.`
     : `Limit reached: you can only top up until ${cap}.`;
-  return `Limit: ${money(room)} more until ${cap}. Tax relief on the first ${money(sim.TOP_UP_TAX_RELIEF_CAP)} a year (${money(reliefLeft)} left this year).`;
+  if (young) return `Limit: ${money(room)} more until ${cap}. Top-ups to a child's CPF get no tax relief.`;
+  return `Limit: ${money(room)} more until ${cap}. ${reliefNote(reliefLeft)}`;
+}
+
+function reliefNote(reliefLeft) {
+  return `Tax relief on the first ${money(sim.TOP_UP_TAX_RELIEF_CAP)} a year of top-ups to your own SA, RA and MediSave together (${money(reliefLeft)} left this year)${S.age >= 55 ? ', and only while your RA is below the FRS' : ''}.`;
+}
+
+// What each kind of top-up does, for the Money panel.
+function topUpAccountInfo(account, room) {
+  const band = cpf.rateBand(S.age);
+  const tot = band.oa + band.sa + band.ma;
+  const pc = (v) => `${Math.round((v / tot) * 100)}%`;
+  const limitLeft = sim.annualLimitRoom(S);
+  const limitLine = `Counts towards the CPF Annual Limit of ${money(sim.CPF_ANNUAL_LIMIT)} together with your compulsory contributions (about ${money(sim.compulsoryThisYear(S))} this year): ${money(limitLeft)} left.`;
+  if (account === 'ma') return {
+    label: 'MediSave',
+    text: `A Voluntary Contribution to your MediSave. It earns 4% or more and pays for healthcare and MediShield Life or Shield premiums. MediSave takes cash only up to the Basic Healthcare Sum (${money(cpf.BASIC_HEALTHCARE_SUM)}); you have ${money(S.cpf.ma)}. ${limitLine} ${reliefNote(sim.taxReliefLeft(S)).replace(', and only while your RA is below the FRS', '')}`,
+    full: room <= 0 ? (S.cpf.ma >= cpf.BASIC_HEALTHCARE_SUM - 1 ? 'Your MediSave is at the Basic Healthcare Sum, so it can\'t take more.' : 'You\'ve reached the CPF Annual Limit for this year.') : '',
+  };
+  if (account === 'all') return {
+    label: 'All three',
+    text: `A Voluntary Contribution split like your monthly contributions at your age: ${pc(band.oa)} to the OA, ${pc(band.sa)} to the ${S.age < 55 ? 'SA' : 'RA'} and ${pc(band.ma)} to MediSave. The OA part can be used for housing. ${limitLine} ${S.selfEmployed ? 'As you are self-employed, it counts for CPF relief on your income tax.' : 'Employees get no tax relief for this kind of top-up.'}`,
+    full: room <= 0 ? 'You\'ve reached the CPF Annual Limit for this year.' : '',
+  };
+  return {
+    label: S.age < 55 ? 'Retirement SA' : 'Retirement RA',
+    text: `${S.stage === 'child' || S.stage === 'teen' ? 'Your parents can top up your Special Account for you under the Retirement Sum Topping-Up Scheme (RSTU). ' : `Goes to your ${S.age < 55 ? 'SA' : 'RA'} under the Retirement Sum Topping-Up Scheme (RSTU). It earns 4% or more${S.age < 55 ? ' and stays locked for retirement' : ' and raises your CPF LIFE payouts'}. `}${topUpLimitNote(room, sim.taxReliefLeft(S))} RSTU top-ups don't count towards the CPF Annual Limit.${S.age >= 55 ? ' If your RA is below the BRS, the Matched Retirement Savings Scheme adds $1 for every $1, up to $2,000 a year (those matched dollars get no tax relief).' : ''}`,
+    full: '',
+  };
 }
 
 // ---------- stage changes and milestones ----------
@@ -1570,7 +1612,7 @@ async function cpfLifeDecision() {
 
 async function openPanel(kind) {
   if (busy) return;
-  const panels = { car: carPanel, stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel, budget: budgetPanel, holidays: holidaysPanel, job: () => jobHunt('choice'), insurance: insurancePanel, family: familyPanel };
+  const panels = { car: carPanel, stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel, budget: budgetPanel, holidays: holidaysPanel, job: () => jobHunt('choice'), insurance: insurancePanel, family: familyPanel, donate: donatePanel, tax: taxPanel };
   await panels[kind]();
   closeModal();
   save();
@@ -1791,10 +1833,14 @@ function cpfPanel() {
     ${btn('ok', 'Close', 'primary')}`, { wide: true });
 }
 
+let topUpAccount = 'ret';
 async function moneyPanel() {
   for (;;) {
     const adult = S.stage === 'adult' || S.stage === 'senior';
-    const room = sim.topUpRoom(S);
+    const accounts = sim.topUpAccounts(S);
+    if (!accounts.includes(topUpAccount)) topUpAccount = 'ret';
+    const room = sim.topUpRoom(S, topUpAccount);
+    const info = topUpAccountInfo(topUpAccount, room);
     const investedCash = invest.total(S, 'cash');
     const investedCpf = invest.total(S, 'oa') + invest.total(S, 'sa');
     const limit = sim.creditLimit(S);
@@ -1817,10 +1863,10 @@ async function moneyPanel() {
         <div class="pay-row">${amountControl('repay', Math.min(S.debt, S.bank), 'Repay debt')}${btn('repay', 'Repay', 'primary')}</div>
         ${S.bank < 1 ? '<p class="small">You need cash to repay. Cutting your lifestyle or selling investments frees some up.</p>' : ''}` : ''}
       <h3>🏛️ Top up your CPF</h3>
+      ${accounts.length > 1 ? `<div class="seg" role="group" aria-label="Top up which account">${accounts.map((k) => `<button class="seg-btn ${topUpAccount === k ? 'on' : ''}" data-choice="acct:${k}">${topUpAccountInfo(k, 0).label}</button>`).join('')}</div>` : ''}
       <div class="pay-row">${amountControl('topup', Math.min(S.bank, room), 'CPF top-up')}${btn('topup', 'Top up')}</div>
-      ${S.age >= 55 ? `<p class="gain-note" id="topup-gain">${S.life && S.age >= S.life.startAge ? `CPF LIFE pays you ${money(S.life.monthly)}/month now. Top-ups after payouts start buy extra CPF LIFE, so your payout rises from next year.` : 'Top-ups to your RA raise your CPF LIFE payouts.'} Drag the slider to see by how much.</p>` : ''}
-      <div class="limit-box"><p class="small">${S.stage === 'child' || S.stage === 'teen' ? 'Your parents can top up your Special Account for you under the Retirement Sum Topping-Up Scheme (RSTU). ' : `Cash top-ups go to your ${S.age < 55 ? 'SA' : 'RA'} under the Retirement Sum Topping-Up Scheme (RSTU). `}${topUpLimitNote(room, Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S)))} Topped up this year: <b>${money(sim.topUpsThisYear(S))}</b>.</p>
-        <p class="small">Separately, the CPF Annual Limit caps your compulsory contributions plus any Voluntary Contributions at ${money(sim.CPF_ANNUAL_LIMIT)} a year; RSTU top-ups don't count towards it. ${S.age >= 55 ? 'If your RA is below the BRS, the Matched Retirement Savings Scheme adds $1 for every $1, up to $2,000 a year.' : ''}</p></div>
+      ${topUpAccount === 'ret' && S.age >= 55 ? `<p class="gain-note" id="topup-gain">${S.life && S.age >= S.life.startAge ? `CPF LIFE pays you ${money(S.life.monthly)}/month now. Top-ups after payouts start buy extra CPF LIFE, so your payout rises from next year.` : 'Top-ups to your RA raise your CPF LIFE payouts.'} Drag the slider to see by how much.</p>` : ''}
+      <div class="limit-box"><p class="small">${info.full ? `<b>${info.full}</b> ` : ''}${info.text} Topped up this year: <b>${money(sim.topUpsThisYear(S))}</b>.</p></div>
       ${adult ? `<h3>📈 Investing</h3><p>Buy funds and shares with cash, or with your CPF through the CPF Investment Scheme. ${btn('invest', 'Open investments')}</p>` : ''}
       ${S.stage === 'adult' ? `<h3>Lifestyle</h3><p>${LIFESTYLES[S.lifestyle].icon} ${LIFESTYLES[S.lifestyle].label}: about ${money(sim.monthlySpend(S))}/month in total ${btn('life', 'Change')}</p>` : ''}
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
@@ -1841,6 +1887,7 @@ async function moneyPanel() {
     if (choice === 'ok') return;
     if (choice === 'life') await lifestyleDialog();
     if (choice === 'invest') await investPanel();
+    if (choice.startsWith('acct:')) { topUpAccount = choice.slice(5); continue; }
     if (choice === 'repay' && repay > 0) {
       const paid = sim.repayDebt(S, repay);
       toast(S.debt > 0 ? `💳 Repaid ${money(paid)}. ${money(S.debt)} still to go.` : `🎉 Repaid ${money(paid)}. You're debt-free!`);
@@ -1848,16 +1895,16 @@ async function moneyPanel() {
     }
     if (choice === 'topup' && topUp > 0) {
       sim.spendCash(S, topUp);
-      const r = sim.topUpCpf(S, topUp);
+      const reliefBefore = sim.topUpReliefThisYear(S);
+      const r = sim.topUpCpf(S, topUp, topUpAccount);
       S.bank += topUp - r.accepted;
+      const where = { ret: S.age < 55 ? 'SA' : 'RA', ma: 'MediSave', all: 'OA, SA and MediSave' }[topUpAccount].replace('SA and', S.age < 55 ? 'SA and' : 'RA and');
       if (!r.accepted) {
-        await dialog(`<h2>🏛️ Top-up limit reached</h2><p>${topUpLimitNote(0, 0)}</p><p class="small">The limit keeps your retirement top-ups in line with the retirement sums. Your cash stays in your savings.</p>${btn('ok', 'OK', 'primary')}`);
+        await dialog(`<h2>🏛️ Top-up limit reached</h2><p>${topUpAccount === 'ret' ? topUpLimitNote(0, 0) : info.full}</p><p class="small">Your cash stays in your savings.</p>${btn('ok', 'OK', 'primary')}`);
       } else {
-        toast(`🏛️ Topped up ${money(r.accepted)} to your ${S.age < 55 ? 'SA' : 'RA'}${r.matched ? `, and the Government matched ${money(r.matched)}` : ''}`);
-        logEvent(`🏛️ CPF top-up ${money(r.accepted)}`);
-        if (S.stage === 'adult' || S.stage === 'senior') {
-          if (sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP && sim.topUpsThisYear(S) - r.accepted <= sim.TOP_UP_TAX_RELIEF_CAP) toast('You are past $8,000 of top-ups this year: more is allowed, but gets no extra tax relief.');
-        }
+        toast(`🏛️ Topped up ${money(r.accepted)} to your ${where}${r.matched ? `, and the Government matched ${money(r.matched)}` : ''}`);
+        logEvent(`🏛️ CPF top-up ${money(r.accepted)} (${where})`);
+        if (adult && sim.topUpReliefThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP && reliefBefore <= sim.TOP_UP_TAX_RELIEF_CAP) toast('You are past $8,000 of top-ups this year: more is allowed, but gets no extra tax relief.');
       }
     }
     render();
@@ -1987,7 +2034,7 @@ async function budgetPanel() {
     const dcp = S.dcp ? S.dcp.monthly : 0;
     const holidays = sim.holidayMonthly(S);
     const kids = (S.children || []).filter((c) => S.age - c.bornAge < 21);
-    const fixed = living + rent + loanCash + dcp + insurance;
+    const baseFixed = living + rent + loanCash + dcp + insurance;
     const room = sim.topUpRoom(S);
     const ls = S.stage === 'senior' && S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle] : LIFESTYLES[S.lifestyle];
     const scroll = modalEl.hidden ? 0 : modalBox.scrollTop;
@@ -2004,27 +2051,36 @@ async function budgetPanel() {
         ${rent ? `<tr><td>Rent</td><td class="neg">−${money(rent)}</td></tr>` : ''}
         ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan ${money(S.home.instalment)}: ${money(loan.fromOa)} from your CPF OA, the rest in cash</td><td class="neg">−${money(loanCash)}</td></tr>` : ''}
         ${dcp ? `<tr><td>Debt Consolidation Plan</td><td class="neg">−${money(dcp)}</td></tr>` : ''}
+        <tr><td>🧾 Income tax (one bill a year, shown per month) ${btn('tax', 'How it\'s worked out')}<br><small id="tax-note"></small></td><td class="neg" id="tax-cell"></td></tr>
       </table>
       <h3>Your choices</h3>
       <div class="alloc">
         <div class="alloc-row"><span class="al-icon">✈️</span><span class="al-text"><b>Holidays</b><small>${(S.holidayPlans || []).length ? `${S.holidayPlans.length} trip${S.holidayPlans.length > 1 ? 's' : ''} planned for next year, averaged per month.` : 'No trips planned.'} ${btn('holidays', 'Plan holidays')}</small></span><b class="al-val">${money(holidays)}</b></div>
         <div class="alloc-row"><span class="al-icon">🏛️</span><span class="al-text"><b>Top up my CPF every year</b><small>${S.age < 55 ? 'Into your SA (RSTU), up to the FRS. Earns 4%+, and the first $8,000 a year cuts your income tax.' : 'Into your RA (RSTU), up to the ERS, for bigger CPF LIFE payouts.'} ${room > 0 ? `Room left: ${money(room)}. The top-ups stop by themselves when you reach the ${S.age < 55 ? 'FRS' : 'ERS'}.` : S.age < 55 ? 'Your SA is at the FRS: no more top-ups until 55.' : 'Your RA is at the ERS: no more top-ups.'}</small></span>${amountControl('cpfYearly', Math.min(36000, room), 'CPF top-up per year')}</div>
+        <div class="alloc-row"><span class="al-icon">💝</span><span class="al-text"><b>Give to charity every year</b><small>Your money helps people who need it: food, care and education. Gifts to approved charities (Institutions of a Public Character, IPCs) also get a ${tax.DONATION_DEDUCTION * 100}% tax deduction: give $1,000 and $2,500 comes off your taxable income.</small></span>${amountControl('donateYearly', 12000, 'Donation per year')}</div>
         ${kids.length ? `<div class="alloc-row"><span class="al-icon">👶</span><span class="al-text"><b>Top up my ${kids.length === 1 ? "child's" : "children's"} CPF</b><small>Per child, into their SA (RSTU). It grows at 4%+ until they retire: a head start, but locked away. ${S.spouse ? 'Your spouse puts in the same.' : ''} No tax relief for top-ups to children.</small></span>${amountControl('kidsCpf', 500, 'Per child per month')}</div>` : ''}
         <div class="alloc-row"><span class="al-icon">📈</span><span class="al-text"><b>Regular investing (DCA)</b><small>${sim.dcaPlans(S).length ? sim.dcaPlans(S).map((d) => `${invest.product(d.id).name}: ${money(d.perYear)}/year${d.src === 'cash' ? '' : ` from your ${invest.SOURCES[d.src].short}`}`).join('<br>') : 'No plans yet.'} ${btn('invest', 'Investments')}</small></span><b class="al-val">${money(dcaMonthly)}</b></div>
       </div>
       <div class="budget-sum" id="budget-sum"></div>
       <div class="row">${btn('save', 'Save my budget', 'primary')}${btn('ok', 'Cancel')}</div>`, { wide: true });
     modalBox.scrollTop = scroll;
-    const keys = ['cpfYearly', 'kidsCpf'];
+    const keys = ['cpfYearly', 'kidsCpf', 'donateYearly'];
     const draw = () => {
-      const spend = holidays;
+      // Tax depends on this year's top-up and giving, so it updates with the sliders.
+      const est = sim.taxEstimate(S, { topUp: Math.min(b.cpfYearly, room), donate: b.donateYearly || 0 });
+      const bare = sim.taxEstimate(S, { bare: true });
+      const taxMonthly = est.tax / 12;
+      $('#tax-cell', modalBox).textContent = taxMonthly > 0.5 ? `−${money(taxMonthly)}` : '$0';
+      $('#tax-note', modalBox).textContent = `About ${money(est.tax)} this year${bare.tax - est.tax > 0.5 ? `, ${money(bare.tax - est.tax)} less thanks to your top-ups and giving` : ''}.`;
+      const fixed = baseFixed + taxMonthly;
+      const spend = holidays + (b.donateYearly || 0) / 12;
       const saving = b.cpfYearly / 12 + b.kidsCpf * kids.length + dcaMonthly;
       const left = income - fixed - spend - saving;
       const total = Math.max(1, income);
       const bar = (v, cls) => `<span class="${cls}" style="width:${Math.max(0, Math.min(100, (v / total) * 100))}%"></span>`;
       $('#budget-sum', modalBox).innerHTML = `
         <div class="budget-bar">${bar(fixed, 'b-fixed')}${bar(spend, 'b-fun')}${bar(saving, 'b-save')}${bar(Math.max(0, left), 'b-left')}</div>
-        <p class="legend"><span class="b-fixed"></span> Must-pays ${money(fixed)} <span class="b-fun"></span> Fun ${money(spend)} <span class="b-save"></span> Saving and investing ${money(saving)} <span class="b-left"></span> Left to cash ${money(Math.max(0, left))}</p>
+        <p class="legend"><span class="b-fixed"></span> Must-pays ${money(fixed)} <span class="b-fun"></span> Fun and giving ${money(spend)} <span class="b-save"></span> Saving and investing ${money(saving)} <span class="b-left"></span> Left to cash ${money(Math.max(0, left))}</p>
         <p class="${left < 0 ? 'neg' : ''}">${left >= 0
           ? `Each month <b>${money(left)}</b> is left over and goes to your cash savings. That's ${Math.round((left / total) * 100)}% of what comes in${saving ? `, plus ${money(saving)} saved on purpose` : ''}.`
           : `You'd be <b>${money(-left)}</b> short every month. Planned saving only happens when you have the cash, and spending you can't cover goes on credit cards at 25% a year.`}</p>`;
@@ -2062,10 +2118,84 @@ async function budgetPanel() {
       await insurancePanel();
       continue;
     }
+    if (choice === 'tax') {
+      await taxPanel({ topUp: Math.min(b.cpfYearly, room), donate: b.donateYearly || 0 });
+      continue;
+    }
     toast('📋 Budget saved. It applies from your next turn.');
     logEvent(`📋 New budget: saving ${money(b.cpfYearly / 12 + b.kidsCpf * kids.length + dcaMonthly)}/mo`);
     return;
   }
+}
+
+// Give to charity now. Gifts to approved charities (IPCs) get a 250% tax deduction.
+async function donatePanel() {
+  for (;;) {
+    let amount = 0;
+    const given = sim.donationsThisYear(S);
+    const c = dialog(`
+      <h2>💝 Give to charity</h2>
+      <p>Your gift helps people who need it: meals for families, care for the elderly, school support for children. Giving also lifts your Joy and Communication a little.</p>
+      <div class="pay-row">${amountControl('give', Math.max(0, S.bank), 'Donation')}${btn('give', 'Give', 'primary')}</div>
+      <p class="gain-note" id="give-note">Drag the slider to see how much tax it saves you.</p>
+      <div class="limit-box"><p class="small"><b>Tax deduction:</b> cash gifts to approved charities (Institutions of a Public Character, IPCs) are deducted ${tax.DONATION_DEDUCTION * 100}% from your income before tax, so giving $1,000 takes $2,500 off your taxable income. The charity passes your NRIC to IRAS, so it's applied for you. If the deduction is more than your income, the rest carries forward for up to ${tax.DONATION_CARRY_YEARS} years. Given this year: <b>${money(given)}</b>${S.given ? `; in your life so far: <b>${money(S.given)}</b>` : ''}.</p></div>
+      <p class="small">To give a set amount every year, use ${btn('budget', '📋 Budget')}.</p>
+      ${btn('ok', 'Close')}`, { wide: true });
+    const base = sim.taxEstimate(S).tax;
+    wireAmount(modalBox, 'give', (v) => Math.min(v, Math.max(0, S.bank)), (v) => {
+      amount = v;
+      const saved = base - sim.taxEstimate(S, { extraDonation: v }).tax;
+      $('#give-note', modalBox).innerHTML = v > 0
+        ? (saved > 0.5 ? `Giving <b>${money(v)}</b> lowers your income tax this year by about <b>${money(saved)}</b>, so it costs you about ${money(v - saved)}.` : `Giving <b>${money(v)}</b> doesn't change your tax this year${base < 0.5 ? ': your income is already below the taxable level' : ''}.`)
+        : 'Drag the slider to see how much tax it saves you.';
+    });
+    const choice = await c;
+    if (choice === 'budget') { await budgetPanel(); continue; }
+    if (choice === 'give' && amount > 0) {
+      const a = sim.donate(S, amount);
+      toast(`💝 Gave ${money(a)} to charity. Thank you!`);
+      logEvent(`💝 Gave ${money(a)} to charity`);
+      render();
+      continue;
+    }
+    render();
+    return;
+  }
+}
+
+// How this year's income tax is worked out, following IRAS's steps.
+async function taxPanel(plan = {}) {
+  const est = sim.taxEstimate(S, plan);
+  const bare = sim.taxEstimate(S, { ...plan, bare: true });
+  const last = S.lastTax && S.lastTax.age === S.age - 1 ? S.lastTax : null;
+  const working = sim.currentWage(S) > 0;
+  const pct = (r) => `${+(r * 100).toFixed(1)}%`;
+  const breakdown = (r) => `
+    <table class="summary tax-table">
+      <tr><td>Employment income <small>(pay before your CPF is taken off)</small></td><td>${money(r.earned)}</td></tr>
+      ${r.donationDeduction ? `<tr><td>Less donations × ${tax.DONATION_DEDUCTION} <small>(${money(r.donations)} given this year${r.donationDeduction < r.donations * tax.DONATION_DEDUCTION ? '; some carried forward' : ''})</small></td><td class="pos">−${money(r.donationDeduction)}</td></tr>` : ''}
+      <tr class="sub"><td>Assessable income</td><td>${money(r.assessable)}</td></tr>
+      ${r.reliefs.map((x) => `<tr><td>Less ${x.label}<br><small>${x.note}</small></td><td class="pos">−${money(x.amount)}</td></tr>`).join('')}
+      ${r.capped ? `<tr><td colspan="2"><small>Personal reliefs are capped at ${money(tax.RELIEF_CAP)} a year, so ${money(r.reliefSum - tax.RELIEF_CAP)} is lost.</small></td></tr>` : ''}
+      <tr class="sub"><td>Chargeable income</td><td>${money(r.chargeable)}</td></tr>
+    </table>
+    <table class="summary tax-bands">
+      <tr><th>Part of your chargeable income</th><th>Rate</th><th>Tax</th></tr>
+      ${r.bands.map((band) => `<tr><td>${band.from === 0 ? 'First' : 'Next'} ${money(band.to - band.from)}${band.from ? ` <small>(${money(band.from)} to ${money(band.to)})</small>` : ''}</td><td>${pct(band.rate)}</td><td>${money(band.amount)}</td></tr>`).join('') || '<tr><td colspan="3">Nothing to tax.</td></tr>'}
+      <tr class="sub"><td colspan="2">Tax before rebates</td><td>${money(r.grossTax)}</td></tr>
+      ${r.rebate ? `<tr><td colspan="2">Less Parenthood Tax Rebate <small>(${money(r.rebateLeft)} left for later years)</small></td><td class="pos">−${money(r.rebate)}</td></tr>` : ''}
+      <tr class="sub"><td colspan="2"><b>Income tax to pay</b></td><td><b>${money(r.tax)}</b></td></tr>
+    </table>
+    <p class="small">That's ${r.earned ? pct(r.tax / r.earned) : '0%'} of your income, about ${money(r.tax / 12)} a month.</p>`;
+  await dialog(`
+    <h2>🧾 Your income tax</h2>
+    <p class="small">Singapore taxes your income for a year as one bill from IRAS (in real life it arrives the following year). Rates are the resident rates from Year of Assessment 2024. There's no personal tax rebate for YA2026. CPF LIFE payouts, CPF withdrawals and investment gains aren't taxed.</p>
+    ${working ? `<h3>This year, at today's pay${plan.topUp != null || plan.donate != null ? ' and your new budget' : ''}</h3>${breakdown(est)}
+      ${bare.tax - est.tax > 0.5 ? `<p class="gain-note">Without your CPF top-ups and donations you'd pay <b>${money(bare.tax)}</b>: they save you <b>${money(bare.tax - est.tax)}</b> this year.</p>` : est.tax > 0 ? `<p class="gain-note">Cash top-ups to your own CPF (up to $8,000 a year) and gifts to approved charities (${tax.DONATION_DEDUCTION * 100}% deduction) would lower this.</p>` : ''}`
+      : '<p>You have no income from work this year, so there is no income tax to pay.</p>'}
+    ${last && last.earned ? `<details><summary>Last year: ${money(last.tax)}</summary>${breakdown(last)}</details>` : ''}
+    <p class="small muted-ink">Simplified: no bonuses, no other income, and only the reliefs the game tracks (Earned Income, CPF, CPF cash top-up, NSman, Spouse, Qualifying Child and Working Mother's Child Relief, plus the Parenthood Tax Rebate). Check your own tax with IRAS at iras.gov.sg.</p>
+    ${btn('ok', 'Close', 'primary')}`, { wide: true });
 }
 
 // Plan trips: once, every year, or a set number of times.
@@ -2150,6 +2280,7 @@ async function menuPanel() {
     await dialog(`
       <h2>About the numbers</h2>
       <p>The game uses the CPF Board's 2026 contribution and allocation rates, the $8,000 Ordinary Wage ceiling, the 2026 retirement sums and interest rates (with extra interest), and works out interest monthly the way CPF does. Housing uses HDB and bank loan limits (75% loan, MSR 30%, TDSR 55%), Buyer's Stamp Duty, CPF refunds with 2.5% accrued interest, the Lease Buyback Scheme and the Silver Housing Bonus as they stand in 2026.</p>
+      <p>Income tax follows IRAS's resident rates (from YA2024) and the main personal reliefs: Earned Income, CPF, CPF cash top-up ($8,000 for your own SA, RA and MediSave), NSman, Spouse, Qualifying Child and Working Mother's Child Relief, with the $80,000 relief cap, the Parenthood Tax Rebate and the 250% deduction for gifts to approved charities.</p>
       <p>To keep it playable, some things are simplified: there is no inflation (all amounts are in today's dollars), there are no bonuses or Additional Wages, salaries grow at fixed rates, home values only change with the lease, and CPF LIFE payouts are estimated from the CPF Board's published figures.</p>
       <p>For your real plans, use the tools at <b>cpf.gov.sg</b>.</p>
       ${btn('ok', 'Close', 'primary')}`);

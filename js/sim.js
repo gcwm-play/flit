@@ -4,6 +4,7 @@ import * as housing from './housing.js';
 import * as invest from './invest.js';
 import * as health from './health.js';
 import * as cars from './car.js';
+import * as tax from './tax.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, SHOP, LIFESTYLES,
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
@@ -69,7 +70,7 @@ export function newGame(name, look) {
 }
 
 export function newBudget() {
-  return { hobbies: 0, shopping: 0, cpfSelf: 0, cpfYearly: 0, kidsCpf: 0, investAmt: 0, investId: 'world' };
+  return { hobbies: 0, shopping: 0, cpfSelf: 0, cpfYearly: 0, kidsCpf: 0, donateYearly: 0, investAmt: 0, investId: 'world' };
 }
 
 export function unlockedStats(s) {
@@ -145,11 +146,7 @@ export function allocateGift(s, { cash = 0, treat = 0, charity = 0, cpf: toCpf =
   s.bank += cash;
   const joy = Math.min(6, (treat + charity * 1.3) * joyPerDollar(s));
   s.joy += joy;
-  if (charity > 0) {
-    s.stats.communication += Math.min(2, charity * joyPerDollar(s));
-    s.given = (s.given || 0) + charity;
-    story(s, 'give', '💝', `Gave ${money(charity)} to charity`, { amount: charity });
-  }
+  if (charity > 0) recordDonation(s, charity);
   let refused = 0, matched = 0;
   if (toCpf > 0) {
     const r = topUpCpf(s, toCpf);
@@ -160,6 +157,26 @@ export function allocateGift(s, { cash = 0, treat = 0, charity = 0, cpf: toCpf =
   settleDebt(s);
   return { refused, matched };
 }
+
+// Gives cash to charity: helps others, and gifts to approved charities (IPCs) cut your income tax.
+export function donate(s, amount) {
+  const a = Math.max(0, Math.min(amount, s.bank));
+  if (a <= 0) return 0;
+  spendCash(s, a);
+  s.joy += Math.min(6, a * 1.3 * joyPerDollar(s));
+  recordDonation(s, a);
+  return a;
+}
+
+function recordDonation(s, amount) {
+  s.stats.communication += Math.min(2, amount * joyPerDollar(s));
+  s.given = (s.given || 0) + amount;
+  const before = donationsThisYear(s);
+  s.donations = { age: s.age, amount: before + amount };
+  story(s, 'give', '💝', `Gave ${money(amount)} to charity`, { amount });
+}
+
+export const donationsThisYear = (s) => (s.donations && s.donations.age === s.age ? s.donations.amount : 0);
 
 // Anyone can top up: before you work, your parents can top up your SA for you (RSTU).
 export function canTopUpCpf(s) {
@@ -329,6 +346,7 @@ function oneYear(s, sum, opts) {
   const funMonthly = young ? 0 : (b.hobbies || 0) + (b.shopping || 0);
   const acc = cpf.newInterestAccrual();
   let cash = 0;
+  const earnings = { pay: 0, cpf: 0 }; // for income tax
 
   // Health insurance premiums: MediShield Life, plus any Shield plan and rider. MediSave pays
   // MediShield Life and part of a Shield plan (up to the Additional Withdrawal Limit); the rest is cash.
@@ -395,6 +413,7 @@ function oneYear(s, sum, opts) {
     if (monthWage > 0) {
       const c = cpf.monthlyContribution(age, monthWage, { selfEmployed: !young && s.selfEmployed });
       pay = monthWage - c.employee;
+      if (!young) { earnings.pay += monthWage; earnings.cpf += c.employee; }
       cpf.deposit(s.cpf, age, c);
       sum.cpfIn += c.total;
       sum.employerIn += c.employer;
@@ -425,6 +444,7 @@ function oneYear(s, sum, opts) {
   if (!young) {
     takeHolidays(s, sum);
     budgetTransfers(s, sum);
+    payIncomeTax(s, sum, earnings);
     // Hobbies and treats: joy, and hobbies keep you healthy and creative.
     s.joy += Math.min(4, funMonthly * 12 * joyPerDollar(s));
     const h = Math.min(1, ((b.hobbies || 0) * 12) / 3000);
@@ -794,6 +814,8 @@ export function haveChild(s) {
     uni: null,
   });
   s.joy += 4;
+  // Parenthood Tax Rebate: used against your income tax until it runs out.
+  s.taxRebateLeft = (s.taxRebateLeft || 0) + tax.PARENTHOOD_REBATE[Math.min(2, s.children.length - 1)];
   s.log.push(`Age ${s.age}: welcomed child number ${s.children.length}`);
   story(s, 'family', '👶', `Welcomed child number ${s.children.length}`);
   return babySupport(s.children.length);
@@ -1005,6 +1027,8 @@ function budgetTransfers(s, sum) {
       s.cpfPlanStopped = { age: s.age + 1, before55: s.age < 55 };
     }
   }
+  // Yearly giving to charity, from cash you have.
+  if (b.donateYearly > 0) sum.donated = (sum.donated || 0) + donate(s, take(b.donateYearly));
   const kids = (s.children || []).filter((c) => s.age - c.bornAge < 21);
   if (b.kidsCpf > 0 && kids.length) {
     for (const c of kids) {
@@ -1057,23 +1081,51 @@ export function lbsCheck(s) {
 
 // ---------- CPF top-ups ----------
 
-// Only the first $8,000 of cash top-ups to your own SA/RA each year gets income tax relief.
-export const TOP_UP_TAX_RELIEF_CAP = 8000;
+// Cash top-ups to your own SA/RA (RSTU) and MediSave share one $8,000 tax relief limit a year.
+export const TOP_UP_TAX_RELIEF_CAP = tax.TOP_UP_RELIEF_SELF;
 
-// Compulsory contributions plus Voluntary Contributions in a year can't go above this.
-export const CPF_ANNUAL_LIMIT = 37740;
+// Compulsory contributions plus Voluntary Contributions (to MediSave or all three accounts)
+// in a year can't go above this. RSTU top-ups don't count towards it.
+export const CPF_ANNUAL_LIMIT = cpf.CPF_ANNUAL_LIMIT;
 
-export function topUpsThisYear(s) {
-  return s.topUps && s.topUps.age === s.age ? s.topUps.amount : 0;
+// Where a cash top-up can go (CPF Board):
+//   ret: Retirement Sum Topping-Up, to the SA up to the FRS, or the RA up to the ERS from 55
+//   ma:  Voluntary Contribution to MediSave, up to the Basic Healthcare Sum
+//   all: Voluntary Contribution to all three accounts, split like your monthly contributions
+export const TOP_UP_ACCOUNTS = ['ret', 'ma', 'all'];
+
+const topUpRecord = (s) => (s.topUps && s.topUps.age === s.age ? s.topUps : { age: s.age, amount: 0, relief: 0, vc: 0 });
+
+// All cash top-ups to your own CPF this year.
+export const topUpsThisYear = (s) => topUpRecord(s).amount;
+// The part that qualifies for CPF cash top-up relief (before the $8,000 cap).
+export const topUpReliefThisYear = (s) => topUpRecord(s).relief || 0;
+export const taxReliefLeft = (s) => Math.max(0, TOP_UP_TAX_RELIEF_CAP - topUpReliefThisYear(s));
+// Voluntary Contributions this year (MediSave or three-account), which count towards the Annual Limit.
+export const vcThisYear = (s) => topUpRecord(s).vc || 0;
+
+// Compulsory contributions (yours and your employer's) for a year at today's pay.
+export function compulsoryThisYear(s) {
+  return cpf.monthlyContribution(s.age, currentWage(s), { selfEmployed: s.selfEmployed }).total * 12;
 }
 
-// How much more cash you can top up: the SA up to the FRS before 55, the RA up to the ERS after.
-// Before 55, SA savings you've invested through CPFIS-SA still count towards the FRS.
-// There's no yearly cap on RSTU top-ups; only the first $8,000 a year gets tax relief.
-export function topUpRoom(s) {
+// What's left under the CPF Annual Limit for Voluntary Contributions this year.
+export function annualLimitRoom(s) {
+  return Math.max(0, CPF_ANNUAL_LIMIT - compulsoryThisYear(s) - vcThisYear(s));
+}
+
+// How much more cash you can top up to an account this year.
+// RSTU: the SA up to the FRS before 55 (SA money invested through CPFIS-SA still counts),
+// the RA up to the ERS after. There's no yearly cap on RSTU top-ups.
+export function topUpRoom(s, account = 'ret') {
+  if (account === 'ma') return Math.max(0, Math.min(cpf.BASIC_HEALTHCARE_SUM - s.cpf.ma, annualLimitRoom(s)));
+  if (account === 'all') return annualLimitRoom(s);
   if (s.age < 55) return Math.max(0, cpf.topUpRoom(s.cpf, s.age) - invest.costOf(s, 'sa'));
   return cpf.topUpRoom(s.cpf, s.age, s.life ? s.life.premium : 0);
 }
+
+// Children and teens can only have their SA topped up (by their parents). No one gets tax relief for that.
+export const topUpAccounts = (s) => (s.stage === 'child' || s.stage === 'teen' ? ['ret'] : TOP_UP_ACCOUNTS);
 
 // Roughly how much more CPF LIFE pays each month for an extra RA top-up today.
 export function lifePayoutGain(s, amount) {
@@ -1085,20 +1137,99 @@ export function lifePayoutGain(s, amount) {
 }
 
 // Cash top-up. From 55, if your RA is below the BRS, the Matched Retirement
-// Savings Scheme matches it dollar for dollar, up to $2,000 a year.
-export function topUpCpf(s, amount) {
-  const accepted = cpf.cashTopUp(s.cpf, s.age, Math.min(amount, topUpRoom(s)), s.life ? s.life.premium : 0);
-  const before = topUpsThisYear(s);
-  s.topUps = { age: s.age, amount: before + accepted };
-  s.lifeTopUps = (s.lifeTopUps || 0) + accepted;
-  let matched = 0;
-  if (s.age >= 55 && accepted > 0 && s.cpf.ra - accepted < cpf.RETIREMENT_SUMS.BRS) {
-    const usedThisYear = s.mrss && s.mrss.age === s.age ? s.mrss.amount : 0;
-    const room = Math.min(2000 - usedThisYear, 20000 - (s.mrssTotal || 0));
-    matched = Math.max(0, Math.min(accepted, room, cpf.RETIREMENT_SUMS.BRS - (s.cpf.ra - accepted)));
-    s.cpf.ra += matched;
-    s.mrss = { age: s.age, amount: usedThisYear + matched };
-    s.mrssTotal = (s.mrssTotal || 0) + matched;
+// Savings Scheme matches RSTU top-ups dollar for dollar, up to $2,000 a year.
+export function topUpCpf(s, amount, account = 'ret') {
+  if (!topUpAccounts(s).includes(account)) account = 'ret';
+  const young = s.stage === 'child' || s.stage === 'teen';
+  const rec = topUpRecord(s);
+  const want = Math.max(0, Math.min(amount, topUpRoom(s, account)));
+  let accepted = 0, matched = 0, relief = 0;
+  if (account === 'ma') {
+    s.cpf.ma += want;
+    accepted = want;
+    relief = want; // MediSave top-ups get relief (shared with RSTU), employees and self-employed alike
+    rec.vc += want;
+  } else if (account === 'all') {
+    // Split in the same shares as the monthly contribution at your age.
+    const band = cpf.rateBand(s.age);
+    const t = band.oa + band.sa + band.ma;
+    cpf.deposit(s.cpf, s.age, { oa: (want * band.oa) / t, sa: (want * band.sa) / t, ma: (want * band.ma) / t });
+    accepted = want;
+    rec.vc += want;
+    // Employees get no relief for these; the self-employed get CPF relief instead (see payIncomeTax).
+    if (s.selfEmployed) rec.selfVc = (rec.selfVc || 0) + want;
+  } else {
+    const raBefore = s.cpf.ra + (s.life ? s.life.premium : 0);
+    accepted = cpf.cashTopUp(s.cpf, s.age, want, s.life ? s.life.premium : 0);
+    // From 55, only top-ups that keep your RA at or below the current FRS get relief.
+    relief = s.age < 55 ? accepted : Math.min(accepted, Math.max(0, cpf.RETIREMENT_SUMS.FRS - raBefore));
+    if (s.age >= 55 && accepted > 0 && s.cpf.ra - accepted < cpf.RETIREMENT_SUMS.BRS) {
+      const usedThisYear = s.mrss && s.mrss.age === s.age ? s.mrss.amount : 0;
+      const room = Math.min(2000 - usedThisYear, 20000 - (s.mrssTotal || 0));
+      matched = Math.max(0, Math.min(accepted, room, cpf.RETIREMENT_SUMS.BRS - (s.cpf.ra - accepted)));
+      s.cpf.ra += matched;
+      s.mrss = { age: s.age, amount: usedThisYear + matched };
+      s.mrssTotal = (s.mrssTotal || 0) + matched;
+      // Top-ups that attract the MRSS grant don't get tax relief (from YA2026).
+      relief = Math.max(0, relief - matched);
+    }
   }
-  return { accepted, matched };
+  rec.amount += accepted;
+  if (!young) rec.relief = (rec.relief || 0) + relief;
+  s.topUps = rec;
+  s.lifeTopUps = (s.lifeTopUps || 0) + accepted;
+  return { accepted, matched, account };
+}
+
+// ---------- income tax ----------
+
+// The inputs IRAS would use for this year. `plan` adds what your budget will still do this year.
+function taxInputs(s, earnings, extra = {}) {
+  const rec = topUpRecord(s);
+  const children = (s.children || []).map((c, i) => ({ age: s.age - c.bornAge, order: i + 1 }));
+  const male = s.look && s.look.gender === 'male';
+  // The self-employed get CPF relief on their MediSave contributions and Voluntary Contributions,
+  // up to 37% of their income and the Annual Limit.
+  const selfCap = s.selfEmployed ? Math.min(0.37 * earnings.pay, CPF_ANNUAL_LIMIT) : Infinity;
+  const vcRelief = s.selfEmployed ? (rec.selfVc || 0) + (extra.selfVc || 0) : 0;
+  return {
+    age: s.age,
+    male,
+    mother: !male && children.length > 0,
+    earned: earnings.pay,
+    cpfRelief: Math.min(selfCap, earnings.cpf + vcRelief),
+    topUpRelief: (rec.relief || 0) + (extra.topUpRelief || 0),
+    donations: donationsThisYear(s) + (extra.donations || 0),
+    donationCarry: s.donationCarry || [],
+    spouseAtHome: !!(s.spouse && s.spouse.home),
+    children,
+    rebateLeft: s.taxRebateLeft || 0,
+  };
+}
+
+// Pays this year's income tax from cash. (In real life IRAS sends the bill for a year's income the next year.)
+function payIncomeTax(s, sum, earnings) {
+  const r = tax.incomeTax(taxInputs(s, earnings));
+  s.donationCarry = r.donationCarry;
+  s.taxRebateLeft = r.rebateLeft;
+  s.lastTax = { ...r, age: s.age };
+  s.taxPaid = (s.taxPaid || 0) + r.tax;
+  sum.tax = (sum.tax || 0) + r.tax;
+  if (r.tax > 0) coverShortfall(s, r.tax, sum);
+}
+
+// This year's tax at today's pay, with your budget's yearly top-up and donations.
+// Pass { topUp: 0, donate: 0 } to see the tax without them.
+export function taxEstimate(s, opts = {}) {
+  const wage = currentWage(s);
+  const c = cpf.monthlyContribution(s.age, wage, { selfEmployed: s.selfEmployed });
+  const earnings = { pay: wage * 12, cpf: c.employee * 12 };
+  const b = s.budget || newBudget();
+  // The budget's yearly top-up goes to the SA or RA (RSTU) if there's room and cash.
+  const planTop = opts.topUp ?? Math.min(cpfTopUpPerYear(s), topUpRoom(s, 'ret'));
+  const raRoom = s.age < 55 ? Infinity : Math.max(0, cpf.RETIREMENT_SUMS.FRS - s.cpf.ra - (s.life ? s.life.premium : 0));
+  const extra = { topUpRelief: Math.min(planTop, raRoom) + (opts.extraRelief || 0), donations: (opts.donate ?? (b.donateYearly || 0)) + (opts.extraDonation || 0) };
+  const inputs = taxInputs(s, earnings, extra);
+  if (opts.bare) { inputs.topUpRelief = 0; inputs.donations = 0; inputs.donationCarry = []; }
+  return tax.incomeTax(inputs);
 }
