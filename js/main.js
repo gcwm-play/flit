@@ -289,18 +289,17 @@ function render() {
       <nav class="menu">
         <button class="btn small-btn" data-panel="stats">📊 Stats</button>
         <button class="btn small-btn" data-panel="cpf">🏛️ CPF</button>
-        <button class="btn small-btn" data-panel="money">💵 Money</button>
-        ${S.stage === 'adult' || S.stage === 'senior' ? '<button class="btn small-btn" data-panel="invest">📈 Invest</button>' : ''}
-        ${S.stage === 'adult' || S.stage === 'senior' ? '<button class="btn small-btn" data-panel="budget">📋 Budget</button><button class="btn small-btn" data-panel="holidays">✈️ Holidays</button>' : ''}
-        <button class="btn small-btn" data-panel="shop">🛍️ Shop</button>
-        ${S.stage === 'adult' || S.stage === 'senior' ? '<button class="btn small-btn" data-panel="home">🏠 Home</button>' : ''}
         <button class="btn small-btn" data-panel="menu">☰</button>
       </nav>
     </header>
     <div class="play">
     <div class="play-main">
-    <main class="scene">${roomHtml()}</main>
+    <div class="top-row">
+      <main class="scene">${roomHtml()}</main>
+      ${cashboardHtml()}
+    </div>
     <section class="actions">
+      ${S.done ? '' : actionTiles()}
       <h2>${S.done ? 'Your life story is complete' : `Age ${S.age}: ${turnPrompt()}`}</h2>
       <div class="cards">${S.done ? btn('end', 'See your life summary', 'primary') : activityCards()}</div>
     </section>
@@ -309,11 +308,101 @@ function render() {
     </div>`;
   if (S.ledgerFresh) S.ledgerFresh = false;
   app.querySelectorAll('[data-panel]').forEach((b) => (b.onclick = () => openPanel(b.dataset.panel)));
-  const spend = app.querySelector('details.spend');
-  if (spend) spend.ontoggle = () => (spendOpen = spend.open);
   app.querySelectorAll('[data-activity]').forEach((b) => (b.onclick = () => takeTurn(b.dataset.activity)));
   const endBtn = app.querySelector('[data-choice="end"]');
   if (endBtn) endBtn.onclick = endScreen;
+}
+
+// Things you can do as often as you like before you pick this turn's activity.
+function actionTiles() {
+  const grown = S.stage === 'adult' || S.stage === 'senior';
+  const working = sim.isWorking(S);
+  const job = sim.careerInfo(S);
+  const plans = S.holidayPlans || [];
+  const tiles = [];
+  if (grown) {
+    tiles.push(['holidays', '✈️', 'Holidays', plans.length ? `${plans.length} planned` : 'None planned']);
+    tiles.push(['invest', '📈', 'Invest', invest.total(S) > 0 ? money(invest.total(S)) : 'None yet']);
+    const p = monthlyPlan();
+    const left = p.left - p.saving;
+    tiles.push(['budget', '📋', 'Budget', `${left < 0 ? '−' : '+'}${money(Math.abs(left * 12))} a year`, left < 0]);
+    tiles.push(['home', '🏠', 'Home', S.home ? S.home.label : S.age >= 30 || S.spouse ? 'Renting' : 'With family']);
+    if (S.stage === 'adult' || (working && S.age < 65)) tiles.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
+  }
+  tiles.push(['shop', '🛍️', 'Shop', `${S.room.length} owned`]);
+  tiles.push(['money', '💵', S.debt > 0 ? 'Repay debt' : 'CPF top-up', S.debt > 0 ? `−${money(S.debt)}` : 'From your cash', S.debt > 0]);
+  return `<h2 class="tiles-head">Before you move on <small>as many as you like</small></h2>
+    <div class="tiles">${tiles.map(([panel, icon, label, note, warn]) => `
+      <button class="tile" data-panel="${panel}"><span class="t-icon">${icon}</span><span class="t-label">${label}</span><span class="t-note ${warn ? 'neg' : ''}">${note}</span></button>`).join('')}</div>`;
+}
+
+// What you spend money on, for one month, from your current budget.
+function outflows(p) {
+  const ls = S.stage === 'senior' && S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle] : LIFESTYLES[S.lifestyle];
+  return [
+    ['living', `Everyday living (${ls.label})`, p.parts.living, 'Food, transport, bills and phone. Change your lifestyle to change this.'],
+    ['kids', `Children (${p.parts.kidsCount})`, p.parts.kids, `About ${money(sim.CHILD_COST)} a month per child until 22${S.spouse ? ', split with your spouse' : ''}.`],
+    ['car', 'Car', p.parts.car, 'Loan, COE, petrol, parking and insurance.'],
+    ['home', 'Rent', p.rent, S.spouse ? 'Your half of the rent.' : 'Renting a room or small flat.'],
+    ['home', p.loan.fromOa > 0.5 ? 'Home loan (cash part)' : 'Home loan', p.loanCash, p.loan.fromOa > 0.5 ? `The rest, ${money(p.loan.fromOa)} a month, comes from your OA.` : 'Paid in cash. You can switch to your OA in 🏠 Home.'],
+    ['debt', 'Debt plan', p.dcp, 'Fixed instalment until your debt is cleared.'],
+    ['fun', 'Hobbies', p.b.hobbies, ''],
+    ['fun', 'Shopping and treats', p.b.shopping, ''],
+    ['trip', 'Holidays', p.holidays, 'Your planned trips, spread over the year.'],
+  ].filter((r) => r[2] > 0.5);
+}
+
+function cashboardHtml() {
+  const grown = S.stage === 'adult' || S.stage === 'senior';
+  const t = S.lastTurn;
+  const change = t && t.cash ? t.cash[1] - t.cash[0] : null;
+  const cashCard = `
+      <div class="cb-cash">
+        <span class="cb-label">💵 Cash you can spend</span>
+        <b class="cb-big">${money(S.bank)}</b>
+        ${change !== null ? `<span class="cb-change">Last turn <b class="${change < 0 ? 'neg' : 'pos'}">${change < 0 ? '−' : '+'}${money(Math.abs(change))}</b>${t.years > 1 ? ` over ${t.years} years (${change < 0 ? '−' : '+'}${money(Math.abs(change / t.years))} a year)` : ''}</span>` : ''}
+        <div class="cb-mini">
+          ${invest.total(S, 'cash') > 0 ? `<span>📈 Invested</span><b>${money(invest.total(S, 'cash'))}</b>` : ''}
+          ${S.debt > 0 ? `<span class="neg">💳 Debt</span><b class="neg">−${money(S.debt)}</b>` : ''}
+          ${grown && S.home && S.home.loanBalance > 1 ? `<span>🏠 Loan left</span><b>${money(S.home.loanBalance)}</b>` : ''}
+        </div>
+      </div>`;
+  if (!grown) {
+    const st = STAGES[S.stage];
+    return `<section class="cashboard young">${cashCard}
+      <p class="small">Pocket money: about <b>${money(st.yearlyAllowance)}</b> a year. You spend about half, and your parents bank the rest for you.</p></section>`;
+  }
+  const p = monthlyPlan();
+  const items = outflows(p);
+  const allowance = p.parts.allowance;
+  const inMonth = p.income + allowance;
+  const outMonth = items.reduce((a, r) => a + r[2], 0);
+  const left = inMonth - outMonth - p.saving;
+  const years = sim.yearsThisTurn(S);
+  const top = Math.max(1, ...items.map((r) => r[2]));
+  const yr = (v) => money(v * 12);
+  return `<section class="cashboard">
+      ${cashCard}
+      <div class="cb-year">
+        <h3>Your year in money <span>at today's pay and budget</span></h3>
+        <div class="cb-flow">
+          <div><span>In</span><b class="pos">${yr(inMonth)}</b><small>${money(inMonth)}/mo</small></div>
+          <div><span>Spent</span><b class="neg">${yr(outMonth)}</b><small>${money(outMonth)}/mo</small></div>
+          ${p.saving ? `<div><span>Saved</span><b>${yr(p.saving)}</b><small>${money(p.saving)}/mo</small></div>` : ''}
+          <div><span>${left < 0 ? 'Short' : 'Spare'}</span><b class="${left < 0 ? 'neg' : 'pos'}">${left < 0 ? '−' : ''}${yr(Math.abs(left))}</b><small>${left < 0 ? '−' : ''}${money(Math.abs(left))}/mo</small></div>
+        </div>
+        <div class="cb-split" aria-hidden="true">${items.map((r) => `<span class="k-${r[0]}" style="flex:${r[2]}" title="${r[1]}"></span>`).join('')}${p.saving ? `<span class="k-save" style="flex:${p.saving}" title="Saving"></span>` : ''}${left > 0 ? `<span class="k-spare" style="flex:${left}" title="Spare"></span>` : ''}</div>
+        <div class="cb-out">
+          <span class="cb-h">Where it goes</span><span class="cb-h num">a month</span><span class="cb-h num">a year</span>
+          ${items.sort((a, b) => b[2] - a[2]).map((r) => `
+          <span class="cb-item" title="${r[3]}"><i class="k-${r[0]}"></i>${r[1]}<em style="width:${(r[2] / top) * 100}%" class="k-${r[0]}"></em></span><b class="num">${money(r[2])}</b><b class="num">${yr(r[2])}</b>`).join('')}
+          ${p.loan.fromOa > 0.5 ? `<span class="cb-item muted-ink" title="Paid from your CPF Ordinary Account, so it doesn't come out of your cash."><i></i>Home loan from your OA (not cash)</span><b class="num muted-ink">${money(p.loan.fromOa)}</b><b class="num muted-ink">${yr(p.loan.fromOa)}</b>` : ''}
+          ${allowance ? `<span class="cb-item"><i class="k-spare"></i>Allowance from your children</span><b class="num pos">+${money(allowance)}</b><b class="num pos">+${yr(allowance)}</b>` : ''}
+          ${p.saving ? `<span class="cb-item"><i class="k-save"></i>Saving: ${[p.b.cpfSelf && 'CPF top-ups', p.b.kidsCpf && p.kids && "kids' CPF", p.b.investAmt && 'investing'].filter(Boolean).join(', ')}</span><b class="num">${money(p.saving)}</b><b class="num">${yr(p.saving)}</b>` : ''}
+        </div>
+        <p class="small muted-ink">${years > 1 ? `Your next turn is ${years} years: about <b class="${left < 0 ? 'neg' : ''}">${left < 0 ? '−' : ''}${money(Math.abs(left * 12 * years))}</b> ${left < 0 ? 'short' : 'spare'} in all. ` : ''}${left < 0 && S.bank > 0 ? `Shortfalls come out of your cash${S.age >= 55 ? ', then your OA' : ''}, then credit cards. ` : ''}<button class="link-btn" data-panel="budget">Change my budget</button></p>
+      </div>
+    </section>`;
 }
 
 function turnPrompt() {
@@ -487,7 +576,7 @@ async function rateChangeNotice(fromAge, toAge) {
 
 function addTotals(t = {}, sum) {
   const out = { ...t };
-  for (const [k, v] of Object.entries(sum)) out[k] = (out[k] || 0) + v;
+  for (const [k, v] of Object.entries(sum)) if (k !== 'cashStart' && k !== 'cashEnd') out[k] = (out[k] || 0) + v;
   return out;
 }
 
@@ -502,31 +591,36 @@ function scoreWord(score) {
 function recordTurn(startAge, years, sum, opts, activity, gains) {
   const young = S.stage === 'child' || S.stage === 'teen' || startAge < 21;
   const span = years > 1 ? `Ages ${startAge} to ${startAge + years - 1}` : `Age ${startAge}`;
+  // Each row: label, amount over the whole turn, and whether it's money in, money out, or a CPF/saving move.
   const rows = [];
+  const add = (label, v, kind) => { if (Math.abs(v) > 0.5) rows.push([label, v, kind]); };
   if (young) {
-    rows.push(['Pocket money and earnings', money(sum.income), 'in']);
-    if (sum.cpfIn) rows.push([`Into CPF from your job (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn), 'in']);
+    add('Pocket money and earnings', sum.income, 'in');
+    add(`Into CPF from your job (employer paid ${money(sum.employerIn)})`, sum.cpfIn, 'cpf');
   } else {
-    if (sum.income - sum.payouts > 0.5) rows.push(['Take-home pay', money(sum.income - sum.payouts), 'in']);
-    rows.push(['Living costs (incl. housing and kids)', `−${money(sum.spend - (sum.fun || 0))}`, 'out']);
-    if (sum.cpfIn) rows.push([`Into CPF (employer paid ${money(sum.employerIn)})`, money(sum.cpfIn), 'in']);
-    if (sum.housingOa) rows.push(['Home loan paid from OA', `−${money(sum.housingOa)}`, 'out']);
-    if (sum.oaRanOut) rows.push(['Home loan paid in cash because your OA ran out', `−${money(sum.oaRanOut)}`, 'out']);
-    if (sum.payouts) rows.push(['CPF LIFE payouts', money(sum.payouts), 'in']);
-    if (sum.fun) rows.push(['Hobbies and shopping', `−${money(sum.fun)}`, 'out']);
-    if (sum.holidays) rows.push(['Holidays', `−${money(sum.holidays)}`, 'out']);
-    if (sum.cpfSaved) rows.push(['Your planned CPF top-ups', money(sum.cpfSaved), 'in']);
-    if (sum.kidsCpf) rows.push(['Topped up your children\'s CPF', money(sum.kidsCpf), 'in']);
-    if (sum.invested) rows.push(['Regular investing', money(sum.invested), 'in']);
-    if (sum.investReturn) rows.push(['Investment returns', money(sum.investReturn), sum.investReturn < 0 ? 'out' : 'in']);
-    if (sum.borrowed) rows.push(['Borrowed on credit cards', money(sum.borrowed), 'out']);
-    if (sum.debtInterest) rows.push([S.dcp ? 'Debt plan interest' : 'Card interest (25% a year)', `−${money(sum.debtInterest)}`, 'out']);
-    if (sum.debtPaid) rows.push(['Debt repaid', money(sum.debtPaid), 'in']);
-    if (sum.wentWithout) rows.push(['Bills you couldn\'t pay (you went without)', money(sum.wentWithout), 'out']);
+    add('Take-home pay', sum.income - sum.payouts, 'in');
+    add('CPF LIFE payouts', sum.payouts, 'in');
+    add('Allowance from your children', sum.allowance, 'in');
+    add('Everyday living', -sum.living, 'out');
+    add('Children', -sum.kids, 'out');
+    add('Car', -sum.car, 'out');
+    add('Rent', -sum.rent, 'out');
+    add(sum.oaRanOut ? 'Home loan in cash (your OA ran out)' : 'Home loan in cash', -(sum.housingCash || 0), 'out');
+    add('Debt plan instalments', -sum.dcpPaid, 'out');
+    add('Hobbies and shopping', -sum.fun, 'out');
+    add('Holidays', -sum.holidays, 'out');
+    add('Your planned CPF top-ups', sum.cpfSaved, 'save');
+    add('Topped up your children\'s CPF', sum.kidsCpf, 'save');
+    add('Regular investing', sum.invested, 'save');
+    add('Investment returns', sum.investReturn, sum.investReturn < 0 ? 'out' : 'in');
+    add('Borrowed on credit cards', sum.borrowed, 'warn');
+    add(S.dcp ? 'Debt plan interest' : 'Card interest (25% a year)', -sum.debtInterest, 'out');
+    add('Bills you couldn\'t pay (you went without)', sum.wentWithout, 'warn');
+    add(`Into CPF (employer paid ${money(sum.employerIn)})`, sum.cpfIn, 'cpf');
+    add('Home loan paid from OA', -sum.housingOa, 'cpf');
   }
-  rows.push(['Interest earned (CPF and savings)', money(sum.interest), 'in']);
-  if (opts.noPayMonths) rows.push([`Months without pay`, String(opts.noPayMonths), 'out']);
-  S.lastTurn = { span, rows, years };
+  add('Interest earned (CPF and savings)', sum.interest, 'in');
+  S.lastTurn = { span, rows, years, cash: [sum.cashStart, sum.cashEnd], noPayMonths: opts.noPayMonths || 0 };
   const g = Object.entries(gains).map(([k, v]) => `${STATS[k].icon}+${v}`).join(' ');
   logEvent(`${activity.icon} ${activity.label} ${g}`, startAge);
 }
@@ -570,9 +664,8 @@ function ledgerHtml() {
         ${S.debt > 0 && S.bank > 1000 ? `<button class="tip" data-panel="money">💡 You have ${money(S.bank)} in cash but owe ${money(S.debt)} at ${pctText(S.dcp ? sim.DCP.rate : sim.DEBT_INTEREST)}. Repaying is like earning that rate risk-free. Tap to repay.</button>` : ''}
       </section>
       <section>
-        <h3>⏳ Last turn${t ? ` <span class="ledger-sub">${t.span}${t.years > 1 ? ', totals' : ''}</span>` : ''}</h3>
-        ${t ? `<div class="turn-rows">${t.rows.map(([a, b, k]) => `<span>${a}</span><b class="${k === 'out' ? 'neg' : 'pos'}">${b}</b>`).join('')}</div>`
-          : '<p class="small muted-ink">Pick an activity below to start. What happens to your money each turn shows up here.</p>'}
+        <h3>⏳ Last turn${t ? ` <span class="ledger-sub">${t.span}${t.years > 1 ? ', a year on average' : ''}</span>` : ''}</h3>
+        ${t ? lastTurnHtml(t) : '<p class="small muted-ink">Pick an activity below to start. What happens to your money each turn shows up here.</p>'}
       </section>
       <section>
         <h3>📖 Life log</h3>
@@ -581,8 +674,23 @@ function ledgerHtml() {
     </aside>`;
 }
 
-// Your job and a month of money: what comes in, where it goes, what's left.
-let spendOpen = false;
+// Last turn's money, a year at a time, so turns of different lengths compare.
+function lastTurnHtml(t) {
+  const per = t.years || 1;
+  const fmt = (v) => (typeof v === 'string' ? v : `${v < 0 ? '−' : ''}${money(Math.abs(v) / per)}`);
+  const cls = (v, k) => (k === 'cpf' || k === 'save' ? '' : k === 'warn' || k === 'out' || v < 0 ? 'neg' : 'pos');
+  const group = (kinds, title) => {
+    const rows = t.rows.filter((r) => kinds.includes(r[2]));
+    return rows.length ? `<span class="tr-h">${title}</span><span></span>${rows.map(([a, v, k]) => `<span>${a}</span><b class="${cls(v, k)}">${fmt(v)}</b>`).join('')}` : '';
+  };
+  const old = t.rows.some((r) => typeof r[1] === 'string');
+  const cashLine = t.cash ? `<p class="small">Cash went from <b>${money(t.cash[0])}</b> to <b>${money(t.cash[1])}</b>${per > 1 ? ` over the ${per} years` : ''}.</p>` : '';
+  if (old) return `<div class="turn-rows">${t.rows.map(([a, b, k]) => `<span>${a}</span><b class="${k === 'out' ? 'neg' : 'pos'}">${b}</b>`).join('')}</div>`;
+  return `<div class="turn-rows">${group(['in'], 'Money in')}${group(['out', 'warn'], 'Money out')}${group(['save'], 'Saved')}${group(['cpf'], 'CPF')}</div>
+    ${t.noPayMonths ? `<p class="small neg">${t.noPayMonths} months without pay.</p>` : ''}${cashLine}`;
+}
+
+// Your job and what it pays a month.
 function workHtml() {
   const p = monthlyPlan();
   const job = sim.careerInfo(S);
@@ -590,11 +698,9 @@ function workHtml() {
   const wage = sim.currentWage(S);
   const c = wage > 0 ? cpf.monthlyContribution(S.age, wage, { selfEmployed: S.selfEmployed }) : null;
   const canHunt = S.stage === 'adult' || (working && S.age < 65);
-  const ls = S.stage === 'senior' && S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle] : LIFESTYLES[S.lifestyle];
-  const line = (label, v, cls = 'neg') => (v > 0.5 ? `<span>${label}</span><b class="${cls}">${cls === 'neg' ? '−' : ''}${money(v)}</b>` : '');
   return `
       <section>
-        <h3>💼 Work and money <span class="ledger-sub">per month</span></h3>
+        <h3>💼 Work and pay <span class="ledger-sub">per month</span></h3>
         <p class="job-line">${working && job ? `${job.icon} <b>${job.label}</b>${S.selfEmployed ? ' <small>(self-employed)</small>' : ''}${S.workMode === 'part' && S.stage === 'senior' ? ' <small>(part-time)</small>' : ''}` : `<span>🌅 <b>Retired</b>, no salary</span>`}
           ${canHunt ? `<button class="link-btn" data-panel="job">${working ? 'Look for a new job' : 'Find a job'}</button>` : ''}</p>
         <div class="cash-rows">
@@ -604,28 +710,6 @@ function workHtml() {
           ${p.payout ? `<span>CPF LIFE payout</span><b class="pos">${money(p.payout)}</b>` : ''}
           ${!p.income ? '<span>Money coming in</span><b>$0</b>' : ''}
         </div>
-        <details class="spend" ${spendOpen ? 'open' : ''}>
-          <summary><span>Spending</span><b class="neg">−${money(p.out)}</b></summary>
-          <div class="cash-rows sub">
-            ${line(`Everyday living (${ls.label})`, p.parts.living)}
-            ${line(`Children (${p.parts.kidsCount})`, p.parts.kids)}
-            ${line('Car', p.parts.car)}
-            ${p.parts.allowance ? `<span>Allowance from grown-up children</span><b class="pos">+${money(p.parts.allowance)}</b>` : ''}
-            ${line('Rent', p.rent)}
-            ${line(p.loan.fromOa > 0.5 ? 'Home loan (the part your OA can\'t cover)' : 'Home loan', p.loanCash)}
-            ${p.loan.fromOa > 0.5 ? `<span class="muted-ink">Home loan from your OA (not cash)</span><b class="muted-ink">${money(p.loan.fromOa)}</b>` : ''}
-            ${line('Debt plan', p.dcp)}
-            ${line('Hobbies', p.b.hobbies)}
-            ${line('Shopping and treats', p.b.shopping)}
-            ${line('Holidays (averaged)', p.holidays)}
-          </div>
-          <button class="link-btn" data-panel="budget">Change my budget</button>
-        </details>
-        <div class="cash-rows">
-          ${p.saving ? `<span>Planned saving and investing</span><b>${money(p.saving)}</b>` : ''}
-          <span><b>${p.left - p.saving < 0 ? 'Short each month' : 'Left over'}</b></span><b class="${p.left - p.saving < 0 ? 'neg' : 'pos'}">${p.left - p.saving < 0 ? '−' : ''}${money(Math.abs(p.left - p.saving))}</b>
-        </div>
-        ${p.left - p.saving < 0 && S.bank > 0 ? `<p class="small muted-ink">Taken from your ${money(S.bank)} cash savings${S.age >= 55 ? ', then your OA' : ''}.</p>` : ''}
       </section>`;
 }
 

@@ -268,13 +268,15 @@ export function yearsThisTurn(s) {
 // Runs `years` years of life. `opts.jobWage` is a teen's part-time monthly pay.
 // Returns a summary of what happened to the money.
 export function advanceYears(s, years, opts = {}) {
-  const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0 };
+  const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0,
+    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cashStart: s.bank };
   for (let y = 0; y < years; y++) {
     // One-off effects (like months without pay) only hit the first year.
     oneYear(s, sum, y === 0 ? opts : { jobWage: opts.jobWage });
     s.age++;
     record(s);
   }
+  sum.cashEnd = s.bank;
   return sum;
 }
 
@@ -295,7 +297,10 @@ function oneYear(s, sum, opts) {
   }
   const wage = young ? 0 : currentWage(s);
   const jobMonths = young && opts.jobWage && age >= 16 ? 3 : 0; // teen holiday job
-  const spendMonthly = young ? 0 : monthlySpend(s) * (opts.costFactor || 1);
+  // Everyday spending, split into its parts so the player can see where it goes.
+  const parts = young ? null : spendBreakdown(s);
+  const costFactor = opts.costFactor || 1;
+  const spendMonthly = young ? 0 : parts.total * costFactor;
   const b = s.budget || newBudget();
   const funMonthly = young ? 0 : (b.hobbies || 0) + (b.shopping || 0);
   const acc = cpf.newInterestAccrual();
@@ -309,6 +314,10 @@ function oneYear(s, sum, opts) {
     let out = spendMonthly + funMonthly;
     sum.fun += funMonthly;
     if (!young) {
+      sum.living += parts.living * costFactor;
+      sum.kids += parts.kids * costFactor;
+      sum.car += parts.car * costFactor;
+      sum.allowance += parts.allowance * costFactor;
       if (s.home) {
         // Loan instalments: from the OA first if you chose that, then cash.
         const paid = housing.payMonth(s.home, s.cpf.oa);
@@ -319,7 +328,9 @@ function oneYear(s, sum, opts) {
         if (s.home.payWith === 'oa' && paid.fromCash > 0.01) sum.oaRanOut = (sum.oaRanOut || 0) + paid.fromCash;
         out += paid.fromCash;
       } else if (age >= 30 || s.spouse) {
-        out += RENT_MONTHLY * (s.spouse ? 0.5 : 1);
+        const rent = RENT_MONTHLY * (s.spouse ? 0.5 : 1);
+        sum.rent += rent;
+        out += rent;
       }
       // Debt Consolidation Plan: a fixed monthly instalment, with interest worked out monthly.
       if (s.dcp && s.debt > 0) {
@@ -328,6 +339,7 @@ function oneYear(s, sum, opts) {
         s.debt += interest - pay;
         sum.debtInterest += interest;
         sum.debtPaid += pay;
+        sum.dcpPaid += pay;
         out += pay;
         if (s.debt < 1) { s.debt = 0; s.dcp = null; s.debtCrisis = false; }
       }
