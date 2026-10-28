@@ -1,7 +1,8 @@
 // Random life events. World events change the coming years (and your stats can
 // soften them); personal events and cash gifts happen to you alone.
 import { rand, pick, FACTS } from './data.js';
-import { money, payFromMedisave, coverShortfall, marry, haveChild } from './sim.js';
+import { money, payFromMedisave, coverShortfall, marry, haveChild, spendCash } from './sim.js';
+import * as invest from './invest.js';
 
 // How much your stats protect you: 0 (none) to 0.8 (mostly), plus hybrid bonuses.
 export function resistance(s, keys, hybrids = []) {
@@ -30,7 +31,7 @@ export const WORLD_EVENTS = [
       const text = hit
         ? `Companies are cutting jobs. You are out of work for ${months} months. Your ${statLine(s, keys)} cut the damage by ${pct(r)}. This is why an emergency fund of 6 months' spending matters.`
         : `Companies are cutting jobs, but your ${statLine(s, keys)} kept you in work. Investments still take a knock this year.`;
-      return { icon: '📉', title: 'Recession!', text, opts: { noPayMonths: months, investReturn: -0.15 } };
+      return { icon: '📉', title: 'Recession!', text, opts: { noPayMonths: months, market: -1.5 } };
     },
   },
   {
@@ -54,27 +55,28 @@ export const WORLD_EVENTS = [
       s.bank += 600;
       const text = `${essential ? 'As an essential worker you keep working through it.' : months ? `Your income stops for ${months} months.` : 'You adapt and keep working from home.'} ` +
         `The Government sends every adult a $600 support payment (added to your bank). Your ${statLine(s, keys)} kept you ${pct(r)} safer.`;
-      return { icon: '🦠', title: 'Global pandemic', text, opts: { noPayMonths: months, investReturn: -0.05 } };
+      return { icon: '🦠', title: 'Global pandemic', text, opts: { noPayMonths: months, market: -0.7 } };
     },
   },
   {
     id: 'crash',
     stages: ['adult', 'senior'],
-    when: (s) => s.invest > 1000,
+    when: (s) => invest.total(s) > 1000,
     run(s) {
       const calm = s.stats.moneySense >= 20 || s.hybrids.planner;
+      const loss = -invest.shock(s, -2.2);
+      if (!calm) invest.sellAll(s);
       return calm
         ? {
             icon: '📊',
             title: 'Stock market crash',
-            text: 'Markets fall 35%. Your Money Sense tells you not to panic-sell, so you hold on and most of the loss recovers within the next few years.',
-            opts: { investReturn: -0.08 },
+            text: `Share prices plunge and your investments lose ${money(loss)}. Your Money Sense tells you not to panic-sell, so you hold on. Markets often bounce back afterwards.`,
+            opts: { market: 0.8 },
           }
         : {
             icon: '📊',
             title: 'Stock market crash',
-            text: 'Markets fall 35% and you panic-sell, locking in the loss. (Raising your Money Sense to 20 helps you stay calm next time.)',
-            opts: { investReturn: -0.35 },
+            text: `Share prices plunge, your investments lose ${money(loss)}, and you panic-sell everything, locking in the loss. CPF-funded investments go back to your CPF. (Raising your Money Sense to 20 helps you stay calm next time.)`,
           };
     },
   },
@@ -238,7 +240,7 @@ export const PERSONAL_EVENTS = [
         choices: [
           { label: 'Invest!', run: (s) => {
             if (s.stats.moneySense >= 15) return 'Your Money Sense kicks in: no real investment is "guaranteed" to return 30%. You back out just in time.';
-            s.bank -= amount;
+            spendCash(s, amount);
             return `It was a scam and the money is gone. Remember: if it sounds too good to be true, it is. (Check with ScamShield.)`;
           } },
           { label: 'No thanks', run: (s) => { s.stats.moneySense += 1; return 'Smart. Money Sense +1.'; } },
@@ -301,11 +303,11 @@ export const PERSONAL_EVENTS = [
     id: 'lostwallet',
     stages: ['child'],
     weight: 1,
-    when: (s) => s.wallet > 10,
+    when: (s) => s.bank > 10,
     run: (s) => {
       // Only what a kid would actually carry; the rest is safe in the piggy bank.
-      const lost = Math.min(s.wallet, rand(5, 20));
-      s.wallet -= lost;
+      const lost = Math.min(s.bank, rand(5, 20));
+      spendCash(s, lost);
       return { icon: '👛', title: 'Lost your wallet!', text: `You dropped your wallet at the playground with ${money(lost)} of pocket money inside. Luckily you only carry a little each day, and the rest of your savings are safe at home and in the bank.` };
     },
   },

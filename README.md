@@ -16,10 +16,12 @@ Progress is saved in the browser automatically.
 ## How it plays
 
 - **Four life stages:** child (7 to 12), teenager (13 to 20), working adult (21 to 54) and senior (55 to 85). Each turn covers 1, 2, 3 or 5 years depending on the stage.
-- **Each turn** you pick an activity (study, play, talk with friends, create, and later part-time jobs, SkillsFuture courses, networking and more). Then you play a 10 to 20 second mini game (a timed quiz, a tap race, a memory sequence or a rhythm tap). Your score decides how many stat points you gain.
+- **Each turn** you pick an activity (study, play, talk with friends, create, and later part-time jobs, SkillsFuture courses, networking and more). One click plays it out: how well it goes is random and decides how many stat points you gain. (The mini games in js/minigames.js are switched off for now.)
 - **Stats:** Creativity, Fitness, Knowledge and Communication from childhood. Money Sense and Resilience unlock as a teenager, and Career Skills and Health as an adult. **Hybrid stats** (Leadership, Innovation, Teamwork, Artistry, Discipline, Enterprise, Planner and Vitality) unlock when both of their parent stats reach 12.
 - **Your room** is the background. Things you buy in the shop stay in it, and some boost your stats every turn. Your spouse and children appear in it too.
-- **Cash gifts** (festive gift packets, birthday money, bonuses, wedding gifts, the Baby Bonus) let you split the money between your spending fund, bank, investments and a CPF top-up.
+- **Cash gifts** (festive gift packets, birthday money, bonuses, wedding gifts, the Baby Bonus) let you split the money with sliders between treats, charity, a CPF top-up (your parents do it for you as a child) and your cash savings.
+- **Money** is one cash account. Cash left untouched for a whole year earns a fixed-deposit rate (1.5%); the rest earns the 0.05% base rate. Overspending goes on credit cards at 25% a year, up to the Singapore credit limit (12 months of income, 2 if you earn under $30,000). Past 12 months of income, the debt becomes a Debt Consolidation Plan (about 7.5%, 10 years). You can repay from the Money panel.
+- **Investing**: nine fictional companies and funds modelled on real markets (STI, S&P 500, S-REITs, bank, telco, tech, biotech, bonds), bought with cash or with CPF under CPFIS rules (keep $20,000 in the OA and $40,000 in the SA, 35% stock limit, SA only in funds and bonds).
 - **World events** (recessions, pandemics, market crashes, inflation spikes, AI disruption) affect jobs and savings. The right stats soften the blow.
 - **Life choices:** education (from Knowledge), career, lifestyle, marriage, children, buying, upgrading or right-sizing a home, a car, holidays, scams, and paying for your children's university.
 - **Retirement:** form your Retirement Account at 55, decide how much to withdraw and whether to keep working, then choose when to start CPF LIFE and which plan.
@@ -51,7 +53,8 @@ js/housing.js       housing rules (pure functions)
 js/sim.js           game state and the month-by-month money simulation
 js/events.js        world events, personal events, cash gifts
 js/data.js          stages, stats, activities, careers, shop items, quizzes
-js/minigames.js     the four mini games
+js/invest.js        investment products and CPFIS rules
+js/minigames.js     the four mini games (switched off for now)
 js/main.js          screens, dialogs and game flow
 js/sprites.js       characters: placeholder pixel art drawn in code (see assets/sprites/README.md)
 assets/sprites/     drop-in folder for custom character art

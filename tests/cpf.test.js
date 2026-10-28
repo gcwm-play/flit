@@ -170,3 +170,61 @@ test('event and data modules load', async () => {
   assert.ok(events.PERSONAL_EVENTS.length > 0);
   assert.ok(events.WORLD_EVENTS.length > 0);
 });
+
+test('untouched cash earns the fixed-deposit rate, spent cash only the base rate', () => {
+  const s = sim.newGame('Cash', { gender: 'male', tone: 0, outfit: 0 });
+  s.bank = 10000;
+  s.cashLow = 10000;
+  s.stage = 'adult';
+  s.age = 30;
+  s.salary = 0;
+  s.lifestyle = 'simple';
+  // Living costs with no income come out of cash, so most of it is touched.
+  sim.spendCash(s, 4000);
+  assert.equal(s.cashLow, 6000);
+});
+
+test('debt stays bounded: credit limits, then a Debt Consolidation Plan', () => {
+  const s = sim.newGame('Debt', { gender: 'female', tone: 1, outfit: 0 });
+  s.age = 30;
+  s.stage = 'adult';
+  s.salary = 2500;
+  s.education = 'secondary';
+  s.lifestyle = 'lavish';
+  s.car = true;
+  for (let i = 0; i < 6; i++) sim.advanceYears(s, 5);
+  assert.ok(s.debt < 12 * 2500 * 2, `debt ${s.debt}`);
+  assert.ok(Number.isFinite(s.debt) && s.debt >= 0);
+});
+
+test('a Debt Consolidation Plan is paid off with fixed instalments', () => {
+  const s = sim.newGame('Dcp', { gender: 'female', tone: 1, outfit: 0 });
+  s.age = 30;
+  s.stage = 'adult';
+  s.salary = 6000;
+  s.debt = 80000;
+  sim.startDcp(s);
+  assert.ok(s.dcp.monthly > 900 && s.dcp.monthly < 1000, `${s.dcp.monthly}`);
+  sim.advanceYears(s, 11);
+  assert.equal(s.debt, 0);
+  assert.equal(s.dcp, null);
+});
+
+test('CPFIS limits: keep $20k in the OA, 35% in stocks, SA only in funds', async () => {
+  const invest = await import('../js/invest.js');
+  const s = sim.newGame('Inv', { gender: 'male', tone: 3, outfit: 0 });
+  s.age = 30;
+  s.cpf.oa = 100000;
+  s.cpf.sa = 30000;
+  const bank = invest.product('bank');
+  const world = invest.product('world');
+  assert.equal(invest.maxBuy(s, world, 'oa'), 80000);
+  assert.equal(invest.maxBuy(s, bank, 'oa'), 35000);
+  assert.equal(invest.allowed(bank, 'sa'), false);
+  assert.equal(invest.maxBuy(s, world, 'sa'), 0);
+  assert.equal(invest.buy(s, 'bank', 'oa', 50000), 35000);
+  assert.equal(s.cpf.oa, 65000);
+  assert.equal(invest.maxBuy(s, invest.product('ai'), 'oa'), 0);
+  invest.sell(s, 'bank', 'oa', 1e9);
+  assert.ok(s.cpf.oa > 65000 * 0 && invest.holdings(s).length === 0);
+});

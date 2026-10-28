@@ -2,7 +2,7 @@
 import * as cpf from './cpf.js';
 import * as sim from './sim.js';
 import * as housing from './housing.js';
-import { playMiniGame } from './minigames.js';
+import * as invest from './invest.js';
 import { characterSrc, lookOf, spriteHeight, SKIN_TONES, GENDERS, OUTFITS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent } from './events.js';
 import {
@@ -140,6 +140,14 @@ function titleScreen() {
 function migrate(s) {
   if (!s.look) s.look = { gender: 'female', tone: 2, outfit: 0 };
   delete s.sprites;
+  // One cash account: the old spending fund and bank savings are merged.
+  if (s.wallet != null) { s.bank += s.wallet; delete s.wallet; }
+  if (s.cashLow == null) s.cashLow = s.bank;
+  if (!s.holdings) {
+    s.holdings = s.invest > 0 ? [{ id: 'world', src: 'cash', value: s.invest, cost: s.invest }] : [];
+    delete s.invest;
+  }
+  if (!s.dcp && s.debt > Math.max(5000, 12 * (s.salary || 0))) sim.startDcp(s);
   if (s.spouse && !s.spouse.gender) Object.assign(s.spouse, { gender: s.look.gender === 'male' ? 'female' : 'male', tone: s.look.tone, outfit: 2 });
   for (const c of s.children || []) if (!c.gender) Object.assign(c, { gender: Math.random() < 0.5 ? 'male' : 'female', tone: s.look.tone, outfit: 1 });
   return s;
@@ -155,10 +163,9 @@ function render() {
     <header class="hud">
       <div class="who">${person(me(), 'mini')}<div><b>${esc(S.name)}</b><span>Age ${S.age} · ${st.label}</span></div></div>
       <div class="chips">
-        <button class="chip" data-panel="money" title="Spending fund">👛 ${money(S.wallet)}</button>
-        <button class="chip" data-panel="money" title="Bank savings">🏦 ${money(S.bank)}</button>
-        ${S.invest > 0 || S.stage === 'adult' || S.stage === 'senior' ? `<button class="chip" data-panel="money" title="Investments">📈 ${money(S.invest)}</button>` : ''}
-        ${S.debt > 0 ? `<button class="chip bad" data-panel="money" title="Debt at 25% a year">💳 −${money(S.debt)}</button>` : ''}
+        <button class="chip" data-panel="money" title="Cash savings">💵 ${money(S.bank)}</button>
+        ${invest.total(S) > 0 || S.stage === 'adult' || S.stage === 'senior' ? `<button class="chip" data-panel="invest" title="Investments">📈 ${money(invest.total(S))}</button>` : ''}
+        ${S.debt > 0 ? `<button class="chip bad" data-panel="money" title="${S.dcp ? 'Debt Consolidation Plan' : 'Credit card debt at 25% a year'}">💳 −${money(S.debt)}</button>` : ''}
         <button class="chip cpf" data-panel="cpf" title="CPF total">CPF ${money(cpfTotal)}</button>
         <span class="chip" title="Joy: your life experiences">😊 ${Math.round(S.joy)}</span>
       </div>
@@ -166,6 +173,7 @@ function render() {
         <button class="btn small-btn" data-panel="stats">📊 Stats</button>
         <button class="btn small-btn" data-panel="cpf">🏛️ CPF</button>
         <button class="btn small-btn" data-panel="money">💵 Money</button>
+        ${S.stage === 'adult' || S.stage === 'senior' ? '<button class="btn small-btn" data-panel="invest">📈 Invest</button>' : ''}
         <button class="btn small-btn" data-panel="shop">🛍️ Shop</button>
         ${S.stage === 'adult' || S.stage === 'senior' ? '<button class="btn small-btn" data-panel="home">🏠 Home</button>' : ''}
         <button class="btn small-btn" data-panel="menu">☰</button>
@@ -258,17 +266,16 @@ async function takeTurn(activityId) {
   busy = true;
   try {
     const activity = ACTIVITIES[S.stage].find((a) => a.id === activityId);
-    modalBox.className = 'modal-box wide';
-    modalEl.hidden = false;
-    const score = await playMiniGame(activity.game, modalBox, { stage: S.stage, quiz: activity.quiz, title: `${activity.icon} ${activity.label}` });
+    // One click: how well it went is random (mini games are switched off for now).
+    const score = 0.35 + Math.random() * 0.65;
     const gains = sim.activityGains(S, activity, score);
     sim.applyGains(S, gains);
     const fun = !['study', 'job', 'upskill', 'budget'].includes(activity.id);
     if (fun) S.joy += 1;
     const newHybrids = sim.checkHybrids(S);
     await dialog(`
-      <h2>${scoreWord(score)}</h2>
-      <p class="score">Mini game score: ${Math.round(score * 100)}%</p>
+      <div class="event"><div class="e-icon">${activity.icon}</div><h2>${activity.label}: ${scoreWord(score)}</h2></div>
+      <p class="score">How it went: ${Math.round(score * 100)}%</p>
       <ul class="gains">${Object.entries(gains).map(([k, v]) => `<li>${STATS[k].icon} ${STATS[k].label} <b>+${v}</b></li>`).join('')}
       ${fun ? '<li>😊 Joy <b>+1</b></li>' : ''}</ul>
       ${newHybrids.map((h) => `<p class="unlock">✨ New hybrid stat: <b>${HYBRIDS[h].icon} ${HYBRIDS[h].label}</b></p>`).join('')}
@@ -359,9 +366,12 @@ function recordTurn(startAge, years, sum, opts, activity, gains) {
     if (sum.housingOa) rows.push(['Home loan paid from OA', `−${money(sum.housingOa)}`, 'out']);
     if (sum.payouts) rows.push(['CPF LIFE payouts', money(sum.payouts), 'in']);
     if (sum.investReturn) rows.push(['Investment returns', money(sum.investReturn), sum.investReturn < 0 ? 'out' : 'in']);
-    if (sum.debtInterest) rows.push(['Debt interest (25% a year)', `−${money(sum.debtInterest)}`, 'out']);
+    if (sum.borrowed) rows.push(['Borrowed on credit cards', money(sum.borrowed), 'out']);
+    if (sum.debtInterest) rows.push([S.dcp ? 'Debt plan interest' : 'Card interest (25% a year)', `−${money(sum.debtInterest)}`, 'out']);
+    if (sum.debtPaid) rows.push(['Debt repaid', money(sum.debtPaid), 'in']);
+    if (sum.wentWithout) rows.push(['Bills you couldn\'t pay (you went without)', money(sum.wentWithout), 'out']);
   }
-  rows.push(['Interest earned (CPF and bank)', money(sum.interest), 'in']);
+  rows.push(['Interest earned (CPF and savings)', money(sum.interest), 'in']);
   if (opts.noPayMonths) rows.push([`Months without pay`, String(opts.noPayMonths), 'out']);
   S.lastTurn = { span, rows };
   const g = Object.entries(gains).map(([k, v]) => `${STATS[k].icon}+${v}`).join(' ');
@@ -396,12 +406,14 @@ function ledgerHtml() {
       <section>
         <h3>💵 Cash</h3>
         <div class="cash-rows">
-          <span>👛 Spending</span><b>${money(S.wallet)}</b>
-          <span>🏦 Bank</span><b>${money(S.bank)}</b>
-          ${S.invest > 0 ? `<span>📈 Invested</span><b>${money(S.invest)}</b>` : ''}
-          ${S.debt > 0 ? `<span class="neg">💳 Debt</span><b class="neg">−${money(S.debt)}</b>` : ''}
+          <span>💵 Cash savings</span><b>${money(S.bank)}</b>
+          ${invest.total(S, 'cash') > 0 ? `<span>📈 Invested (cash)</span><b>${money(invest.total(S, 'cash'))}</b>` : ''}
+          ${invest.total(S, 'oa') + invest.total(S, 'sa') > 0 ? `<span>📈 Invested (CPFIS)</span><b>${money(invest.total(S, 'oa') + invest.total(S, 'sa'))}</b>` : ''}
+          ${S.debt > 0 ? `<span class="neg">💳 ${S.dcp ? 'Debt plan' : 'Card debt'}</span><b class="neg">−${money(S.debt)}</b>` : ''}
+          ${S.dcp ? `<span class="small">Debt plan instalment</span><b class="neg">${money(S.dcp.monthly)}/mo</b>` : ''}
           ${S.home ? `<span>🏠 Home loan</span><b>${money(S.home.loanBalance)}</b>` : ''}
         </div>
+        ${S.debt > 0 && S.bank > 1000 ? `<button class="tip" data-panel="money">💡 You have ${money(S.bank)} in cash but owe ${money(S.debt)} at ${pctText(S.dcp ? sim.DCP.rate : sim.DEBT_INTEREST)}. Repaying is like earning that rate risk-free. Tap to repay.</button>` : ''}
       </section>
       <section>
         <h3>⏳ Last turn${t ? ` <span class="ledger-sub">${t.span}</span>` : ''}</h3>
@@ -449,69 +461,81 @@ async function runPersonalEvent(e) {
   await dialog(`<div class="event"><div class="e-icon">${e.icon}</div><h2>${e.title}</h2><p>${e.text}</p></div>${factBox(e.fact)}${btn('ok', 'OK', 'primary')}`);
 }
 
-async function giftDialog(e) {
-  const buckets = [
-    { key: 'wallet', icon: '👛', label: 'Spending fund', note: 'For shopping and treats.' },
-    { key: 'bank', icon: '🏦', label: 'Bank savings', note: `Safe, easy to reach, earns ${(sim.BANK_INTEREST * 100).toFixed(1)}% a year.` },
-  ];
-  if (S.stage === 'adult' || S.stage === 'senior') {
-    buckets.push({ key: 'invest', icon: '📈', label: 'Invest', note: 'About 5% a year on average, but it can crash.' });
-  }
-  const cpfOk = sim.canTopUpCpf(S);
-  const room = cpfOk ? sim.topUpRoom(S) : 0;
-  const reliefLeft = Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S));
-  buckets.push({
-    key: 'cpf',
-    icon: '🏛️',
-    label: S.age < 55 ? 'CPF top-up (to SA)' : 'CPF top-up (to RA)',
-    note: cpfOk
-      ? `Earns 4% or more, but stays locked for retirement. ${topUpLimitNote(room, reliefLeft)}`
-      : 'Locked: you can top up your own CPF once you start working. (Your CPF account opened with your MediSave Grant at birth!)',
-    locked: !cpfOk,
-  });
-  const parts = Object.fromEntries(buckets.map((b) => [b.key, 0]));
-  parts.bank = 5;
-  parts.wallet = 5;
-  const draw = () => {
-    const used = Object.values(parts).reduce((a, b) => a + b, 0);
-    modalBox.innerHTML = `
-      <div class="event"><div class="e-icon">${e.icon}</div><h2>${e.title}</h2><p>${e.text}</p>
-      <p class="gift-amount">${money(e.gift)}</p></div>
-      <p class="small">Where will it go? Each step is 10%.</p>
-      <div class="alloc">${buckets.map((b) => `
-        <div class="alloc-row ${b.locked ? 'locked' : ''}">
-          <span class="al-icon">${b.icon}</span>
-          <span class="al-text"><b>${b.label}</b><small>${b.note}</small></span>
-          <span class="al-ctrl">
-            <button class="btn tiny" data-dec="${b.key}" ${b.locked || !parts[b.key] ? 'disabled' : ''}>−</button>
-            <span class="al-val">${money((e.gift * parts[b.key]) / 10)}</span>
-            <button class="btn tiny" data-inc="${b.key}" ${b.locked || used >= 10 || (b.key === 'cpf' && (e.gift * (parts.cpf + 1)) / 10 > room) ? 'disabled' : ''}>+</button>
-          </span>
-        </div>`).join('')}</div>
-      <p class="small">${used < 10 ? `${money((e.gift * (10 - used)) / 10)} still to place.` : 'All placed!'}</p>
-      ${btn('ok', 'Confirm', 'primary')}`;
-    $('[data-choice="ok"]', modalBox).disabled = used < 10;
-    modalBox.querySelectorAll('[data-inc]').forEach((b) => (b.onclick = () => { parts[b.dataset.inc]++; draw(); }));
-    modalBox.querySelectorAll('[data-dec]').forEach((b) => (b.onclick = () => { parts[b.dataset.dec]--; draw(); }));
-  };
-  modalBox.className = 'modal-box';
-  modalEl.hidden = false;
-  const done = new Promise((resolve) => {
-    modalBox.onclick = (ev) => {
-      const b = ev.target.closest('[data-choice="ok"]');
-      if (b && !b.disabled) resolve();
-    };
-  });
-  draw();
-  await done;
-  const split = Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, (e.gift * v) / 10]));
-  const alloc = sim.allocateGift(S, split);
-  const { refused } = alloc;
-  const { matched } = alloc;
-  if (split.cpf) toast(`🏛️ ${money(split.cpf - refused)} added to your CPF ${S.age < 55 ? 'SA' : 'RA'}${matched ? `, plus ${money(matched)} matched by the Government (MRSS)` : ''}`);
-  if (refused) toast(`Your CPF is already at the top-up limit, so ${money(refused)} went to the bank.`);
-  if (split.cpf && sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP) toast('Top-ups this year are above $8,000: the extra still grows, but gets no tax relief.');
+// A slider you can drag, plus a box to type an exact amount.
+function amountControl(key, max, label) {
+  const m = Math.max(0, Math.floor(max));
+  return `<span class="amt" data-amt="${key}">
+    <input type="range" min="0" max="${m}" step="1" value="0" aria-label="${label}" ${m ? '' : 'disabled'}>
+    <label class="amt-box">$<input type="number" min="0" max="${m}" step="1" value="0" inputmode="numeric" aria-label="${label} amount" ${m ? '' : 'disabled'}></label>
+  </span>`;
 }
+
+// Wires an amountControl. `clamp(v)` returns the allowed value; `onChange(v)` reacts to it.
+function wireAmount(root, key, clamp, onChange) {
+  const el = root.querySelector(`[data-amt="${key}"]`);
+  if (!el) return;
+  const [range, box] = el.querySelectorAll('input');
+  const set = (raw, fromBox) => {
+    const v = clamp(Math.max(0, Math.floor(+raw || 0)));
+    range.value = v;
+    if (!fromBox || +box.value !== v) box.value = v;
+    onChange(v);
+  };
+  range.oninput = () => set(range.value, false);
+  box.oninput = () => set(box.value, true);
+  box.onfocus = () => box.select();
+}
+
+async function giftDialog(e) {
+  const young = S.stage === 'child' || S.stage === 'teen';
+  const room = sim.topUpRoom(S);
+  const reliefLeft = Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S));
+  const buckets = [
+    { key: 'treat', icon: '🎉', label: young ? 'Treat yourself' : 'Spend on something fun', note: 'Spend it now on something you enjoy. Joy goes up.' },
+    { key: 'charity', icon: '💝', label: 'Give to charity', note: 'Help others. Joy and Communication go up a little.' },
+    {
+      key: 'cpf',
+      icon: '🏛️',
+      label: young ? 'Ask your parents to top up your CPF' : S.age < 55 ? 'CPF top-up (to SA)' : 'CPF top-up (to RA)',
+      note: young
+        ? `Give it to your parents and they top up your Special Account under the Retirement Sum Topping-Up Scheme. It earns 4% or more until you retire, but you can't take it out. (Top-ups to children get no tax relief.) ${room > 0 ? '' : 'Your SA is already at the FRS.'}`
+        : `Earns 4% or more, but stays locked for retirement. ${topUpLimitNote(room, reliefLeft)}`,
+      cap: room,
+    },
+  ];
+  const parts = { treat: 0, charity: 0, cpf: 0 };
+  const placed = () => parts.treat + parts.charity + parts.cpf;
+  const done = dialog(`
+    <div class="event"><div class="e-icon">${e.icon}</div><h2>${e.title}</h2><p>${e.text}</p>
+    <p class="gift-amount">${money(e.gift)}</p></div>
+    <p class="small">Drag a slider or type an amount. Whatever you don't place stays in your cash savings.</p>
+    <div class="alloc">${buckets.map((b) => `
+      <div class="alloc-row">
+        <span class="al-icon">${b.icon}</span>
+        <span class="al-text"><b>${b.label}</b><small>${b.note}</small></span>
+        ${amountControl(b.key, Math.min(e.gift, b.cap ?? Infinity), b.label)}
+      </div>`).join('')}
+      <div class="alloc-row cash-row">
+        <span class="al-icon">💵</span>
+        <span class="al-text"><b>Cash savings</b><small>Spend it anywhere. Left untouched for a year, it earns ${pctText(sim.SAVINGS_INTEREST.untouched)} interest.</small></span>
+        <b class="al-val" id="gift-cash">${money(e.gift)}</b>
+      </div>
+    </div>
+    ${btn('ok', 'Confirm', 'primary')}`, { wide: true });
+  for (const b of buckets) {
+    wireAmount(modalBox, b.key,
+      (v) => Math.min(v, e.gift - (placed() - parts[b.key]), b.cap ?? Infinity),
+      (v) => { parts[b.key] = v; $('#gift-cash').textContent = money(e.gift - placed()); });
+  }
+  await done;
+  const alloc = sim.allocateGift(S, { ...parts, cash: e.gift - placed() });
+  if (parts.cpf) toast(`🏛️ ${money(parts.cpf - alloc.refused)} added to your CPF ${S.age < 55 ? 'SA' : 'RA'}${alloc.matched ? `, plus ${money(alloc.matched)} matched by the Government (MRSS)` : ''}`);
+  if (parts.treat || parts.charity) toast(`😊 ${parts.treat ? `Spent ${money(parts.treat)} on fun` : ''}${parts.treat && parts.charity ? ' and ' : ''}${parts.charity ? `gave ${money(parts.charity)} to charity` : ''}`);
+  if (alloc.refused) toast(`Your CPF is already at the top-up limit, so ${money(alloc.refused)} went to your cash.`);
+  if (parts.cpf && !young && sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP) toast('Top-ups this year are above $8,000: the extra still grows, but gets no tax relief.');
+}
+
+const pctText = (r) => `${(r * 100).toFixed(Math.abs(r) < 0.001 ? 2 : 1).replace(/\.0+$/, '')}%`;
 
 // Explains the two limits on cash top-ups (RSTU).
 function topUpLimitNote(room, reliefLeft) {
@@ -538,12 +562,13 @@ async function milestones() {
   if (S.stage === 'adult' && !S.home && S.age >= 27 && (S.homeAskedAt == null || S.age - S.homeAskedAt >= 6)) {
     await homeDecision();
   }
-  if (S.debtCrisis) {
-    S.debtCrisis = false;
-    S.lifestyleCut = true;
-    await dialog(`<div class="event"><div class="e-icon">💳</div><h2>Debt crisis</h2>
-      <p>You've been spending more than you earn, and your credit card debt is now ${money(S.debt)}. At 25% interest a year it was growing faster than you could pay.</p>
-      <p>The bank moves you to a Debt Consolidation Plan at a lower rate, and you switch to a simple lifestyle until it's paid off.</p></div>${btn('ok', 'OK', 'primary')}`);
+  if (S.dcpNew) {
+    S.dcpNew = false;
+    logEvent(`💳 Debt Consolidation Plan: ${money(S.dcp.monthly)}/month`);
+    await dialog(`<div class="event"><div class="e-icon">💳</div><h2>Your debt is out of control</h2>
+      <p>You've been spending more than you earn, and your credit card debt is now <b>${money(S.debt)}</b>, more than a year of income. At 25% interest it grows faster than you can pay.</p>
+      <p>In Singapore, banks stop lending once your unsecured debt passes 12 months of income. They roll your card debts into a <b>Debt Consolidation Plan</b>: one loan at about ${pctText(sim.DCP.rate)} a year, repaid at <b>${money(S.dcp.monthly)}/month</b> over ${sim.DCP.years} years. Your cards are frozen and you switch to a simple lifestyle until it's cleared.</p>
+      <p class="small">You can pay it off faster from the Money panel. If you're struggling for real, Credit Counselling Singapore offers free help.</p></div>${btn('ok', 'OK', 'primary')}`);
   }
   for (const child of S.children || []) {
     if (!child.uni && S.age - child.bornAge >= 19) await universityDecision(child);
@@ -646,7 +671,7 @@ async function chooseHome(title, { leaveLabel } = {}) {
   const income = sim.grossIncome(S);
   const c = await dialog(`
     <h2>${title}</h2>
-    <p>You have <b>${money(S.cpf.oa)}</b> in your OA and <b>${money(S.bank + S.wallet)}</b> in cash. ${S.spouse ? 'You and your spouse each pay half.' : ''} Household income: <b>${money(income)}</b>/month.</p>
+    <p>You have <b>${money(S.cpf.oa)}</b> in your OA and <b>${money(S.bank)}</b> in cash. ${S.spouse ? 'You and your spouse each pay half.' : ''} Household income: <b>${money(income)}</b>/month.</p>
     <ul class="facts small">
       <li><b>Loan limits:</b> HDB flats: loan repayments can't be more than 30% of household income (Mortgage Servicing Ratio). All property: total debt repayments can't be more than 55% (MAS Total Debt Servicing Ratio, tested at 4% interest).</li>
       <li><b>Paying:</b> loans cover up to 75%. The 25% down payment and the Buyer's Stamp Duty can come from your OA (private property needs at least 5% in cash). Monthly repayments can come from your OA too, but that's money not growing for retirement.</li>
@@ -750,7 +775,7 @@ async function cpfLifeDecision() {
 
 async function openPanel(kind) {
   if (busy) return;
-  const panels = { stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel };
+  const panels = { stats: statsPanel, cpf: cpfPanel, money: moneyPanel, shop: shopPanel, menu: menuPanel, home: homePanel, invest: investPanel };
   await panels[kind]();
   closeModal();
   save();
@@ -834,7 +859,7 @@ async function moveHome() {
       <p>You right-sized to a smaller flat. Put up to ${money(shb.topUp)} of your sale money into your RA and the Government gives you <b>${money(shb.bonus)}</b> in cash.</p>
       <div class="row">${btn('yes', 'Top up my RA', 'primary')}${btn('no', 'No thanks')}</div>`);
     if (c === 'yes') {
-      S.bank -= shb.topUp;
+      sim.spendCash(S, shb.topUp);
       S.cpf.ra += shb.topUp;
       S.bank += shb.bonus;
       toast(`🏛️ ${money(shb.topUp)} into your RA, ${money(shb.bonus)} bonus`);
@@ -952,49 +977,132 @@ function cpfPanel() {
 async function moneyPanel() {
   for (;;) {
     const adult = S.stage === 'adult' || S.stage === 'senior';
-    const steps = adult ? [500, 5000] : [10, 50];
-    const c = await dialog(`
+    const room = sim.topUpRoom(S);
+    const untouched = Math.max(0, Math.min(S.cashLow ?? S.bank, S.bank));
+    const investedCash = invest.total(S, 'cash');
+    const investedCpf = invest.total(S, 'oa') + invest.total(S, 'sa');
+    const limit = sim.creditLimit(S);
+    let repay = 0, topUp = 0;
+    const scroll = modalEl.hidden ? 0 : modalBox.scrollTop;
+    const c = dialog(`
       <h2>💵 Money</h2>
       <table class="summary">
-        <tr><td>👛 Spending fund</td><td>${money(S.wallet)}</td></tr>
-        <tr><td>🏦 Bank savings</td><td>${money(S.bank)}</td></tr>
-        ${adult ? `<tr><td>📈 Investments</td><td>${money(S.invest)}</td></tr>` : ''}
-        ${S.debt ? `<tr><td>💳 Debt (25% a year)</td><td>−${money(S.debt)}</td></tr>` : ''}
-        <tr><td>🏛️ CPF</td><td>${money(cpf.cpfTotal(S.cpf))}</td></tr>
+        <tr><td>💵 Cash savings</td><td>${money(S.bank)}</td></tr>
+        ${investedCash || adult ? `<tr><td>📈 Investments (cash)</td><td>${money(investedCash)}</td></tr>` : ''}
+        ${S.debt ? `<tr><td>💳 ${S.dcp ? 'Debt Consolidation Plan' : 'Credit card debt'}</td><td class="neg">−${money(S.debt)}</td></tr>` : ''}
+        <tr><td>🏛️ CPF${investedCpf ? ` (plus ${money(investedCpf)} invested through CPFIS)` : ''}</td><td>${money(cpf.cpfTotal(S.cpf))}</td></tr>
       </table>
-      <h3>Move money</h3>
-      <div class="row wrap">
-        ${steps.map((n) => btn(`w+${n}`, `Bank → Spending ${money(n)}`)).join('')}
-        ${steps.map((n) => btn(`w-${n}`, `Spending → Bank ${money(n)}`)).join('')}
-        ${adult ? steps.map((n) => btn(`i+${n}`, `Bank → Invest ${money(n)}`)).join('') + steps.map((n) => btn(`i-${n}`, `Invest → Bank ${money(n)}`)).join('') : ''}
-        ${sim.canTopUpCpf(S) ? steps.map((n) => btn(`c+${n}`, `Bank → CPF top-up ${money(n)}`)).join('') : ''}
-      </div>
-      ${sim.canTopUpCpf(S) ? `<div class="limit-box"><p class="small"><b>CPF top-up limits.</b> Cash top-ups go to your ${S.age < 55 ? 'SA' : 'RA'} under the Retirement Sum Topping-Up Scheme (RSTU). ${topUpLimitNote(sim.topUpRoom(S), Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S)))} Topped up this year: <b>${money(sim.topUpsThisYear(S))}</b>.</p>
-        <p class="small">Separately, the CPF Annual Limit caps your compulsory contributions plus any Voluntary Contributions at ${money(sim.CPF_ANNUAL_LIMIT)} a year; RSTU top-ups don't count towards it. ${S.age >= 55 ? 'If your RA is below the BRS, the Matched Retirement Savings Scheme adds $1 for every $1, up to $2,000 a year.' : ''}</p></div>` : ''}
+      <p class="small">Your cash is one account you can use for anything. Money you leave untouched for the whole year earns about ${pctText(sim.SAVINGS_INTEREST.untouched)} (like a 12-month fixed deposit); money you dip into earns the ${pctText(sim.SAVINGS_INTEREST.base)} savings base rate. Untouched so far this year: <b>${money(untouched)}</b>.</p>
+      ${S.debt > 0 ? `
+        <h3>💳 Debt</h3>
+        ${S.dcp
+          ? `<p>You're on a <b>Debt Consolidation Plan</b>: your card debts were rolled into one bank loan at about ${pctText(sim.DCP.rate)} a year, paid back at <b>${money(S.dcp.monthly)}/month</b> from your pay. Your credit cards are frozen until it's cleared.</p>`
+          : `<p>Credit card debt grows at <b>${pctText(sim.DEBT_INTEREST)} a year</b>. Any cash you have at the end of a year pays it off automatically, and you can pay more now. Your credit limit is ${money(limit)}${limit ? ' (banks lend up to 12 months of income, or 2 months if you earn under $30,000 a year)' : ': with no income, no bank will lend to you'}.</p>`}
+        <div class="pay-row">${amountControl('repay', Math.min(S.debt, S.bank), 'Repay debt')}${btn('repay', 'Repay', 'primary')}</div>
+        ${S.bank < 1 ? '<p class="small">You need cash to repay. Cutting your lifestyle or selling investments frees some up.</p>' : ''}` : ''}
+      <h3>🏛️ Top up your CPF</h3>
+      <div class="pay-row">${amountControl('topup', Math.min(S.bank, room), 'CPF top-up')}${btn('topup', 'Top up')}</div>
+      <div class="limit-box"><p class="small">${S.stage === 'child' || S.stage === 'teen' ? 'Your parents can top up your Special Account for you under the Retirement Sum Topping-Up Scheme (RSTU). ' : `Cash top-ups go to your ${S.age < 55 ? 'SA' : 'RA'} under the Retirement Sum Topping-Up Scheme (RSTU). `}${topUpLimitNote(room, Math.max(0, sim.TOP_UP_TAX_RELIEF_CAP - sim.topUpsThisYear(S)))} Topped up this year: <b>${money(sim.topUpsThisYear(S))}</b>.</p>
+        <p class="small">Separately, the CPF Annual Limit caps your compulsory contributions plus any Voluntary Contributions at ${money(sim.CPF_ANNUAL_LIMIT)} a year; RSTU top-ups don't count towards it. ${S.age >= 55 ? 'If your RA is below the BRS, the Matched Retirement Savings Scheme adds $1 for every $1, up to $2,000 a year.' : ''}</p></div>
+      ${adult ? `<h3>📈 Investing</h3><p>Buy funds and shares with cash, or with your CPF through the CPF Investment Scheme. ${btn('invest', 'Open investments')}</p>` : ''}
       ${S.stage === 'adult' ? `<h3>Lifestyle</h3><p>${LIFESTYLES[S.lifestyle].icon} ${LIFESTYLES[S.lifestyle].label}: about ${money(sim.monthlySpend(S))}/month in total ${btn('life', 'Change')}</p>` : ''}
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
-    if (c === 'ok') return;
-    if (c === 'life') {
-      await lifestyleDialog();
-      continue;
+    modalBox.scrollTop = scroll;
+    wireAmount(modalBox, 'repay', (v) => Math.min(v, S.debt, S.bank), (v) => (repay = v));
+    wireAmount(modalBox, 'topup', (v) => Math.min(v, S.bank, room), (v) => (topUp = v));
+    const choice = await c;
+    if (choice === 'ok') return;
+    if (choice === 'life') await lifestyleDialog();
+    if (choice === 'invest') await investPanel();
+    if (choice === 'repay' && repay > 0) {
+      const paid = sim.repayDebt(S, repay);
+      toast(S.debt > 0 ? `💳 Repaid ${money(paid)}. ${money(S.debt)} still to go.` : `🎉 Repaid ${money(paid)}. You're debt-free!`);
+      logEvent(`💳 Repaid ${money(paid)} of debt`);
     }
-    const kind = c[0], sign = c[1] === '+' ? 1 : -1, n = +c.slice(2);
-    if (kind === 'w') sim.transfer(S, sign * n);
-    if (kind === 'i') {
-      const a = sign > 0 ? Math.min(n, S.bank) : Math.min(n, S.invest);
-      S.bank -= sign * a;
-      S.invest += sign * a;
-    }
-    if (kind === 'c') {
-      const r = sim.topUpCpf(S, Math.min(n, S.bank));
-      S.bank -= r.accepted;
+    if (choice === 'topup' && topUp > 0) {
+      sim.spendCash(S, topUp);
+      const r = sim.topUpCpf(S, topUp);
+      S.bank += topUp - r.accepted;
       if (!r.accepted) {
-        await dialog(`<h2>🏛️ Top-up limit reached</h2><p>${topUpLimitNote(0, 0)}</p><p class="small">The limit keeps your retirement top-ups in line with the retirement sums. Your cash stays in the bank.</p>${btn('ok', 'OK', 'primary')}`);
+        await dialog(`<h2>🏛️ Top-up limit reached</h2><p>${topUpLimitNote(0, 0)}</p><p class="small">The limit keeps your retirement top-ups in line with the retirement sums. Your cash stays in your savings.</p>${btn('ok', 'OK', 'primary')}`);
       } else {
         toast(`🏛️ Topped up ${money(r.accepted)} to your ${S.age < 55 ? 'SA' : 'RA'}${r.matched ? `, and the Government matched ${money(r.matched)}` : ''}`);
-        if (r.accepted < Math.min(n, S.bank + r.accepted)) toast(`Only ${money(r.accepted)} fit under your top-up limit.`);
-        if (sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP && sim.topUpsThisYear(S) - r.accepted <= sim.TOP_UP_TAX_RELIEF_CAP) toast('You are past $8,000 of top-ups this year: more is allowed, but gets no extra tax relief.');
+        logEvent(`🏛️ CPF top-up ${money(r.accepted)}`);
+        if (S.stage === 'adult' || S.stage === 'senior') {
+          if (sim.topUpsThisYear(S) > sim.TOP_UP_TAX_RELIEF_CAP && sim.topUpsThisYear(S) - r.accepted <= sim.TOP_UP_TAX_RELIEF_CAP) toast('You are past $8,000 of top-ups this year: more is allowed, but gets no extra tax relief.');
+        }
       }
+    }
+    render();
+  }
+}
+
+// Buy and sell fictional companies and funds, with cash or through CPFIS.
+async function investPanel() {
+  let picked = null;
+  let src = 'cash';
+  let scrollToBuy = false;
+  for (;;) {
+    const hs = invest.holdings(S);
+    const p = picked && invest.product(picked);
+    const sources = Object.keys(invest.SOURCES);
+    if (p && !invest.allowed(p, src)) src = 'cash';
+    const max = p ? invest.maxBuy(S, p, src) : 0;
+    const why = p ? invest.blockedReason(S, p, src) : '';
+    let amount = 0;
+    const last = S.lastReturns || {};
+    const scroll = modalEl.hidden ? 0 : modalBox.scrollTop;
+    const c = dialog(`
+      <h2>📈 Investments</h2>
+      <p class="small">Fictional companies and funds, each modelled on a real kind of market. Prices move every year: higher risk means bigger swings both ways. Past returns don't promise future ones.</p>
+      <h3>What you own</h3>
+      ${hs.length ? `<div class="table-scroll"><table class="summary holdings">
+        <tr><th>Holding</th><th>Paid with</th><th>Worth</th><th>Gain/loss</th><th></th></tr>
+        ${hs.map((h) => {
+          const pr = invest.product(h.id);
+          const g = h.value - h.cost;
+          return `<tr><td>${pr.icon} ${pr.name}</td><td>${invest.SOURCES[h.src].short}</td><td>${money(h.value)}</td>
+            <td class="${g < 0 ? 'neg' : 'pos'}">${g < 0 ? '−' : '+'}${money(Math.abs(g))}</td>
+            <td>${btn(`sell:${h.id}:${h.src}`, 'Sell')}</td></tr>`;
+        }).join('')}</table></div>
+        <p class="small">Selling puts cash back in your savings, and CPF money back in the account it came from${S.age >= 55 ? ' (SA money goes to your RA)' : ''}.</p>`
+        : '<p class="small muted-ink">Nothing yet.</p>'}
+      <h3>Choose something to buy</h3>
+      <div class="products">${invest.PRODUCTS.map((pr) => `
+        <button class="product ${picked === pr.id ? 'on' : ''}" data-choice="pick:${pr.id}">
+          <span class="p-head"><span class="p-icon">${pr.icon}</span><b>${pr.name}</b></span>
+          <small class="p-like">Like ${pr.like}</small>
+          <span class="p-risk" title="Risk">${'●'.repeat(pr.risk)}${'○'.repeat(5 - pr.risk)} ${invest.RISK_LABELS[pr.risk]} risk</span>
+          <small>About ${pctText(pr.mean)} a year on average${last[pr.id] != null ? ` · last year ${last[pr.id] >= 0 ? '+' : ''}${pctText(last[pr.id])}` : ''}</small>
+        </button>`).join('')}</div>
+      ${p ? `<div class="buy-box">
+        <p><b>${p.icon} ${p.name}</b>: ${p.desc}</p>
+        <div class="seg" role="group" aria-label="Pay with">${sources.map((k) => `<button class="seg-btn ${src === k ? 'on' : ''}" data-choice="src:${k}" ${invest.allowed(p, k) ? '' : 'disabled'}>${invest.SOURCES[k].label}</button>`).join('')}</div>
+        ${why ? `<p class="small neg">${why}</p>` : `<p class="small">You can put in up to ${money(max)}.${src !== 'cash' ? ` Left in your ${invest.SOURCES[src].short}, this money would earn a safe ${pctText(invest.cpfAlternative(src))} or more, so an investment has to beat that to be worth it.` : ''}</p>`}
+        <div class="pay-row">${amountControl('buy', max, 'Amount to invest')}${btn('buy', 'Buy', 'primary')}</div>
+      </div>` : ''}
+      <div class="limit-box"><p class="small"><b>CPF Investment Scheme (CPFIS) rules:</b> from age 18; keep the first ${money(invest.CPFIS.oaKeep)} in your OA and ${money(invest.CPFIS.saKeep)} in your SA; at most 35% of your investible OA savings in shares and REITs; SA money only in approved unit trusts and bonds. Many CPFIS investors have earned less than the 2.5% the OA pays risk-free.</p></div>
+      ${btn('ok', 'Close', 'primary')}`, { wide: true });
+    modalBox.scrollTop = scroll;
+    if (scrollToBuy) $('.buy-box', modalBox)?.scrollIntoView({ block: 'center' });
+    scrollToBuy = false;
+    wireAmount(modalBox, 'buy', (v) => Math.min(v, max), (v) => (amount = v));
+    const choice = await c;
+    if (choice === 'ok') return;
+    const [kind, a, b] = choice.split(':');
+    if (kind === 'pick') { picked = a; scrollToBuy = true; }
+    if (kind === 'src') src = a;
+    if (kind === 'buy' && p && amount > 0) {
+      const spent = invest.buy(S, p.id, src, amount);
+      if (src === 'cash') S.cashLow = Math.min(S.cashLow ?? S.bank, S.bank);
+      toast(`📈 Bought ${money(spent)} of ${p.name} with ${invest.SOURCES[src].short}`);
+      logEvent(`📈 Invested ${money(spent)} in ${p.name} (${invest.SOURCES[src].short})`);
+    }
+    if (kind === 'sell') {
+      const h = hs.find((x) => x.id === a && x.src === b);
+      const got = invest.sell(S, a, b, h.value);
+      toast(`📈 Sold ${invest.product(a).name} for ${money(got)}`);
+      logEvent(`📈 Sold ${invest.product(a).name} for ${money(got)}`);
     }
     render();
   }
@@ -1004,11 +1112,11 @@ async function shopPanel() {
   for (;;) {
     const c = await dialog(`
       <h2>🛍️ Shop</h2>
-      <p>Spending fund: <b>${money(S.wallet)}</b>. Things you buy stay in your room, and some boost your stats every turn.</p>
+      <p>Cash savings: <b>${money(S.bank)}</b>. Things you buy stay in your room, and some boost your stats every turn.</p>
       <div class="shop">${SHOP[S.stage].map((it) => {
         const owned = S.room.includes(it.id);
         const boost = Object.entries(it.perTurn || {}).map(([k, v]) => `${STATS[k].icon}+${v}`).join(' ');
-        return `<button class="shop-item" data-choice="${it.id}" ${owned || S.wallet < it.price ? 'disabled' : ''}>
+        return `<button class="shop-item" data-choice="${it.id}" ${owned || S.bank < it.price ? 'disabled' : ''}>
           <span class="s-icon">${it.icon}</span><b>${it.name}</b><span>${owned ? 'Owned' : money(it.price)}</span>
           <small>😊+${it.joy} ${boost}</small></button>`;
       }).join('')}</div>
@@ -1055,7 +1163,7 @@ async function endScreen() {
   const final = S.age >= STAGES.senior.endAge;
   const life = sim.retirementIncome(S);
   const need = S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle].monthly : null;
-  const cash = S.bank + S.wallet + S.invest - S.debt;
+  const cash = S.bank + invest.total(S, 'cash') - S.debt;
   const t = S.totals || {};
   const hybrids = Object.keys(S.hybrids).map((h) => `${HYBRIDS[h].icon} ${HYBRIDS[h].label}`).join(', ');
   const career = S.career ? sim.careerOptions(S).find((c) => c.id === S.career) : null;

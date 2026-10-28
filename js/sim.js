@@ -1,15 +1,19 @@
 // Game state and the year-by-year money simulation. No DOM code here.
 import * as cpf from './cpf.js';
 import * as housing from './housing.js';
+import * as invest from './invest.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, SHOP, LIFESTYLES,
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS,
 } from './data.js';
 
-export const BANK_INTEREST = 0.005;
+// Cash you leave untouched for a whole year earns about what a 12-month fixed
+// deposit paid in 2026; money you dip into only earns the savings-account base rate.
+export const SAVINGS_INTEREST = { untouched: 0.015, base: 0.0005 };
 export const DEBT_INTEREST = 0.25; // typical credit card interest (it compounds fast!)
-export const DCP_INTEREST = 0.08; // after a debt crisis: a Debt Consolidation Plan at a lower rate
-export const INVEST_RETURN = 0.05; // long-run average for a diversified fund (not guaranteed!)
+// Debt Consolidation Plan: banks roll card debts into one loan at about 6-8% EIR,
+// repaid in fixed instalments over up to 10 years.
+export const DCP = { rate: 0.075, years: 10 };
 
 export function newGame(name, look) {
   const s = {
@@ -20,10 +24,11 @@ export function newGame(name, look) {
     look: { gender: look.gender, tone: look.tone, outfit: look.outfit },
     stats: Object.fromEntries(Object.keys(STATS).map((k) => [k, 0])),
     hybrids: {},
-    wallet: 20,
-    bank: 0,
-    invest: 0,
-    debt: 0,
+    bank: 20, // your cash: savings you can spend anywhere
+    cashLow: 20, // lowest cash balance this year: the untouched part earns more interest
+    holdings: [],
+    debt: 0, // unsecured debt (credit cards), or a Debt Consolidation Plan when s.dcp is set
+    dcp: null,
     cpf: cpf.newCpfAccounts(),
     cpfWorked: false,
     room: [],
@@ -97,25 +102,31 @@ export function ownedItems(s) {
 }
 
 export function buy(s, item) {
-  if (s.wallet < item.price || s.room.includes(item.id)) return false;
-  s.wallet -= item.price;
+  if (s.bank < item.price || s.room.includes(item.id)) return false;
+  spendCash(s, item.price);
   s.room.push(item.id);
   s.joy += item.joy;
   s.log.push(`Age ${s.age}: bought ${item.name} for ${money(item.price)}`);
   return true;
 }
 
-// Moves money from the bank to the spending fund (or back with a negative amount).
-export function transfer(s, amount) {
-  const a = amount > 0 ? Math.min(amount, s.bank) : -Math.min(-amount, s.wallet);
-  s.bank -= a;
-  s.wallet += a;
+// Takes money out of cash. Dipping into savings means that money doesn't earn the
+// higher rate for untouched savings this year.
+export function spendCash(s, amount) {
+  s.bank -= amount;
+  s.cashLow = Math.min(s.cashLow ?? s.bank, s.bank);
 }
 
-export function allocateGift(s, { wallet = 0, bank = 0, invest = 0, cpf: toCpf = 0 }) {
-  s.wallet += wallet;
-  s.bank += bank;
-  s.invest += invest;
+// How much joy a treat or a donation brings, per dollar: a little goes a long way for a kid.
+export function joyPerDollar(s) {
+  return { child: 1 / 40, teen: 1 / 100, adult: 1 / 1500, senior: 1 / 1500 }[s.stage];
+}
+
+export function allocateGift(s, { cash = 0, treat = 0, charity = 0, cpf: toCpf = 0 }) {
+  s.bank += cash;
+  const joy = Math.min(6, (treat + charity * 1.3) * joyPerDollar(s));
+  s.joy += joy;
+  if (charity > 0) s.stats.communication += Math.min(2, charity * joyPerDollar(s));
   let refused = 0, matched = 0;
   if (toCpf > 0) {
     const r = topUpCpf(s, toCpf);
@@ -127,8 +138,9 @@ export function allocateGift(s, { wallet = 0, bank = 0, invest = 0, cpf: toCpf =
   return { refused, matched };
 }
 
+// Anyone can top up: before you work, your parents can top up your SA for you (RSTU).
 export function canTopUpCpf(s) {
-  return s.cpfWorked;
+  return true;
 }
 
 export function educationFor(s) {
@@ -167,7 +179,7 @@ export function yearsThisTurn(s) {
 // Runs `years` years of life. `opts.jobWage` is a teen's part-time monthly pay.
 // Returns a summary of what happened to the money.
 export function advanceYears(s, years, opts = {}) {
-  const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0 };
+  const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0 };
   for (let y = 0; y < years; y++) {
     // One-off effects (like months without pay) only hit the first year.
     oneYear(s, sum, y === 0 ? opts : { jobWage: opts.jobWage });
@@ -214,6 +226,16 @@ function oneYear(s, sum, opts) {
       } else if (age >= 30 || s.spouse) {
         out += RENT_MONTHLY * (s.spouse ? 0.5 : 1);
       }
+      // Debt Consolidation Plan: a fixed monthly instalment, with interest worked out monthly.
+      if (s.dcp && s.debt > 0) {
+        const interest = s.debt * (DCP.rate / 12);
+        const pay = Math.min(s.dcp.monthly, s.debt + interest);
+        s.debt += interest - pay;
+        sum.debtInterest += interest;
+        sum.debtPaid += pay;
+        out += pay;
+        if (s.debt < 1) { s.debt = 0; s.dcp = null; s.debtCrisis = false; }
+      }
       // CPF Education Scheme: your child repays your OA after graduating.
       for (const r of s.eduRefunds || []) {
         if (age >= r.startAge && r.monthsLeft > 0) {
@@ -249,33 +271,32 @@ function oneYear(s, sum, opts) {
     // Pocket money: half is yours to spend, your parents bank the rest.
     const allowance = st.yearlyAllowance * (opts.allowanceFactor ?? 1);
     sum.income += allowance;
-    s.wallet += allowance / 2 + cash / 2;
-    s.bank += allowance / 2 + cash / 2;
+    // Pocket money gets spent through the year, so only what you had at the start stays untouched.
+    s.bank += allowance + cash;
   } else if (cash >= 0) {
     s.bank += cash;
   } else {
-    coverShortfall(s, -cash);
+    coverShortfall(s, -cash, sum);
   }
 
-  // Bank interest, investment returns and debt interest.
-  const bankInt = s.bank * BANK_INTEREST;
+  // Savings interest: the higher rate on what you never touched this year.
+  const untouched = Math.max(0, Math.min(s.cashLow ?? 0, s.bank));
+  const bankInt = untouched * SAVINGS_INTEREST.untouched + Math.max(0, s.bank - untouched) * SAVINGS_INTEREST.base;
   s.bank += bankInt;
-  const invRet = s.invest * (opts.investReturn ?? INVEST_RETURN);
-  s.invest = Math.max(0, s.invest + invRet);
+  s.cashLow = s.bank;
+  const invRet = invest.yearPassed(s, opts.market);
   sum.interest += interest + bankInt;
   sum.investReturn += invRet;
-  if (s.debt > 0) {
-    const di = s.debt * (s.debtCrisis ? DCP_INTEREST : DEBT_INTEREST);
+  // Credit card debt: 25% a year, and any spare cash pays it off first.
+  if (s.debt > 0 && !s.dcp) {
+    const di = s.debt * DEBT_INTEREST;
     s.debt += di;
     sum.debtInterest += di;
+    sum.debtPaid += settleDebt(s);
   }
-  settleDebt(s);
-  // Debt crisis: once debt passes a year of take-home pay, the bank stops lending.
-  // You cut back to a simple lifestyle and start paying it down.
-  if (!young && s.debt > Math.max(20000, 12 * takeHome(s)) && s.lifestyle !== 'simple') {
-    s.lifestyle = 'simple';
-    s.debtCrisis = true;
-  }
+  // Debt crisis: once card debt passes 12 months of income, banks stop lending and
+  // roll it into a Debt Consolidation Plan with fixed instalments.
+  if (!young && !s.dcp && s.debt > Math.max(5000, 12 * currentWage(s))) startDcp(s);
   if (s.debt > 0 && s.age >= 55 && !s.shortfallAge) s.shortfallAge = age;
 
   // Pay rises: faster early in your career.
@@ -304,7 +325,8 @@ export function monthlySpend(s) {
     const l = LIFESTYLES[s.lifestyle];
     const th = takeHome(s);
     // On a small income a simple or comfortable life costs less; lavish can overspend.
-    const floor = s.lifestyle === 'lavish' ? l.monthly : Math.min(l.monthly, 0.8 * th);
+    // (A simple life on a low income leaves room for children and a home loan.)
+    const floor = s.lifestyle === 'lavish' ? l.monthly : Math.min(l.monthly, (s.lifestyle === 'simple' ? 0.6 : 0.75) * th);
     m = Math.max(floor, l.share * th);
   }
   if (s.car) m += 1500;
@@ -341,25 +363,63 @@ export function payFromMedisave(s, amount) {
   return { ma, cash: amount - ma };
 }
 
-// Covers a bill from the spending fund, then the bank, then (from 55) the OA, then debt.
-export function coverShortfall(s, amount) {
+// Covers a bill from cash, then (from 55) the OA, then a credit card up to your
+// credit limit. Past the limit no one will lend, so you go without.
+export function coverShortfall(s, amount, sum = null) {
   let left = amount;
-  for (const take of [
-    () => takeFrom(s, 'wallet', left),
-    () => takeFrom(s, 'bank', left),
-    () => (s.age >= 55 ? takeFromOa(s, left) : 0),
-  ]) {
-    left -= take();
-    if (left <= 0) return;
+  const fromCash = Math.min(Math.max(0, s.bank), left);
+  spendCash(s, fromCash);
+  left -= fromCash;
+  if (left > 0 && s.age >= 55) left -= takeFromOa(s, left);
+  if (left <= 0) return;
+  const borrow = Math.min(left, creditRoom(s));
+  s.debt += borrow;
+  left -= borrow;
+  if (sum) sum.borrowed += borrow;
+  if (left > 0) {
+    // Bills you couldn't pay: you cut back hard, and family helps a little.
+    s.joy = Math.max(0, s.joy - Math.min(3, left / 5000));
+    s.wentWithout = (s.wentWithout || 0) + left;
+    if (sum) sum.wentWithout += left;
   }
-  s.debt += left;
   if (s.age >= 55 && !s.shortfallAge) s.shortfallAge = s.age;
 }
 
-function takeFrom(s, key, amount) {
-  const t = Math.min(Math.max(0, s[key]), amount);
-  s[key] -= t;
-  return t;
+// Unsecured credit limit: banks lend up to 12 months' income (2 months' if you earn
+// under $30,000 a year), and nothing more once you're on a debt plan.
+export function creditLimit(s) {
+  const monthly = currentWage(s);
+  if (s.dcp || monthly <= 0) return 0;
+  return monthly * (monthly * 12 >= 30000 ? 12 : 2);
+}
+
+function creditRoom(s) {
+  return Math.max(0, creditLimit(s) - s.debt);
+}
+
+export function startDcp(s) {
+  s.dcp = { monthly: cpf.monthlyInstalment(s.debt, DCP.rate, DCP.years), startAge: s.age, startDebt: s.debt };
+  s.debtCrisis = true;
+  s.dcpNew = true;
+  if (s.stage === 'adult') s.lifestyle = 'simple';
+}
+
+// Pays off debt from cash. Returns the amount paid.
+export function repayDebt(s, amount) {
+  const pay = Math.min(amount, s.debt, Math.max(0, s.bank));
+  if (pay <= 0) return 0;
+  spendCash(s, pay);
+  s.debt -= pay;
+  if (s.debt < 1) {
+    s.debt = 0;
+    s.dcp = null;
+    s.debtCrisis = false;
+  } else if (s.dcp) {
+    // Paying early shortens nothing here: the instalment is recalculated over the time left.
+    const yearsLeft = Math.max(1, DCP.years - (s.age - s.dcp.startAge));
+    s.dcp.monthly = cpf.monthlyInstalment(s.debt, DCP.rate, yearsLeft);
+  }
+  return pay;
 }
 
 function takeFromOa(s, amount) {
@@ -369,10 +429,8 @@ function takeFromOa(s, amount) {
 }
 
 function settleDebt(s) {
-  if (s.debt <= 0) return;
-  const pay = Math.min(s.debt, Math.max(0, s.bank));
-  s.bank -= pay;
-  s.debt -= pay;
+  if (s.debt <= 0 || s.dcp) return 0;
+  return repayDebt(s, s.debt);
 }
 
 function scale(c, n) {
@@ -422,13 +480,14 @@ export function record(s) {
   s.history.push({
     age: s.age,
     cpf: Math.round(cpf.cpfTotal(c)),
-    cash: Math.round(s.bank + s.wallet + s.invest - s.debt),
+    cpfInvested: Math.round(invest.total(s, 'oa') + invest.total(s, 'sa')),
+    cash: Math.round(s.bank + invest.total(s, 'cash') - s.debt),
     oa: Math.round(c.oa), sa: Math.round(c.sa), ma: Math.round(c.ma), ra: Math.round(c.ra),
   });
 }
 
 export function netWorth(s) {
-  return s.wallet + s.bank + s.invest - s.debt + cpf.cpfTotal(s.cpf);
+  return s.bank + invest.total(s) - s.debt + cpf.cpfTotal(s.cpf);
 }
 
 export function money(n) {
@@ -515,7 +574,7 @@ export function homeQuotes(s) {
       grossIncome: Math.max(1, grossIncome(s)),
       otherDebt: otherDebt(s),
       oa: s.cpf.oa,
-      cash: s.bank + s.wallet,
+      cash: s.bank,
     }));
 }
 
@@ -543,7 +602,7 @@ export function voluntaryHousingRefund(s, amount) {
   const a = Math.min(amount, s.bank, s.home ? housing.cpfToRefund(s.home) : 0);
   if (a <= 0) return 0;
   housing.voluntaryRefund(s.home, a);
-  s.bank -= a;
+  spendCash(s, a);
   housing.creditHousingRefund(s.cpf, s.age, a);
   return a;
 }
