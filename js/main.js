@@ -197,12 +197,12 @@ function toast(text) {
 const btn = (choice, label, cls = '') => `<button class="btn ${cls}" data-choice="${choice}">${label}</button>`;
 const person = (look, cls = '', alt = '') => characterHtml(look, cls, alt);
 // A character strolling left and right across the room. `lane` spreads the family out.
-const walker = (look, cls, alt, lane, count) => {
+const walker = (look, cls, alt, lane, count, tag = '') => {
   const span = 100 / count;
   const from = Math.round(lane * span * 0.85);
   const to = Math.round(Math.min(78, from + span * 0.85 + 18));
   const dur = 9 + ((lane * 3.7) % 5);
-  return `<span class="walker lane-${lane}" style="--from:${from}%;--to:${to}%;--dur:${dur.toFixed(1)}s;--delay:-${(lane * 2.3).toFixed(1)}s">${person(look, `walking ${cls}`, alt)}</span>`;
+  return `<span class="walker lane-${lane}" style="--from:${from}%;--to:${to}%;--dur:${dur.toFixed(1)}s;--delay:-${(lane * 2.3).toFixed(1)}s">${tag ? `<span class="age-tag">${tag}</span>` : ''}${person(look, `walking ${cls}`, alt)}</span>`;
 };
 const me = (stage = S.stage) => lookOf(S.look, stage);
 
@@ -259,6 +259,7 @@ function titleScreen() {
 
 // Saves from before the character picker used numbered sprites.
 function migrate(s) {
+  if (s.spouse && s.spouse.ageGap === undefined) s.spouse.ageGap = sim.spouseAgeGap();
   if (s.renting === undefined) s.renting = !s.home && (s.age >= 30 || !!s.spouse);
   if (!s.look) s.look = { gender: 'female', outfit: 0 };
   // People became animals: older saves become capybaras, family included.
@@ -455,12 +456,16 @@ function roomHtml() {
   const items = sim.ownedItems(S);
   const grown = S.stage === 'adult' || S.stage === 'senior';
   const spouseStage = S.stage === 'senior' ? 'senior' : 'adult';
-  const family = [[me(), 'player', esc(S.name)]];
-  if (grown && S.spouse) family.push([lookOf(S.spouse, spouseStage), 'family-member', 'Your spouse']);
+  // Each animal carries a small tag with its age.
+  const family = [[me(), 'player', esc(S.name), `<b>You</b> ${S.age}`]];
+  if (grown && S.spouse) {
+    const age = S.age + (S.spouse.ageGap || 0);
+    family.push([lookOf(S.spouse, spouseStage), 'family-member', `Your spouse, age ${age}`, `${age}`]);
+  }
   if (grown) for (const c of S.children || []) {
     const age = S.age - c.bornAge;
     const st = age < 3 ? 'baby' : age < 13 ? 'child' : age < 21 ? 'teen' : 'adult';
-    family.push([lookOf(c, st), 'family-member kid', `Your child, age ${age}`]);
+    family.push([lookOf(c, st), 'family-member kid', `Your child, age ${age}`, age < 1 ? '👶' : `${age}`]);
   }
   return `
     <div class="room room-${kind.cls} stage-${S.stage}">
@@ -473,7 +478,7 @@ function roomHtml() {
       <div class="bed"><div class="pillow"></div><div class="blanket"></div></div>
       <div class="cabinet"></div>
       <div class="items">${placeItems(items)}</div>
-      <div class="people">${family.map(([look, cls, alt], i) => walker(look, cls, alt, i, family.length)).join('')}</div>
+      <div class="people">${family.map(([look, cls, alt, tag], i) => walker(look, cls, alt, i, family.length, tag)).join('')}</div>
     </div>`;
 }
 

@@ -360,6 +360,14 @@ table.summary td:last-child { text-align: right; font-weight: 700; white-space: 
 .walker.lane-1 { bottom: 5%; z-index: -1; } .walker.lane-2 { bottom: 2%; } .walker.lane-3 { bottom: 7%; z-index: -1; }
 .walker.lane-4 { bottom: 1%; } .walker.lane-5 { bottom: 6%; z-index: -1; }
 .people { isolation: isolate; }
+/* Age tag above each animal. The walker mirrors itself to turn round, so the tag mirrors back in step. */
+.age-tag {
+  position: absolute; left: 50%; bottom: 100%; translate: -50% 0; white-space: nowrap; line-height: 1.2;
+  font-size: 10px; font-weight: 800; color: var(--ink); background: var(--panel); border: 2px solid var(--line);
+  padding: 0 4px; z-index: 5; border-radius: 2px; animation: unflip var(--dur) linear var(--delay) infinite;
+}
+.age-tag b { color: var(--accent); }
+@keyframes unflip { 0%, 47% { transform: scaleX(1); } 50%, 97% { transform: scaleX(-1); } 100% { transform: scaleX(1); } }
 /* Walk right, turn round, walk back. The art faces right; scaleX(-1) mirrors it. */
 @keyframes stroll {
   0% { left: var(--from); transform: scaleX(1); }

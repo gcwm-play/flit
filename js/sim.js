@@ -736,6 +736,9 @@ function round1(n) {
 
 // ---------- family ----------
 
+// Spouses are usually close in age: 1 or 2 years older or younger.
+export const spouseAgeGap = () => (Math.random() < 0.5 ? -1 : 1) * (1 + Math.floor(Math.random() * 2));
+
 export function marry(s, weddingCost) {
   const ratio = 0.7 + Math.random() * 0.5;
   // Your spouse is the same kind of animal, of the opposite gender.
@@ -746,6 +749,7 @@ export function marry(s, weddingCost) {
     outfit: (s.look.outfit + 2) % 6,
     home: false, // true: stays at home and you pay their allowance
     allowance: 500,
+    ageGap: spouseAgeGap(), // years older (+) or younger (-) than you
   };
   s.dating = null;
   coverShortfall(s, weddingCost / 2);
