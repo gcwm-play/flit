@@ -650,3 +650,5 @@ button.cb-item.cb-link { background: none; border: 0; padding: 0 0 4px; font: in
 .tax-bands th:not(:first-child), .tax-bands td:not(:first-child) { text-align: right; white-space: nowrap; }
 details summary { cursor: pointer; font-weight: 800; margin: 8px 0; }
 .tax-table td:last-child { white-space: nowrap; vertical-align: middle; }
+.tax-why ul { margin: 4px 0 0; padding-left: 18px; }
+.tax-why p { margin: 0 0 4px; }

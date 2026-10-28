@@ -105,3 +105,14 @@ test('self-employed MediSave: nothing to $6,000, half rate to $12,000, phased to
   close(c.ma * 12, 4800, 0.01);
   assert.equal(c.oa + c.sa, 0);
 });
+
+test('the tax explainer credits your own top-ups and donations, and says why tax is $0', () => {
+  const p = { age: 30, earned: 60000, cpfRelief: 12000, topUpRelief: 8000, donations: 2000 };
+  const sv = tax.savings(p);
+  const base = tax.incomeTax(p).tax;
+  close(sv.noChoices - base, sv.choicesSaved, 0.01);
+  assert.ok(sv.list.find((x) => x.id === 'topup').income === 8000);
+  const zero = tax.incomeTax({ age: 30, earned: 30000, cpfRelief: 6000, topUpRelief: 8000 });
+  assert.equal(zero.tax, 0);
+  assert.match(tax.zeroReason(zero), /first \$20,000/);
+});

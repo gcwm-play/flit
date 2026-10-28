@@ -309,7 +309,9 @@ export function yearsThisTurn(s) {
 // Returns a summary of what happened to the money.
 export function advanceYears(s, years, opts = {}) {
   const sum = { income: 0, spend: 0, cpfIn: 0, employerIn: 0, interest: 0, investReturn: 0, housingOa: 0, payouts: 0, debtInterest: 0, debtPaid: 0, borrowed: 0, wentWithout: 0, fun: 0, holidays: 0, cpfSaved: 0, kidsCpf: 0, invested: 0,
-    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cpfInterest: 0, bankInterest: 0, insuranceMa: 0, insuranceCash: 0, groceries: 0, homeSpouse: 0, cashStart: s.bank };
+    living: 0, kids: 0, car: 0, allowance: 0, rent: 0, dcpPaid: 0, cpfInterest: 0, bankInterest: 0, insuranceMa: 0, insuranceCash: 0, groceries: 0, homeSpouse: 0, cashStart: s.bank,
+    // Gifts and top-ups you made yourself before this turn (they count towards this year's tax).
+    givenOnce: donationsThisYear(s), topUpOnce: topUpsThisYear(s) };
   for (let y = 0; y < years; y++) {
     // One-off effects (like months without pay) only hit the first year.
     oneYear(s, sum, y === 0 ? opts : { jobWage: opts.jobWage });
@@ -1211,7 +1213,9 @@ function taxInputs(s, earnings, extra = {}) {
 
 // Pays this year's income tax from cash. (In real life IRAS sends the bill for a year's income the next year.)
 function payIncomeTax(s, sum, earnings) {
-  const r = tax.incomeTax(taxInputs(s, earnings));
+  const inputs = taxInputs(s, earnings);
+  const r = tax.incomeTax(inputs);
+  r.inputs = inputs;
   s.donationCarry = r.donationCarry;
   s.taxRebateLeft = r.rebateLeft;
   s.lastTax = { ...r, age: s.age };
@@ -1233,5 +1237,5 @@ export function taxEstimate(s, opts = {}) {
   const extra = { topUpRelief: Math.min(planTop, raRoom) + (opts.extraRelief || 0), donations: (opts.donate ?? (b.donateYearly || 0)) + (opts.extraDonation || 0) };
   const inputs = taxInputs(s, earnings, extra);
   if (opts.bare) { inputs.topUpRelief = 0; inputs.donations = 0; inputs.donationCarry = []; }
-  return tax.incomeTax(inputs);
+  return { ...tax.incomeTax(inputs), inputs };
 }

@@ -127,10 +127,12 @@ function monthlyPlan() {
   // Health insurance premiums: the part MediSave can't pay comes from cash.
   const insurance = sim.insurancePremiums(S).cash / 12;
   // Income tax isn't taken from your pay in Singapore: IRAS sends one bill a year.
-  const incomeTax = sim.taxEstimate(S).tax / 12;
-  const giving = (b.donateYearly || 0) / 12;
+  const taxEst = sim.taxEstimate(S);
+  const incomeTax = taxEst.tax / 12;
+  // Your yearly donation, plus anything you've already given this year.
+  const giving = ((b.donateYearly || 0) + sim.donationsThisYear(S)) / 12;
   const out = living + rent + loanCash + dcp + fun + insurance + incomeTax + giving;
-  return { pay, payout, income, parts, living, rent, loan, loanCash, dcp, holidays, insurance, incomeTax, giving, b, kids, fun, saving, out, left: income - out };
+  return { pay, payout, income, parts, living, rent, loan, loanCash, dcp, holidays, insurance, incomeTax, taxEst, giving, b, kids, fun, saving, out, left: income - out };
 }
 
 // Warns before a turn if the plan spends more than comes in.
@@ -397,9 +399,9 @@ function outflows(p) {
     ['fun', 'Hobbies', p.b.hobbies, ''],
     ['fun', 'Shopping and treats', p.b.shopping, ''],
     ['trip', 'Holidays', p.holidays, 'Your planned trips, spread over the year.'],
-    ['tax', 'Income tax', p.incomeTax, 'Tap to see how your tax is worked out.'],
-    ['give', 'Giving to charity', p.giving, 'Your yearly donation, set in your budget.'],
-  ].filter((r) => r[2] > 0.5);
+    ['tax', p.incomeTax > 0.5 ? 'Income tax' : 'Income tax: $0', p.incomeTax, 'Tap to see how your tax is worked out.'],
+    ['give', 'Giving to charity', p.giving, 'Your yearly donation from your budget, plus anything you gave this year.'],
+  ].filter((r) => r[2] > 0.5 || (r[0] === 'tax' && p.taxEst.earned > 0));
 }
 
 function cashboardHtml() {
@@ -445,7 +447,7 @@ function cashboardHtml() {
         <div class="cb-out">
           <span class="cb-h">Where it goes</span><span class="cb-h num">a month</span><span class="cb-h num">a year</span>
           ${items.sort((a, b) => b[2] - a[2]).map((r) => `
-          ${r[0] === 'tax' ? '<button class="cb-item cb-link" data-panel="tax"' : '<span class="cb-item"'} title="${r[3]}"><i class="k-${r[0]}"></i>${r[1]}${r[0] === 'tax' ? ' <u>how?</u>' : ''}<em style="width:${(r[2] / top) * 100}%" class="k-${r[0]}"></em>${r[0] === 'tax' ? '</button>' : '</span>'}<b class="num">${money(r[2])}</b><b class="num">${yr(r[2])}</b>`).join('')}
+          ${r[0] === 'tax' ? '<button class="cb-item cb-link" data-panel="tax"' : '<span class="cb-item"'} title="${r[3]}"><i class="k-${r[0]}"></i>${r[1]}${r[0] === 'tax' ? ` <u>${r[2] > 0.5 ? 'how?' : 'why?'}</u>` : ''}<em style="width:${(r[2] / top) * 100}%" class="k-${r[0]}"></em>${r[0] === 'tax' ? '</button>' : '</span>'}<b class="num">${money(r[2])}</b><b class="num">${yr(r[2])}</b>`).join('')}
           ${p.loan.fromOa > 0.5 ? `<span class="cb-item muted-ink" title="Paid from your CPF Ordinary Account, so it doesn't come out of your cash."><i></i>Home loan from your OA (not cash)</span><b class="num muted-ink">${money(p.loan.fromOa)}</b><b class="num muted-ink">${yr(p.loan.fromOa)}</b>` : ''}
           ${allowance ? `<span class="cb-item"><i class="k-spare"></i>Allowance from your children</span><b class="num pos">+${money(allowance)}</b><b class="num pos">+${yr(allowance)}</b>` : ''}
           ${p.saving ? `<span class="cb-item"><i class="k-save"></i>Saving: ${[sim.cpfTopUpPerYear(S) && 'CPF top-ups', p.b.kidsCpf && p.kids && "kids' CPF", sim.dcaCashPerYear(S) && 'investing'].filter(Boolean).join(', ')}</span><b class="num">${money(p.saving)}</b><b class="num">${yr(p.saving)}</b>` : ''}
@@ -601,6 +603,7 @@ async function takeTurn(activityId) {
     if (S.stage === 'adult' || S.stage === 'senior') S.joy += LIFESTYLES[S.lifestyle].joy;
     recordTurn(startAge, years, sum, opts, activity, gains);
     S.ledgerFresh = true;
+    taxNotice();
     await rateChangeNotice(startAge, S.age);
     if (sum.oaRanOut) await oaRanOutNotice(sum);
 
@@ -961,8 +964,10 @@ function recordTurn(startAge, years, sum, opts, activity, gains) {
     add('Debt plan instalments', -sum.dcpPaid, 'out');
     add('Hobbies and shopping', -sum.fun, 'out');
     add('Holidays', -sum.holidays, 'out');
-    add('Income tax', -(sum.tax || 0), 'out');
+    if (sum.tax > 0.5 || (S.lastTax && S.lastTax.earned > 0)) rows.push(['Income tax', -(sum.tax || 0), 'out']);
     add('Given to charity (your budget)', -(sum.donated || 0), 'out');
+    add(`Given to charity before this turn (${money(sum.givenOnce || 0)})`, -(sum.givenOnce || 0), 'out');
+    add(`CPF top-ups you made before this turn (${money(sum.topUpOnce || 0)})`, sum.topUpOnce || 0, 'save');
     add('Your planned CPF top-ups', sum.cpfSaved, 'save');
     add('Topped up your children\'s CPF', sum.kidsCpf, 'save');
     add('Regular investing', sum.invested, 'save');
@@ -2175,6 +2180,31 @@ async function donatePanel() {
   }
 }
 
+// After a turn: point out when your own choices cut last year's tax.
+function taxNotice() {
+  const t = S.lastTax;
+  if (!t || !t.inputs || t.earned <= 0) return;
+  const sv = tax.savings(t.inputs);
+  if (sv.choicesSaved < 1) return;
+  const what = sv.list.filter((x) => x.mine).map((x) => (x.id === 'topup' ? 'CPF top-ups' : 'donations')).join(' and ');
+  toast(t.tax < 0.5 ? `🧾 No income tax to pay at ${t.age}: your ${what} saved you ${money(sv.choicesSaved)}.` : `🧾 Your ${what} cut your income tax at ${t.age} by ${money(sv.choicesSaved)}.`);
+}
+
+// What lowered the tax, and why it's $0 when it is.
+function taxSavingsHtml(r) {
+  if (!r.inputs || r.earned <= 0) return '';
+  const sv = tax.savings(r.inputs);
+  const zero = r.tax < 0.5 ? tax.zeroReason(r) : '';
+  const rebateLeft = r.rebateLeft > 0.5 ? `<p class="small">Parenthood Tax Rebate still available for later years: <b>${money(r.rebateLeft)}</b>.</p>` : '';
+  if (!sv.list.length && !zero) return rebateLeft;
+  const line = (x) => `<li>${x.mine ? '⭐ ' : ''}${x.label}: ${x.income > 0.5 ? `<b>${money(x.income)}</b> off your taxable income` : ''}${x.income > 0.5 && x.saved > 0.5 ? ', ' : ''}${x.saved > 0.5 ? `<b>${money(x.saved)}</b> less tax` : ''}</li>`;
+  return `<div class="gain-note tax-why">
+    ${zero ? `<p><b>Why you pay $0:</b> ${zero}</p>` : ''}
+    ${sv.list.length ? `<p><b>What brought it down:</b></p><ul>${sv.list.map(line).join('')}</ul>` : ''}
+    ${sv.choicesSaved > 0.5 ? `<p>⭐ Your own choices: without your top-ups and donations you'd pay <b>${money(sv.noChoices)}</b>, so they saved you <b>${money(sv.choicesSaved)}</b>.</p>` : sv.list.some((x) => x.mine) && zero ? '<p>⭐ Your top-ups and donations lowered your taxable income, though you were already under the tax-free amount.</p>' : ''}
+  </div>${rebateLeft}`;
+}
+
 // How this year's income tax is worked out, following IRAS's steps.
 async function taxPanel(plan = {}) {
   const est = sim.taxEstimate(S, plan);
@@ -2198,12 +2228,13 @@ async function taxPanel(plan = {}) {
       ${r.rebate ? `<tr><td colspan="2">Less Parenthood Tax Rebate <small>(${money(r.rebateLeft)} left for later years)</small></td><td class="pos">−${money(r.rebate)}</td></tr>` : ''}
       <tr class="sub"><td colspan="2"><b>Income tax to pay</b></td><td><b>${money(r.tax)}</b></td></tr>
     </table>
-    <p class="small">That's ${r.earned ? pct(r.tax / r.earned) : '0%'} of your income, about ${money(r.tax / 12)} a month.</p>`;
+    <p class="small">That's ${r.earned ? pct(r.tax / r.earned) : '0%'} of your income, about ${money(r.tax / 12)} a month.</p>
+    ${taxSavingsHtml(r)}`;
   await dialog(`
     <h2>🧾 Your income tax</h2>
     <p class="small">Singapore taxes your income for a year as one bill from IRAS (in real life it arrives the following year). Rates are the resident rates from Year of Assessment 2024. There's no personal tax rebate for YA2026. CPF LIFE payouts, CPF withdrawals and investment gains aren't taxed.</p>
     ${working ? `<h3>This year, at today's pay${plan.topUp != null || plan.donate != null ? ' and your new budget' : ''}</h3>${breakdown(est)}
-      ${bare.tax - est.tax > 0.5 ? `<p class="gain-note">Without your CPF top-ups and donations you'd pay <b>${money(bare.tax)}</b>: they save you <b>${money(bare.tax - est.tax)}</b> this year.</p>` : est.tax > 0 ? `<p class="gain-note">Cash top-ups to your own CPF (up to $8,000 a year) and gifts to approved charities (${tax.DONATION_DEDUCTION * 100}% deduction) would lower this.</p>` : ''}`
+      ${bare.tax - est.tax > 0.5 ? '' : est.tax > 0 ? `<p class="gain-note">Cash top-ups to your own CPF (up to $8,000 a year) and gifts to approved charities (${tax.DONATION_DEDUCTION * 100}% deduction) would lower this.</p>` : ''}`
       : '<p>You have no income from work this year, so there is no income tax to pay.</p>'}
     ${last && last.earned ? `<details><summary>Last year: ${money(last.tax)}</summary>${breakdown(last)}</details>` : ''}
     <p class="small muted-ink">Simplified: no bonuses, no other income, and only the reliefs the game tracks (Earned Income, CPF, CPF cash top-up, NSman, Spouse, Qualifying Child and Working Mother's Child Relief, plus the Parenthood Tax Rebate). Check your own tax with IRAS at iras.gov.sg.</p>

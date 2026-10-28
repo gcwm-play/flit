@@ -98,3 +98,35 @@ export function incomeTax(p) {
     chargeable, bands, grossTax, rebate, rebateLeft: (p.rebateLeft || 0) - rebate, tax,
   };
 }
+
+// What each of your choices and circumstances did, by working the tax out again without it.
+// Returns [{ id, label, mine, income (taken off chargeable income), saved (tax) }] for the ones that
+// made a difference, and what you'd pay without any of your own choices (top-ups and donations).
+export function savings(p) {
+  const base = incomeTax(p);
+  const without = [
+    ['topup', 'Your cash top-ups to your own CPF', true, { topUpRelief: 0 }],
+    ['give', 'Your donations to approved charities', true, { donations: 0, donationCarry: [] }],
+    ['kids', p.mother ? 'Child reliefs (Qualifying Child and Working Mother\'s Child Relief)' : 'Qualifying Child Relief', false, { children: [], mother: false }],
+    ['spouse', 'Spouse Relief', false, { spouseAtHome: false }],
+    ['rebate', 'The Parenthood Tax Rebate', false, { rebateLeft: 0 }],
+  ];
+  const list = without
+    .map(([id, label, mine, change]) => {
+      const r = incomeTax({ ...p, ...change });
+      return { id, label, mine, income: r.chargeable - base.chargeable, saved: r.tax - base.tax };
+    })
+    .filter((x) => x.income > 0.5 || x.saved > 0.5);
+  const noChoices = incomeTax({ ...p, topUpRelief: 0, donations: 0, donationCarry: [] }).tax;
+  return { list, noChoices, choicesSaved: noChoices - base.tax };
+}
+
+// A plain reason when there's no tax to pay.
+export function zeroReason(r) {
+  if (r.earned <= 0) return 'You had no income from work, so there is nothing to tax.';
+  if (r.chargeable <= RESIDENT_RATES[0][0]) return `After deductions and reliefs your chargeable income is ${dollars(r.chargeable)}. The first ${dollars(RESIDENT_RATES[0][0])} is taxed at 0%, so you owe nothing.`;
+  if (r.rebate >= r.grossTax) return `Your tax of ${dollars(r.grossTax)} was fully paid off by the Parenthood Tax Rebate (${dollars(r.rebateLeft)} of it is left for later years).`;
+  return '';
+}
+
+const dollars = (n) => `$${Math.round(n).toLocaleString('en-US')}`;
