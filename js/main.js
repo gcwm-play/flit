@@ -345,7 +345,7 @@ function actionTiles() {
     if (S.stage === 'adult') tiles.push(['family', '💞', 'Family', S.spouse ? `${S.children.length ? `${S.children.length} kid${S.children.length > 1 ? 's' : ''}` : 'Married'}${S.spouse.home ? ', 1 income' : ''}` : S.dating != null ? 'Dating' : 'Single']);
     tiles.push(['insurance', '🩺', 'Insurance', health.PLANS[(S.insurance || {}).plan || 'msl'].label.replace(' only', '').replace(' plan', '').replace('Standard (B1 ward)', 'B1 plan')]);
     const loanYrs = S.home ? Math.ceil(housing.monthsLeft(S.home) / 12) : 0;
-    tiles.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label} · ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label} · fully owned 🎉`) : S.age >= 30 || S.spouse ? 'Renting' : 'With family']);
+    tiles.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label} · ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label} · fully owned 🎉`) : sim.isRenting(S) ? 'Renting' : 'With your parents']);
     if (S.stage === 'adult' || (working && S.age < 65)) tiles.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
   }
   if (grown) tiles.push(['car', '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
@@ -446,7 +446,7 @@ function activityCards() {
 function roomKind() {
   if (S.stage === 'adult' || S.stage === 'senior') {
     if (S.home) return { cls: 'home', label: `Your ${S.home.label}` };
-    if (S.age >= 30) return { cls: 'rental', label: 'Rented flat' };
+    if (sim.isRenting(S)) return { cls: 'rental', label: 'Rented flat' };
     return { cls: 'family', label: 'Room at your family’s flat' };
   }
   return { cls: S.stage, label: S.stage === 'child' ? 'Your bedroom' : 'Your room' };
