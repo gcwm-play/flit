@@ -14,19 +14,39 @@ src, out, animal = sys.argv[1], sys.argv[2], sys.argv[3]
 im = np.asarray(Image.open(src).convert('RGB')).astype(int)
 H, Wd = im.shape[:2]
 # Find the 4 cells: separator columns have almost no magenta and are one flat colour.
-mag = im[..., 1] < np.minimum(im[..., 0], im[..., 2]) - 45
-sep = [x for x in range(Wd) if mag[:, x].mean() < 0.05 and im[:, x].std(0).mean() < 20]
+# Separator columns are one flat dark or white colour.
+lum = im.mean(2).mean(0)
+sep = [x for x in range(Wd) if im[:, x].std(0).mean() < 25 and (lum[x] < 90 or lum[x] > 230)]
 edges, cells, start = sorted(set(sep) | {-1, Wd}), [], 0
 for a, b in zip(edges, edges[1:]):
     if b - a > Wd / 8: cells.append((a + 1, b))
 assert len(cells) == 4, cells
 M = max(2, H // 80) # trim a margin inside each cell
+from collections import deque
+def flood(mask):
+    h, w = mask.shape
+    out = np.zeros_like(mask, dtype=bool)
+    q = deque((y, x) for y in range(h) for x in (0, w - 1) if mask[y, x])
+    q.extend((y, x) for x in range(w) for y in (0, h - 1) if mask[y, x])
+    for y, x in q: out[y, x] = True
+    while q:
+        y, x = q.popleft()
+        for ny, nx in ((y+1, x), (y-1, x), (y, x+1), (y, x-1)):
+            if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not out[ny, nx]:
+                out[ny, nx] = True; q.append((ny, nx))
+    return out
+
 frames = []
 for x0, x1 in cells:
     c = im[M:H-M, x0+M:x1-M]
     r, g, b = c[..., 0], c[..., 1], c[..., 2]
     # Magenta background and the pink/purple ghost smudges: green well below both red and blue.
     key = (g < np.minimum(r, b) - 45)
+    if key.mean() < 0.05:
+        # No magenta: the generator drew a fake 'transparent' checkerboard instead. Flood in from
+        # the edges through checkerboard-coloured pixels; the outline stops it at the animal.
+        bg = (np.abs(r - 150) < 30) & (g > 175) & (g < 225) & (b > 138) & (b < 190)
+        key = flood(bg)
     # Frame 2 has a see-through purple 'ghost' of the back arm (an image-generator smudge)
     # left of the shirt. Clear that patch, keeping only the real brown hand.
     if animal == 'capybara' and len(frames) == 1:
@@ -93,17 +113,19 @@ def with_bow(img, cx, cy, cell=max(2, round(cw / 75))):
                 d.rectangle([ox + i * cell, oy + j * cell, ox + (i + 1) * cell - 1, oy + (j + 1) * cell - 1], fill=COL[ch_])
     return img
 def ear(f):
-    # The top of the head's left ear: the highest opaque brown pixel in the left third of the crop.
-    a = np.asarray(f)
+    # Where the bow goes: the highest point of the head's left half (an ear, or the top of the head).
+    a = np.asarray(f)[..., 3]
+    lo, hi = (0.12, 0.33) if animal == 'capybara' else (0.15, 0.55) # skip the capybara's yuzu
+    x0, x1 = int(cw * lo), int(cw * hi)
     for y in range(a.shape[0]):
-        xs = [x for x in range(int(cw * 0.12), int(cw * 0.42)) if a[y, x, 3] > 0 and a[y, x, 0] > a[y, x, 2] + 40]
+        xs = np.nonzero(a[y, x0:x1])[0]
         if len(xs) > max(2, cw // 150):
-            return xs[len(xs) // 2], y
+            return x0 + int(xs.mean()), y
     return int(cw * 0.3), int(ch * 0.13)
 she = []
 for c_ in crops:
     ex, ey = ear(c_)
-    she.append(with_bow(c_, ex + cw * 3 // 100, ey + ch // 90))
+    she.append(with_bow(c_, ex + cw * 3 // 100, ey + ch // 40))
 print('ears', [ear(c_) for c_ in crops])
 FR = 128
 # How tall each stage stands, as a share of the frame. Same model at every age for now.

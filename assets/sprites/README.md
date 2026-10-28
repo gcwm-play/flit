@@ -42,7 +42,8 @@ model per age:
 
     python3 tools/slice_sheet.py assets/sprites/source/dog-walk.png assets/sprites dog
 
-Done so far: capybara, dog.
+All five animals are done (capybara, cat, dog, frog, unicorn). The frog strip had a fake
+checkerboard background instead of magenta; the script handles that too.
 
 ## Shop items
 
