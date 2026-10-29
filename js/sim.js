@@ -6,7 +6,7 @@ import * as health from './health.js';
 import * as cars from './car.js';
 import * as tax from './tax.js';
 import {
-  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, SHOP, LIFESTYLES,
+  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, ACTIVITIES, SHOP, LIFESTYLES,
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
 } from './data.js';
 
@@ -396,6 +396,47 @@ export const canGoToUniversity = (s) => s.stats.knowledge >= EDUCATION.universit
 // What you finished before NS, from your Knowledge.
 export const preNsQualification = (s) => (canGoToUniversity(s) ? 'A-levels or a polytechnic diploma' : s.stats.knowledge >= EDUCATION.poly.minKnowledge ? 'a polytechnic diploma' : 'an ITE Nitec');
 export const isStudying = (s) => s.stage === 'adult' && !s.career && s.age < firstJobAge(s);
+
+// ---------- quick start ----------
+
+// Quick start: plays childhood and the teen years with random activities, then lands at the start
+// of working life. `education` is 'ite', 'poly', 'university' or 'random' (whatever the years gave you).
+// Men do NS at 18 to 20; for them a degree means university after NS, so the first job is at 23.
+export const QUICK_EDUCATION = ['ite', 'poly', 'university'];
+const STUDY_BIAS = { university: 0.55, poly: 0.35, ite: 0.1 };
+
+export function quickStart(s, education = 'random', rand = Math.random) {
+  const bias = STUDY_BIAS[education];
+  while (s.stage === 'child' || s.stage === 'teen') {
+    const open = ACTIVITIES[s.stage].filter((a) => !a.minAge || s.age >= a.minAge);
+    const study = open.find((a) => a.id === 'study');
+    const activity = bias != null && study && rand() < bias ? study : open[Math.floor(rand() * open.length)];
+    const score = 0.35 + rand() * 0.65;
+    applyGains(s, activityGains(s, activity, score));
+    if (!['study', 'job'].includes(activity.id)) s.joy += 1;
+    (s.did ||= {})[activity.label] = (s.did[activity.label] || 0) + 1;
+    advanceYears(s, yearsThisTurn(s), activity.job && !isNsf(s) ? { jobWage: Math.round(600 + 400 * score) } : {});
+    checkHybrids(s);
+    s.stage = ageStage(s.age);
+  }
+  // Knowledge decides the qualification (see educationFor), so line it up with the choice.
+  const k = s.stats.knowledge;
+  const uni = EDUCATION.university.minKnowledge;
+  const poly = EDUCATION.poly.minKnowledge;
+  const pick = (lo, hi) => round1(lo + rand() * (hi - lo));
+  if (education === 'university' && k < uni) s.stats.knowledge = pick(uni, uni + 4);
+  if (education === 'poly' && (k < poly || k >= uni)) s.stats.knowledge = pick(poly, poly + 6);
+  if (education === 'ite' && k >= poly) s.stats.knowledge = pick(poly - 8, poly - 2);
+  checkHybrids(s);
+  if (doesNs(s)) {
+    s.nsIntro = true;
+    story(s, 'life', '🪖', `Enlisted for National Service at ${NS.startAge}`);
+    // A chosen education settles what happens after NS; 'random' leaves the choice to the player.
+    if (education !== 'random') s.postNs = education === 'university' ? 'uni' : 'work';
+  }
+  s.quickStart = true;
+  return s;
+}
 
 // ---------- the money simulation ----------
 

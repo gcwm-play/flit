@@ -227,7 +227,7 @@ function titleScreen() {
   app.innerHTML = `
     <div class="title-screen">
       <h1 class="logo">FLIT</h1>
-      <p class="tagline">Life &amp; CPF: a Singapore life simulator</p>
+      <p class="tagline"><span>Life &amp; CPF</span> a Singapore life simulator</p>
       <div class="title-sprites" id="preview"></div>
       <div class="card start-card">
         <p>Grow up, build your skills, make money choices and see where they lead when you retire.</p>
@@ -237,6 +237,15 @@ function titleScreen() {
         <p class="small muted">Everyone in this Singapore is an animal, but the rules are real: the same CPF, HDB and marriage rules apply.</p>
         <p class="pick-label">You are</p>
         <div class="seg" role="group" aria-label="He or she">${Object.entries(GENDERS).map(([k, l]) => `<button class="seg-btn" data-gender="${k}">${l}</button>`).join('')}</div>
+        <p class="pick-label">How do you want to start?</p>
+        <div class="seg start-mode" role="group" aria-label="How to start">
+          <button class="seg-btn" data-mode="full">🧒 From age 7</button>
+          <button class="seg-btn" data-mode="quick">⚡ Start at 21</button>
+        </div>
+        <div id="qs-box" class="qs-box" hidden>
+          <p class="small">Your childhood and teen years are played for you with random choices. Pick your education, or let your grades decide.</p>
+          <div class="qs-edu" id="qs-edu" role="group" aria-label="Education"></div>
+        </div>
         <div class="row">
           <button class="btn primary" id="start">Start a new life</button>
           ${saved ? `<button class="btn" id="continue">Continue (${esc(saved.name)}, age ${saved.age})</button>` : ''}
@@ -244,7 +253,15 @@ function titleScreen() {
       </div>
       <p class="small muted">CPF figures use the 2026 rates from cpf.gov.sg, simplified for a game. Amounts are in today's dollars.</p>
     </div>`;
+  let mode = 'full';
+  let edu = 'random';
   const refresh = () => {
+    app.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
+    $('#qs-box').hidden = mode !== 'quick';
+    $('#start').textContent = mode === 'quick' ? '⚡ Show my path to 21' : 'Start a new life';
+    $('#qs-edu').innerHTML = quickEducationChoices(look.gender).map(([k, icon, label, note]) => `
+      <button class="qs-opt ${k === edu ? 'on' : ''}" data-edu="${k}"><span class="qs-i">${icon}</span><span><b>${label}</b><small>${note}</small></span></button>`).join('');
+    app.querySelectorAll('[data-edu]').forEach((b) => (b.onclick = () => { edu = b.dataset.edu; refresh(); }));
     $('#preview').innerHTML = ['child', 'teen', 'adult', 'senior'].map((st) => person(lookOf(look, st), 'walking')).join('');
     app.querySelectorAll('[data-animal]').forEach((b) => b.classList.toggle('on', b.dataset.animal === look.animal));
     app.querySelectorAll('[data-gender]').forEach((b) => b.classList.toggle('on', b.dataset.gender === look.gender));
@@ -259,10 +276,12 @@ function titleScreen() {
     refresh();
   }));
   app.querySelectorAll('[data-animal]').forEach((b) => (b.onclick = () => { look.animal = b.dataset.animal; refresh(); }));
+  app.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { mode = b.dataset.mode; refresh(); }));
   app.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => { look.outfit = +b.dataset.outfit; refresh(); }));
   refresh();
   $('#start').onclick = async () => {
     const name = nameInput.value.trim() || defaultName(look.gender);
+    if (mode === 'quick') return quickStartFlow(name, { ...look }, edu);
     S = sim.newGame(name, look);
     render();
     await stageIntro('child');
@@ -274,6 +293,68 @@ function titleScreen() {
     render();
     milestones();
   };
+}
+
+// Quick start: education choices that fit the player. Men do NS from 18 to 20 (poly and JC come
+// before it), and a degree means university after NS, so their first job is at 23.
+function quickEducationChoices(gender) {
+  const ns = gender === 'male';
+  return [
+    ['ite', '🛠️', 'ITE Nitec', ns ? 'ITE, then NS. First job at 21.' : 'First job at 21.'],
+    ['poly', '📐', 'Polytechnic diploma', ns ? 'Poly, then NS. First job at 21.' : 'First job at 21.'],
+    ['university', '🎓', 'University degree', ns ? 'JC or poly, NS, then university. First job at 23.' : 'JC or poly, then university. First job at 21.'],
+    ['random', '🎲', 'Let my grades decide', ns ? 'Your Knowledge decides. After NS you choose work or university.' : 'Your Knowledge decides what you qualify for.'],
+  ];
+}
+
+// Plays the years to 21 and shows the result, with a reroll, until the player is happy with it.
+async function quickStartFlow(name, look, edu) {
+  for (;;) {
+    const s = sim.quickStart(sim.newGame(name, look), edu);
+    const c = await dialog(quickSummaryHtml(s, edu), { wide: true });
+    if (c === 'reroll') continue;
+    closeModal();
+    if (c !== 'go') return;
+    S = s;
+    logEvent('⚡ Quick start: grew up from 7 to 21 with random choices', STAGES.child.startAge);
+    sim.story(S, 'life', '⚡', 'Quick start: childhood and teen years played with random choices');
+    render();
+    await stageIntro('adult');
+    save();
+    render();
+    return;
+  }
+}
+
+function quickSummaryHtml(s, edu) {
+  const ns = sim.doesNs(s);
+  const ed = EDUCATION[sim.educationFor(s)];
+  const path = ns
+    ? edu === 'random'
+      ? `You finished ${sim.preNsQualification(s)}, then did National Service from 18 to 20. ${sim.canGoToUniversity(s) ? 'Next you choose: start work at 21, or go to university and start at 23.' : `Next you start work at 21: university needs Knowledge ${EDUCATION.university.minKnowledge} and you have ${Math.round(s.stats.knowledge)}.`}`
+      : edu === 'university'
+        ? 'You finished A-levels or a polytechnic diploma, did National Service from 18 to 20, and now go to university. Your first job is at 23.'
+        : `You finished ${/^[AEIOU]/.test(ed.label) ? 'an' : 'a'} ${ed.label}, then did National Service from 18 to 20. Your first job is at 21.`
+    : `You finished with ${/^[AEIOU]/.test(ed.label) ? 'an' : 'a'} ${ed.label}. Your first job is at 21.`;
+  const did = Object.entries(s.did || {}).sort((a, b) => b[1] - a[1]).slice(0, 4);
+  const hybrids = Object.keys(s.hybrids || {}).filter((h) => s.hybrids[h]);
+  return `
+    <p class="eyebrow">Quick start · age ${s.age}</p>
+    <h2>Here's how ${esc(s.name)} grew up</h2>
+    <div class="qs-sum">
+      <div class="qs-me">${person(lookOf(s.look, 'adult'), 'walking')}</div>
+      <p>${path}</p>
+    </div>
+    <h3>What you spent your time on</h3>
+    <ul class="qs-did">${did.map(([label, n]) => `<li>${label} <b>×${n}</b></li>`).join('')}</ul>
+    <h3>Your stats</h3>
+    <div class="qs-stats">${sim.unlockedStats(s).filter((k) => STATS[k].stage !== 'adult').map((k) => `<span>${STATS[k].icon} ${STATS[k].label} <b>${Math.round(s.stats[k])}</b></span>`).join('')}
+      ${hybrids.map((h) => `<span class="hy">${HYBRIDS[h].icon} ${HYBRIDS[h].label}</span>`).join('')}</div>
+    <h3>Your money</h3>
+    <table class="summary"><tr><td>💵 Cash saved</td><td>${money(s.bank)}</td></tr>
+      <tr><td>🏛️ CPF savings</td><td>${money(cpf.cpfTotal(s.cpf))}</td></tr>
+      <tr><td>😊 Joy</td><td>${Math.round(s.joy)}</td></tr></table>
+    <div class="row qs-actions">${btn('go', 'Start my adult life', 'primary')}${btn('reroll', '🎲 Reroll')}${btn('back', 'Change my choices')}</div>`;
 }
 
 // Saves from before the character picker used numbered sprites.
