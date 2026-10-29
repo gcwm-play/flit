@@ -846,3 +846,8 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
   .animal-btn span { font-size: 9px; overflow-wrap: normal; }
   .start-mode .seg-btn { font-size: 13px; }
 }
+
+/* Segmented tabs: a thin outline on the track and on every option, and the picked one in the accent colour. */
+.seg { border: 1.5px solid #ddd2c1; }
+.seg-btn { box-shadow: inset 0 0 0 1px #e2d8c9; }
+.seg-btn.on { box-shadow: inset 0 0 0 2px var(--accent), 0 1px 2px rgba(30, 34, 56, .15); }
