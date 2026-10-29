@@ -313,18 +313,18 @@ function render() {
   const cpfTotal = cpf.cpfTotal(S.cpf);
   app.innerHTML = `
     <header class="hud">
-      <div class="who">${person(me(), 'mini')}<div><b>${esc(S.name)}</b><span>Age ${S.age} · ${st.label} · <em class="status ${sim.isWorking(S) ? 'on' : ''}">${sim.workStatus(S)}</em></span></div></div>
+      <div class="who"><span class="who-pic">${person(me(), 'mini')}</span><div><b>${esc(S.name)}</b><span>Age ${S.age} · ${st.label} · <em class="status ${sim.isWorking(S) ? 'on' : ''}">${sim.workStatus(S)}</em></span></div></div>
       <div class="chips">
-        <button class="chip" data-panel="money" title="Cash savings">💵 ${money(S.bank)}</button>
-        ${invest.total(S) > 0 || S.stage === 'adult' || S.stage === 'senior' ? `<button class="chip" data-panel="invest" title="Investments">📈 ${money(invest.total(S))}</button>` : ''}
-        ${S.debt > 0 ? `<button class="chip bad" data-panel="money" title="${S.dcp ? 'Debt Consolidation Plan' : 'Credit card debt at 25% a year'}">💳 −${money(S.debt)}</button>` : ''}
-        <button class="chip cpf" data-panel="cpf" title="CPF total">CPF ${money(cpfTotal)}</button>
-        <span class="chip" title="Joy: your life experiences">😊 ${Math.round(S.joy)}</span>
+        <button class="chip" data-panel="money" title="Cash savings"><small>💵 Cash</small><b>${money(S.bank)}</b></button>
+        ${invest.total(S) > 0 || S.stage === 'adult' || S.stage === 'senior' ? `<button class="chip inv" data-panel="invest" title="Investments"><small>📈 Invest</small><b>${money(invest.total(S))}</b></button>` : ''}
+        ${S.debt > 0 ? `<button class="chip bad" data-panel="money" title="${S.dcp ? 'Debt Consolidation Plan' : 'Credit card debt at 25% a year'}"><small>💳 Debt</small><b>−${money(S.debt)}</b></button>` : ''}
+        <button class="chip cpf" data-panel="cpf" title="CPF total"><small>🏛️ CPF</small><b>${money(cpfTotal)}</b></button>
+        <span class="chip joy" title="Joy: your life experiences"><small>😊 Joy</small><b>${Math.round(S.joy)}</b></span>
       </div>
-      <nav class="menu">
-        <button class="btn small-btn" data-panel="stats">📊 Stats</button>
-        <button class="btn small-btn" data-panel="cpf">🏛️ CPF</button>
-        <button class="btn small-btn" data-panel="menu">☰</button>
+      <nav class="menu" aria-label="Main">
+        <button class="btn small-btn nav-btn" data-panel="stats"><span class="nav-i" aria-hidden="true">📊</span><span>Stats</span></button>
+        <button class="btn small-btn nav-btn" data-panel="cpf"><span class="nav-i" aria-hidden="true">🏛️</span><span>CPF</span></button>
+        <button class="btn small-btn nav-btn" data-panel="menu"><span class="nav-i" aria-hidden="true">☰</span><span>Menu</span></button>
       </nav>
     </header>
     <div class="play">
@@ -371,7 +371,7 @@ function actionTiles() {
     if (S.stage === 'adult') tiles.push(['family', '💞', 'Family', S.spouse ? `${S.children.length ? `${S.children.length} kid${S.children.length > 1 ? 's' : ''}` : 'Married'}${S.spouse.home ? ', 1 income' : ''}` : S.dating != null ? 'Dating' : 'Single']);
     tiles.push(['insurance', '🩺', 'Insurance', health.PLANS[(S.insurance || {}).plan || 'msl'].label.replace(' only', '').replace(' plan', '').replace('Standard (B1 ward)', 'B1 plan')]);
     const loanYrs = S.home ? Math.ceil(housing.monthsLeft(S.home) / 12) : 0;
-    tiles.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label} · ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label} · fully owned 🎉`) : sim.isRenting(S) ? 'Renting' : 'With your parents']);
+    tiles.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label}, ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label}, fully owned 🎉`) : sim.isRenting(S) ? 'Renting' : 'With your parents']);
     if (sim.isStudying(S)) tiles.push(['stats', '🎓', 'Studying', `First job at ${sim.firstJobAge(S)}`]);
     else if (S.stage === 'adult' || (working && S.age < 65)) tiles.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
   }
@@ -2141,7 +2141,7 @@ async function moneyPanel() {
       ${topUpAccount === 'ret' && S.age >= 55 ? `<p class="gain-note" id="topup-gain">${S.life && S.age >= S.life.startAge ? `CPF LIFE pays you ${money(S.life.monthly)}/month now. Top-ups after payouts start buy extra CPF LIFE, so your payout rises from next year.` : 'Top-ups to your RA raise your CPF LIFE payouts.'} Drag the slider to see by how much.</p>` : ''}
       <div class="limit-box"><p class="small">${info.full ? `<b>${info.full}</b> ` : ''}${info.text} Topped up this year: <b>${money(sim.topUpsThisYear(S))}</b>.</p></div>
       ${adult ? `<h3>📈 Investing</h3><p>Buy funds and shares with cash, or with your CPF through the CPF Investment Scheme. ${btn('invest', 'Open investments')}</p>` : ''}
-      ${S.stage === 'adult' ? `<h3>Lifestyle</h3><p>${LIFESTYLES[S.lifestyle].icon} ${LIFESTYLES[S.lifestyle].label}: about ${money(sim.monthlySpend(S))}/month in total ${btn('life', 'Change')}</p>` : ''}
+      ${S.stage === 'adult' ? `<h3>Lifestyle</h3><p class="inline-act"><span>${LIFESTYLES[S.lifestyle].icon} ${LIFESTYLES[S.lifestyle].label}: about ${money(sim.monthlySpend(S))}/month in total</span> ${btn('life', 'Change')}</p>` : ''}
       ${btn('ok', 'Close', 'primary')}`, { wide: true });
     modalBox.scrollTop = scroll;
     wireAmount(modalBox, 'repay', (v) => Math.min(v, S.debt, S.bank), (v) => (repay = v));
@@ -2356,7 +2356,7 @@ async function budgetPanel() {
       const bar = (v, cls) => `<span class="${cls}" style="width:${Math.max(0, Math.min(100, (v / total) * 100))}%"></span>`;
       $('#budget-sum', modalBox).innerHTML = `
         <div class="budget-bar">${bar(fixed, 'b-fixed')}${bar(spend, 'b-fun')}${bar(saving, 'b-save')}${bar(Math.max(0, left), 'b-left')}</div>
-        <p class="legend"><span class="b-fixed"></span> Must-pays ${money(fixed)} <span class="b-fun"></span> Fun and giving ${money(spend)} <span class="b-save"></span> Saving and investing ${money(saving)} <span class="b-left"></span> Left to cash ${money(Math.max(0, left))}</p>
+        <p class="legend"><i><span class="b-fixed"></span> Must-pays ${money(fixed)}</i> <i><span class="b-fun"></span> Fun and giving ${money(spend)}</i> <i><span class="b-save"></span> Saving and investing ${money(saving)}</i> <i><span class="b-left"></span> Left to cash ${money(Math.max(0, left))}</i></p>
         <p class="${left < 0 ? 'neg' : ''}">${left >= 0
           ? `Each month <b>${money(left)}</b> is left over and goes to your cash savings. That's ${Math.round((left / total) * 100)}% of what comes in${saving ? `, plus ${money(saving)} saved on purpose` : ''}.`
           : `You'd be <b>${money(-left)}</b> short every month. Planned saving only happens when you have the cash, and spending you can't cover goes on credit cards at 25% a year.`}</p>`;
