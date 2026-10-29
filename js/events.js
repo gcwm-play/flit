@@ -203,8 +203,8 @@ export const PERSONAL_EVENTS = [
       title: 'Your parent is in hospital',
       text: 'The bill after insurance is $6,000. In Singapore you can use your own MediSave to pay for your parents’ hospital stays.',
       choices: [
-        { label: 'Pay with my MediSave', run: (s) => { const p = payFromMedisave(s, 6000); return `MediSave pays ${money(p.ma)}${p.cash ? `, cash ${money(p.cash)}` : ''}.`; } },
-        { label: 'Pay in cash', run: (s) => { coverShortfall(s, 6000); return 'You pay $6,000 from your savings.'; } },
+        { label: 'Pay with my MediSave', run: (s) => { const p = payFromMedisave(s, 6000); (s.familyBills ||= []).push({ age: s.age, medisave: p.ma, cash: p.cash }); return `MediSave pays ${money(p.ma)}${p.cash ? `, cash ${money(p.cash)}` : ''}.`; } },
+        { label: 'Pay in cash', run: (s) => { coverShortfall(s, 6000); (s.familyBills ||= []).push({ age: s.age, medisave: 0, cash: 6000 }); return 'You pay $6,000 from your savings.'; } },
       ],
     }),
   },
