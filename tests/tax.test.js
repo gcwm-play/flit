@@ -192,3 +192,20 @@ test('after NS: start work at 21, or university until 23 if Knowledge allows', (
   m.stats.knowledge = 10;
   assert.ok(!sim.canGoToUniversity(m));
 });
+
+test('quick start: lands at 21 with the chosen education, and NS shapes the path for men', () => {
+  for (const gender of ['male', 'female']) {
+    for (const ed of ['ite', 'poly', 'university']) {
+      for (let i = 0; i < 20; i++) {
+        const s = sim.quickStart(sim.newGame('Q', { animal: 'cat', gender, outfit: 0 }), ed);
+        assert.equal(s.age, 21);
+        assert.equal(s.stage, 'adult');
+        assert.equal(sim.educationFor(s), ed);
+        assert.equal(sim.firstJobAge(s), gender === 'male' && ed === 'university' ? 23 : 21);
+        assert.ok(cpf.cpfTotal(s.cpf) > 0);
+      }
+    }
+  }
+  const s = sim.quickStart(sim.newGame('Q', { animal: 'cat', gender: 'male', outfit: 0 }), 'random');
+  assert.equal(s.postNs, undefined); // the player still chooses after NS
+});
