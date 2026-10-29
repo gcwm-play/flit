@@ -334,10 +334,12 @@ function render() {
       ${cashboardHtml()}
     </div>
     <section class="actions">
-      ${S.done ? '' : actionTiles()}
+      ${S.done ? '' : `<div class="zone zone-extras">${actionTiles()}</div>`}
+      <div class="zone zone-focus">
       <h2>${S.done ? 'Your life story is complete' : `Age ${S.age}: ${turnPrompt()}`}</h2>
       ${S.done ? '' : `<p class="tiles-hint">Pick one. It plays out ${sim.yearsThisTurn(S) > 1 ? `the next ${sim.yearsThisTurn(S)} years` : 'the year'} and moves you on.</p>`}
       <div class="cards">${S.done ? btn('end', 'See your life summary', 'primary') : activityCards()}</div>
+      </div>
     </section>
     </div>
     ${ledgerHtml()}

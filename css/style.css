@@ -201,7 +201,7 @@ button.chip:hover { box-shadow: 0 3px 0 var(--edge); transform: translateY(-1px)
 
 /* ---------- actions ---------- */
 .actions { max-width: 900px; margin: 0 auto; padding: 0 16px 32px; color: var(--ink); }
-.actions > h2 { font-size: 22px; margin: 22px 0 2px; }
+.zone-focus > h2 { font-size: 22px; margin: 22px 0 2px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .activity {
   display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; min-width: 0;
@@ -770,7 +770,21 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
   .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .tile { grid-template-columns: 36px minmax(0, 1fr); column-gap: 8px; padding: 10px; }
   .t-icon { width: 36px; height: 36px; font-size: 19px; }
-  .actions > h2 { font-size: 21px; }
+  .zone-focus > h2 { font-size: 21px; }
 }
 @keyframes sheet-up { from { transform: translateY(40px); opacity: .6; } }
 @media (prefers-reduced-motion: reduce) { .modal-box { animation: none; } }
+
+/* The two parts of a turn sit in lightly tinted panels: green for optional extras, coral for the turn's focus. */
+.actions { display: grid; gap: 16px; }
+.zone { border-radius: 24px; padding: 14px 14px 16px; min-width: 0; }
+.zone-extras { background: #eef7f2; border: 1.5px solid #c6e6d8; }
+.zone-focus { background: #fff3ee; border: 1.5px solid #ffcfbf; }
+.zone > h2:first-child, .zone > .tiles-head:first-child { margin-top: 0; }
+.zone .tiles { margin-bottom: 0; }
+.zone-extras .tiles-head { color: var(--t-green-ink); }
+.zone-focus > h2 { color: #b5462f; }
+@media (max-width: 600px) {
+  .zone { padding: 12px 10px 14px; border-radius: 22px; }
+  .zone > h2, .zone > .tiles-head, .zone > .tiles-hint { padding: 0 4px; }
+}
