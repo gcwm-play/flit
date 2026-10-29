@@ -235,3 +235,12 @@ test('a hospital stay records who paid, for the life recap', () => {
   const paid = e.subsidy + e.msl + e.ip + e.riderPaid + e.medifund + e.medisave + e.cash;
   assert.ok(Math.abs(paid - e.gross) < 0.01);
 });
+
+test('a yearly CPF top-up never takes the cash needed for income tax', () => {
+  const s = sim.newGame('T', { gender: 'she', animal: 'cat' });
+  s.age = 35; s.stage = 'adult'; s.salary = 9000; s.career = 'engineer'; s.bank = 0; s.debt = 0;
+  s.budget = { ...sim.newBudget(), cpfYearly: 200000 };
+  sim.advanceYears(s, 1);
+  assert.equal(s.debt, 0);
+  assert.ok(s.bank >= 0);
+});
