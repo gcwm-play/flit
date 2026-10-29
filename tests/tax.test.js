@@ -223,3 +223,15 @@ test('a or an: "a University degree", "an ITE Nitec"', () => {
   assert.equal(sim.aOrAn('ITE Nitec'), 'an');
   assert.equal(sim.aOrAn('Office administrator'), 'an');
 });
+
+test('a hospital stay records who paid, for the life recap', () => {
+  const s = sim.newGame('T', { gender: 'she', animal: 'cat' });
+  s.age = 52; s.stage = 'adult'; s.cpf.ma = 50000; s.bank = 20000;
+  s.insurance = { plan: 'a', rider: true };
+  sim.treat(s, 'heart');
+  const e = s.illnesses[0];
+  assert.equal(e.plan, 'a');
+  assert.equal(e.rider, true);
+  const paid = e.subsidy + e.msl + e.ip + e.riderPaid + e.medifund + e.medisave + e.cash;
+  assert.ok(Math.abs(paid - e.gross) < 0.01);
+});

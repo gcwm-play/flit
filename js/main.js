@@ -2859,6 +2859,46 @@ function cpfRecap() {
   </div>`;
 }
 
+function healthRecap() {
+  const t = S.totals || {};
+  const ill = S.illnesses || [];
+  const fam = S.familyBills || [];
+  const sum = (list, k) => list.reduce((a, e) => a + (e[k] || 0), 0);
+  const ins = S.insurance || { plan: 'msl' };
+  const planLabel = (id, rider) => `${health.PLANS[id]?.label || 'MediShield Life only'}${rider && id !== 'msl' ? ' with a rider' : ''}`;
+  const planChanges = stories('cpf').filter((e) => e.icon === '🩺');
+  const premiums = (t.insuranceMa || 0) + (t.insuranceCash || 0);
+  const hasSplit = ill.some((e) => e.gross != null);
+  const paidOut = sum(ill, 'msl') + sum(ill, 'ip') + sum(ill, 'riderPaid');
+  const nums = [
+    hasSplit && ['Subsidies', sum(ill, 'subsidy')],
+    hasSplit && ['MediShield Life', sum(ill, 'msl')],
+    hasSplit && ['Shield plan', sum(ill, 'ip')],
+    hasSplit && ['Rider', sum(ill, 'riderPaid')],
+    hasSplit && ['MediFund', sum(ill, 'medifund')],
+    ['MediSave', sum(ill, 'medisave')],
+    ['Cash', sum(ill, 'cash')],
+  ].filter((x) => x && x[1] > 0.5);
+  return `<div class="recap-card">
+    <h3>🩺 Your health</h3>
+    <p>${ill.length ? `You were in hospital <b>${ill.length} time${ill.length > 1 ? 's' : ''}</b>.` : 'You never needed a hospital stay.'} Your cover now: <b>${planLabel(ins.plan, ins.rider)}</b>.</p>
+    ${ill.length ? `<ol class="timeline">${ill.map((e) => {
+      const c = health.CONDITIONS.find((x) => x.id === e.id);
+      const w = health.WARDS[e.ward];
+      return `<li><span class="j-age">${e.age}</span><span>${c?.icon || '🏥'} ${c ? esc(c.label[0].toUpperCase() + c.label.slice(1)) : 'A hospital stay'}${e.days ? `, ${e.days} days` : ''} in a ${w?.label || 'ward'}${e.gross != null ? `: bill ${money(e.gross)}, you paid ${money((e.medisave || 0) + (e.cash || 0))}` : ''}.${e.plan ? ` Covered by ${e.plan === 'msl' ? 'MediShield Life only' : `your ${planLabel(e.plan, e.rider)}`}.` : ''}</span></li>`;
+    }).join('')}</ol>` : ''}
+    ${planChanges.length ? `<p class="small">Cover changes: ${planChanges.map((e) => esc(e.text).replace(/ at (\d+)$/, '&nbsp;at&nbsp;$1')).join('; ')}.</p>` : ''}
+    ${fam.length ? `<p class="small">👵 You paid ${fam.length > 1 ? `${fam.length} hospital bills` : 'a hospital bill'} for your parents: ${[sum(fam, 'medisave') && `${money(sum(fam, 'medisave'))} from MediSave`, sum(fam, 'cash') && `${money(sum(fam, 'cash'))} in cash`].filter(Boolean).join(' and ')}.</p>` : ''}
+    <div class="recap-nums">
+      ${hasSplit ? `<span><b>Hospital bills</b></span><b>${money(sum(ill, 'gross'))}</b>` : ''}
+      ${nums.map(([k, v]) => `<span>${hasSplit ? '· ' : ''}${k}</span><b>${money(v)}</b>`).join('')}
+      ${premiums ? `<span><b>Premiums you paid</b></span><b>${money(premiums)}</b>` : ''}
+      ${premiums && t.insuranceMa ? `<span>· from MediSave</span><b>${money(t.insuranceMa)}</b>` : ''}
+      ${premiums && hasSplit ? `<span><b>Insurance paid you</b></span><b>${money(paidOut)}</b>` : ''}
+    </div>
+  </div>`;
+}
+
 const STYLE_WORDS = { simple: 'Frugal', comfortable: 'Average', lavish: 'Lavish' };
 function lifestyleRecap() {
   const t = S.totals || {};
@@ -2927,6 +2967,7 @@ async function endScreen() {
         ${careerRecap()}
         ${housingRecap()}
         ${cpfRecap()}
+        ${healthRecap()}
         ${lifestyleRecap()}
         ${joysRecap()}
       </div>

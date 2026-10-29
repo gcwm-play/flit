@@ -727,7 +727,10 @@ export function treat(s, id) {
   if (b.fromCash > 0) coverShortfall(s, b.fromCash);
   s.joy = Math.max(0, s.joy - (c.kind === 'major' ? 3 : 1));
   if (c.kind === 'major') s.stats.health = Math.max(0, s.stats.health - 3);
-  (s.illnesses ||= []).push({ age: s.age, id, ward: b.ward, cash: b.fromCash, medisave: b.fromMedisave });
+  (s.illnesses ||= []).push({
+    age: s.age, id, ward: b.ward, plan: ins.plan, rider: !!(ins.rider && ins.plan !== 'msl'), days: c.days, gross: b.gross,
+    subsidy: b.subsidy, msl: b.msl, ip: b.ip, riderPaid: b.rider, medifund: b.medifund, cash: b.fromCash, medisave: b.fromMedisave,
+  });
   story(s, 'health', c.icon, `Recovered from ${c.label} in a ${b.wardInfo.label}`, { gross: b.gross, cash: b.fromCash, medisave: b.fromMedisave });
   return { c, b };
 }
