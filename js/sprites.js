@@ -61,18 +61,24 @@ function probe(url) {
         if (probe(itemUrl(el.dataset.item))) el.innerHTML = itemHtml({ id: el.dataset.item });
       });
     };
-    img.onerror = () => art.set(url, 'missing');
+    img.onerror = () => { art.set(url, 'missing'); refreshArt(); };
     img.src = url;
   }
   return art.get(url) === 'ok';
 }
 
-// Points every character on screen at its best picture so far.
+// Points every character on screen at its picture once it's ready.
 function refreshArt() {
-  document.querySelectorAll('[data-art]').forEach((el) => {
-    const src = artSrc(JSON.parse(el.dataset.art));
-    if (src) el.style.setProperty('--sheet', `url("${src}")`);
-  });
+  document.querySelectorAll('[data-art]').forEach((el) => el.style.setProperty('--sheet', sheetCss(JSON.parse(el.dataset.art))));
+}
+
+// The custom PNG (recoloured if needed) once it has loaded. While it's still loading the
+// character is left blank rather than flashing the drawn stand-in; the drawing is only
+// used when there is no PNG for that animal and stage.
+function sheetCss(look) {
+  const src = artSrc(look);
+  if (src === null) return 'none';
+  return `url("${src || sheetSrc(look)}")`;
 }
 
 // The custom PNGs all wear a light blue shirt. Family members get another colour by turning
@@ -110,7 +116,7 @@ function tinted(url, outfit) {
     img.src = url;
   }
   const t = tints.get(key);
-  return t === 'loading' ? url : t;
+  return t === 'loading' ? null : t;
 }
 
 function rgbToHsl(r, g, b) {
@@ -131,16 +137,23 @@ function hslToRgb(h, s, l) {
   return [f(0), f(8), f(4)];
 }
 
+// null while still loading, '' when there is no custom PNG.
 const artSrc = (look) => {
   const src = customSrc(look);
-  return src ? tinted(src, look.outfit || 0) : '';
+  return src ? tinted(src, look.outfit || 0) : src;
 };
 
 function customSrc({ stage, animal, gender }) {
   // An absolute URL: inside a CSS variable a relative one would resolve against the stylesheet.
   const base = new URL(`assets/sprites/${animal}-${stage}`, document.baseURI).href;
-  if (gender === 'female' && probe(`${base}-she-walk.png`)) return `${base}-she-walk.png`;
-  return probe(`${base}-walk.png`) ? `${base}-walk.png` : '';
+  const urls = gender === 'female' ? [`${base}-she-walk.png`, `${base}-walk.png`] : [`${base}-walk.png`];
+  for (const url of urls) {
+    probe(url);
+    const state = art.get(url);
+    if (state === 'ok') return url;
+    if (state === 'loading') return null;
+  }
+  return '';
 }
 
 // A shop item: custom art if there is a PNG for it, otherwise its emoji.
@@ -171,9 +184,9 @@ export function itemHtml(item) {
 
 // HTML for a character. Add the class "walking" to animate the walk cycle.
 export function characterHtml(look, cls = '', alt = '') {
-  const src = artSrc(look) || sheetSrc(look);
+  const sheet = sheetCss(look);
   const data = JSON.stringify({ stage: look.stage, animal: look.animal, gender: look.gender, outfit: look.outfit || 0 }).replace(/"/g, '&quot;');
-  return `<span class="pixel person ${cls}" role="img" aria-label="${alt || ANIMALS[look.animal].label}" data-art="${data}" style="--sheet:url('${src}')"></span>`;
+  return `<span class="pixel person ${cls}" role="img" aria-label="${alt || ANIMALS[look.animal].label}" data-art="${data}" style='--sheet:${sheet}'></span>`;
 }
 
 function drawSheet(stage, animal, she, outfitIdx) {

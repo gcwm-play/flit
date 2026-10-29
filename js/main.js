@@ -233,7 +233,7 @@ function titleScreen() {
         <p>Grow up, build your skills, make money choices and see where they lead when you retire.</p>
         <label class="field">Your name <input id="name" maxlength="16" autocomplete="off"></label>
         <p class="pick-label">Pick your animal <small>(your partner and children will be the same animal)</small></p>
-        <div class="animal-pick" role="group" aria-label="Animal">${Object.entries(ANIMALS).map(([k, a]) => `<button class="animal-btn" data-animal="${k}">${person({ stage: 'adult', animal: k, gender: 'male', outfit: 1 }, 'tiny')}<span>${a.label}</span></button>`).join('')}</div>
+        <div class="animal-pick" role="group" aria-label="Animal">${Object.entries(ANIMALS).map(([k, a]) => `<button class="animal-btn" data-animal="${k}">${person({ stage: 'adult', animal: k, gender: 'male', outfit: 0 }, 'tiny')}<span>${a.label}</span></button>`).join('')}</div>
         <p class="small muted">Everyone in this Singapore is an animal, but the rules are real: the same CPF, HDB and marriage rules apply.</p>
         <p class="pick-label">You are</p>
         <div class="seg" role="group" aria-label="He or she">${Object.entries(GENDERS).map(([k, l]) => `<button class="seg-btn" data-gender="${k}">${l}</button>`).join('')}</div>
