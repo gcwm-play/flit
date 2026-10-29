@@ -1317,7 +1317,7 @@ async function milestones() {
 // Every 2 life periods as an adult, until you've made one (or when marriage cancels it,
 // or a new child isn't covered).
 async function nominationReminder() {
-  if (!(S.stage === 'adult' || S.stage === 'senior') || (S.stage === 'adult' && !S.career) || S.nomRemindAge === S.age) return;
+  if (S.nomMuted || !(S.stage === 'adult' || S.stage === 'senior') || (S.stage === 'adult' && !S.career) || S.nomRemindAge === S.age) return;
   if (S.nominationRevoked != null && !S.nomination && S.nominationRevokedSeen !== S.nominationRevoked) {
     S.nominationRevokedSeen = S.nominationRevoked;
     S.nomTurns = 0;
@@ -1362,12 +1362,22 @@ async function nominationDialog(why = 'panel') {
     <p class="field-label">Nominate</p>
     <div class="seg nom-seg" role="group" aria-label="Nominate">${choices.map((k) => `<button type="button" class="seg-btn ${k === who ? 'on' : ''}" data-nom="${k}">${sim.NOMINEES[k].replace(/^your /, '').replace(/^./, (x) => x.toUpperCase())}</button>`).join('')}</div>
     ${NOMINATION_FACTS}
-    <div class="row">${btn('nominate', n ? 'Update my nomination' : 'Make my nomination', 'primary')}${btn('later', why === 'panel' ? 'Back' : 'Not now')}</div>`, { wide: true });
+    <div class="row">${btn('nominate', n ? 'Update my nomination' : 'Make my nomination', 'primary')}${btn('later', why === 'panel' ? 'Back' : 'Not now')}${why === 'panel' ? '' : btn('mute', 'Don\'t remind me again')}</div>`, { wide: true });
   modalBox.querySelectorAll('[data-nom]').forEach((b) => (b.onclick = () => {
     who = b.dataset.nom;
     modalBox.querySelectorAll('[data-nom]').forEach((x) => x.classList.toggle('on', x === b));
   }));
-  if ((await c) !== 'nominate') return;
+  const choice = await c;
+  if (choice === 'mute') {
+    S.nomMuted = true;
+    save();
+    await dialog(`<div class="event"><div class="e-icon">🔕</div><h2>No more nomination reminders</h2></div>
+      <p>OK, the game won't remind you again.</p>
+      <p>If you change your mind, tap <b>🏛️ CPF</b> at the top of the screen and choose <b>Make a nomination</b> under Nomination. In real life, you can make one any time on the CPF website with Singpass.</p>
+      ${btn('ok', 'OK', 'primary')}`);
+    return;
+  }
+  if (choice !== 'nominate') return;
   sim.nominate(S, who);
   logEvent(`📝 CPF nomination: ${sim.NOMINEES[who]}`);
   toast(`📝 Nomination made: ${sim.NOMINEES[who]} would receive your CPF savings.`);
