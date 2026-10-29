@@ -336,6 +336,7 @@ function render() {
     <section class="actions">
       ${S.done ? '' : actionTiles()}
       <h2>${S.done ? 'Your life story is complete' : `Age ${S.age}: ${turnPrompt()}`}</h2>
+      ${S.done ? '' : `<p class="tiles-hint">Pick one. It plays out ${sim.yearsThisTurn(S) > 1 ? `the next ${sim.yearsThisTurn(S)} years` : 'the year'} and moves you on.</p>`}
       <div class="cards">${S.done ? btn('end', 'See your life summary', 'primary') : activityCards()}</div>
     </section>
     </div>
@@ -379,7 +380,8 @@ function actionTiles() {
   tiles.push(['shop', '🛍️', 'Shop', `${S.room.length} owned`]);
   const sepAsk = selfEmployedTopUpPending();
   tiles.push(['money', '💵', S.debt > 0 ? 'Repay debt' : sepAsk ? 'CPF top-up ❗' : 'CPF top-up', S.debt > 0 ? `−${money(S.debt)}` : sepAsk ? 'Self-employed: your call' : 'From your cash', S.debt > 0 || sepAsk]);
-  return `<h2 class="tiles-head">Before you move on <small>as many as you like</small></h2>
+  return `<h2 class="tiles-head">Optional extras</h2>
+    <p class="tiles-hint">Do any of these first if you like, as often as you want. They don't use up your ${sim.yearsThisTurn(S) > 1 ? 'turn' : 'year'}. When you're ready, pick your focus below to move on.</p>
     <div class="tiles">${tiles.map(([panel, icon, label, note, warn]) => `
       <button class="tile" data-panel="${panel}"><span class="t-icon">${icon}</span><span class="t-label">${label}</span><span class="t-note ${warn ? 'neg' : ''}">${note}</span></button>`).join('')}</div>`;
 }

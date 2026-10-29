@@ -664,3 +664,4 @@ label.check input { width: 20px; height: 20px; }
 .nom-seg { flex-wrap: wrap; gap: 6px; }
 .nom-seg .seg-btn + .seg-btn { border-left: 3px solid var(--line); }
 .nom-recap { margin-top: 10px; }
+.tiles-hint { margin: -4px 0 10px; font-size: 14px; color: #c9cbe0; }
