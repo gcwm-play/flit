@@ -2423,6 +2423,8 @@ async function budgetPanel() {
     const kids = (S.children || []).filter((c) => S.age - c.bornAge < 21);
     const baseFixed = living + rent + loanCash + dcp + insurance;
     const room = sim.topUpRoom(S);
+    // A yearly top-up can't be more than the room left or the cash you have.
+    const topCap = Math.max(0, Math.min(room, Math.floor(S.bank)));
     const ls = S.stage === 'senior' && S.retirementLifestyle ? RETIREMENT_LIFESTYLES[S.retirementLifestyle] : LIFESTYLES[S.lifestyle];
     const scroll = modalEl.hidden ? 0 : modalBox.scrollTop;
     const c = dialog(`
@@ -2436,14 +2438,14 @@ async function budgetPanel() {
         <tr><td>${ls.icon || '🏠'} Everyday living: ${ls.label}${parts.kids + parts.groceries ? `, incl. ${money(parts.kids + parts.groceries)} for ${kids.length === 1 ? 'your child' : 'your children'}` : ''}${parts.homeSpouse ? `, ${money(parts.homeSpouse + 300)} for your spouse at home` : ''}${S.car ? `, incl. ${money(parts.car)} for the car` : ''} ${btn('life', 'Change')}</td><td class="neg">−${money(living)}</td></tr>
         <tr><td>🩺 Health insurance: ${health.PLANS[(S.insurance || {}).plan || 'msl'].label}${(S.insurance || {}).rider ? ' + rider' : ''} (cash part) ${btn('insurance', 'Change')}</td><td class="neg">${insurance ? `−${money(insurance)}` : '$0'}</td></tr>
         ${rent ? `<tr><td>Rent</td><td class="neg">−${money(rent)}</td></tr>` : ''}
-        ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan ${money(S.home.instalment)}: ${money(loan.fromOa)} from your CPF OA, the rest in cash</td><td class="neg">−${money(loanCash)}</td></tr>` : ''}
+        ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan ${money(S.home.instalment)}: ${loanCash < 0.5 ? 'all from your CPF OA' : `${money(loan.fromOa)} from your CPF OA, the rest in cash`}</td><td class="neg">${loanCash < 0.5 ? '$0' : `−${money(loanCash)}`}</td></tr>` : ''}
         ${dcp ? `<tr><td>Debt Consolidation Plan</td><td class="neg">−${money(dcp)}</td></tr>` : ''}
         <tr><td>🧾 Income tax (one bill a year, shown per month) ${btn('tax', 'How it\'s worked out')}<br><small id="tax-note"></small></td><td class="neg" id="tax-cell"></td></tr>
       </table>
       <h3>Your choices</h3>
       <div class="alloc">
         <div class="alloc-row"><span class="al-icon">✈️</span><span class="al-text"><b>Holidays</b><small>${(S.holidayPlans || []).length ? `${S.holidayPlans.length} trip${S.holidayPlans.length > 1 ? 's' : ''} planned for next year, averaged per month.` : 'No trips planned.'} ${btn('holidays', 'Plan holidays')}</small></span><b class="al-val">${money(holidays)}</b></div>
-        <div class="alloc-row"><span class="al-icon">🏛️</span><span class="al-text"><b>Top up my CPF every year</b><small>${S.age < 55 ? 'Into your SA (RSTU), up to the FRS. Earns 4%+, and the first $8,000 a year cuts your income tax.' : 'Into your RA (RSTU), up to the ERS, for bigger CPF LIFE payouts.'} ${room > 0 ? `Room left: ${money(room)}. The top-ups stop by themselves when you reach the ${S.age < 55 ? 'FRS' : 'ERS'}.` : S.age < 55 ? 'Your SA is at the FRS: no more top-ups until 55.' : 'Your RA is at the ERS: no more top-ups.'}</small></span>${amountControl('cpfYearly', Math.min(36000, room), 'CPF top-up per year')}</div>
+        <div class="alloc-row"><span class="al-icon">🏛️</span><span class="al-text"><b>Top up my CPF every year</b><small>${S.age < 55 ? 'Into your SA (RSTU), up to the FRS. Earns 4%+, and the first $8,000 a year cuts your income tax.' : 'Into your RA (RSTU), up to the ERS, for bigger CPF LIFE payouts.'} ${room > 0 ? `Room left: ${money(room)}. The top-ups stop by themselves when you reach the ${S.age < 55 ? 'FRS' : 'ERS'}. ${topCap < room ? `You have ${money(Math.max(0, S.bank))} in cash, so you can plan up to that.` : ''} Each year it only takes cash you have left after your income tax, so it never puts you in debt.` : S.age < 55 ? 'Your SA is at the FRS: no more top-ups until 55.' : 'Your RA is at the ERS: no more top-ups.'}</small></span>${amountControl('cpfYearly', topCap, 'CPF top-up per year')}</div>
         <div class="alloc-row"><span class="al-icon">💝</span><span class="al-text"><b>Give to charity every year</b><small>Your money helps people who need it: food, care and education. Gifts to approved charities (Institutions of a Public Character, IPCs) also get a ${tax.DONATION_DEDUCTION * 100}% tax deduction: give $1,000 and $2,500 comes off your taxable income.</small></span>${amountControl('donateYearly', 12000, 'Donation per year')}</div>
         ${kids.length ? `<div class="alloc-row"><span class="al-icon">👶</span><span class="al-text"><b>Top up my ${kids.length === 1 ? "child's" : "children's"} CPF</b><small>Per child, into their SA (RSTU). It grows at 4%+ until they retire: a head start, but locked away. ${S.spouse ? 'Your spouse puts in the same.' : ''} No tax relief for top-ups to children.</small></span>${amountControl('kidsCpf', 500, 'Per child per month')}</div>` : ''}
         <div class="alloc-row"><span class="al-icon">📈</span><span class="al-text"><b>Regular investing (DCA)</b><small>${sim.dcaPlans(S).length ? sim.dcaPlans(S).map((d) => `${invest.product(d.id).name}: ${money(d.perYear)}/year${d.src === 'cash' ? '' : ` from your ${invest.SOURCES[d.src].short}`}`).join('<br>') : 'No plans yet.'} ${btn('invest', 'Investments')}</small></span><b class="al-val">${money(dcaMonthly)}</b></div>
@@ -2454,7 +2456,7 @@ async function budgetPanel() {
     const keys = ['cpfYearly', 'kidsCpf', 'donateYearly'];
     const draw = () => {
       // Tax depends on this year's top-up and giving, so it updates with the sliders.
-      const est = sim.taxEstimate(S, { topUp: Math.min(b.cpfYearly, room), donate: b.donateYearly || 0 });
+      const est = sim.taxEstimate(S, { topUp: Math.min(b.cpfYearly, topCap), donate: b.donateYearly || 0 });
       const bare = sim.taxEstimate(S, { bare: true });
       const taxMonthly = est.tax / 12;
       $('#tax-cell', modalBox).textContent = taxMonthly > 0.5 ? `−${money(taxMonthly)}` : '$0';
@@ -2506,7 +2508,7 @@ async function budgetPanel() {
       continue;
     }
     if (choice === 'tax') {
-      await taxPanel({ topUp: Math.min(b.cpfYearly, room), donate: b.donateYearly || 0 });
+      await taxPanel({ topUp: Math.min(b.cpfYearly, topCap), donate: b.donateYearly || 0 });
       continue;
     }
     toast('📋 Budget saved. It applies from your next turn.');

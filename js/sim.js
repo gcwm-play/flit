@@ -1171,10 +1171,9 @@ export function cpfTopUpPerYear(s) {
 // Planned saving each year, only from cash you actually have (never borrowed).
 function budgetTransfers(s, sum) {
   const b = s.budget || newBudget();
-  const take = (want) => {
-    const a = Math.max(0, Math.min(want, s.bank));
-    return a;
-  };
+  // Keep back enough cash for this year's income tax, so saving never pushes you into debt.
+  const taxReserve = sum.income > 0 ? taxEstimate(s, { bare: true }).tax : 0;
+  const take = (want) => Math.max(0, Math.min(want, s.bank - taxReserve));
   // Regular yearly CPF top-up. It stops by itself once the SA reaches the FRS (or the RA the ERS).
   const yearly = cpfTopUpPerYear(s);
   if (yearly > 0) {
