@@ -1752,6 +1752,21 @@ async function adultStart() {
   await lifestyleDialog();
 }
 
+// Footnotes for homes whose loan was cut by a repayment limit, worked out with this household's numbers.
+function loanLimitNotes(quotes, income) {
+  const by = new Set(quotes.filter((q) => q.cappedBy).map((q) => q.cappedBy));
+  if (!by.size) return '';
+  const debt = sim.otherDebt(S);
+  const notes = [];
+  if (by.has('TDSR')) {
+    notes.push(`<p><sup>1</sup> <b>Total Debt Servicing Ratio (TDSR)</b>: MAS caps all your property and other loan repayments at <b>${pctText(housing.TDSR)}</b> of gross monthly household income, for any property bought with a loan. On ${money(income)} a month that's at most <b>${money(housing.TDSR * income)}</b> a month${debt > 0 ? `, and your car loan already takes ${money(debt)} of it, leaving ${money(Math.max(0, housing.TDSR * income - debt))} for the home` : ''}. Banks test this at ${pctText(housing.TDSR_STRESS_RATE)} interest (HDB at ${pctText(housing.HDB_LOAN_FLOOR)}) even if your actual rate is lower, so the loan they'll give is smaller and the rest must be paid upfront from your OA or cash. A higher income, a cheaper home or clearing other loans first raises the limit.</p>`);
+  }
+  if (by.has('MSR')) {
+    notes.push(`<p><sup>2</sup> <b>Mortgage Servicing Ratio (MSR)</b>: for HDB flats, the home loan repayment alone can't be more than <b>${pctText(housing.MSR)}</b> of gross monthly household income: at most <b>${money(housing.MSR * income)}</b> a month on ${money(income)}. It's tested at ${pctText(housing.HDB_LOAN_FLOOR)} for HDB loans and ${pctText(housing.TDSR_STRESS_RATE)} for bank loans. The TDSR (55% for all debts) applies on top.</p>`);
+  }
+  return `<div class="fact small loan-notes">${notes.join('')}</div>`;
+}
+
 // For a lifestyle choice: what it would cost you now, and what's left of your pay.
 function lifestyleFit(k, takeHome) {
   const was = S.lifestyle;
@@ -1807,9 +1822,10 @@ async function chooseHome(title, { leaveLabel } = {}) {
         Upfront ${money(q.down + q.bsd)} incl. stamp duty ${money(q.bsd)}: OA ${money(q.fromOa)}, cash ${money(q.fromCash)}<br>
         ${q.loanType} ${money(q.loan)}: <b>${money(q.instalment)}/month</b> for ${q.years} years<br>
         Total interest about ${money(Math.max(0, q.instalment * q.years * 12 - q.loan))}<br>
-        ${q.cappedBy ? `⚠️ Loan cut from ${money(q.maxLtvLoan)} by the ${q.cappedBy} limit, so you pay more upfront` : `Repayments: ${pct(q.msrPct)} of household income ✅`}
+        ${q.cappedBy ? `⚠️ Loan cut from ${money(q.maxLtvLoan)} by the ${q.cappedBy} limit<sup>${q.cappedBy === 'TDSR' ? '1' : '2'}</sup>, so you pay more upfront` : `Repayments: ${pct(q.msrPct)} of household income ✅`}
         ${q.affordable ? '' : `<br>❌ You'd need ${money(q.fromCash - S.bank)} more cash`}</small>
       </button>`).join('') || '<p>No homes available to you yet.</p>'}</div>
+    ${loanLimitNotes(quotes, income)}
     <h3>Not buying yet?</h3>
     <p class="small">Many Singaporeans live with their parents until their flat is ready. It's free, but you share the space. Renting gives you your own place for about ${money(RENT_MONTHLY)} a month${S.spouse && sim.householdShare(S) < 1 ? ', split between you' : ''}.</p>
     <div class="row">${btn('parents', `${!S.renting ? '✓ ' : ''}Live with my parents`, !S.renting ? 'primary' : '')}${btn('rent', `${S.renting ? '✓ ' : ''}Rent a place (${money(RENT_MONTHLY * sim.householdShare(S))}/month)`, S.renting ? 'primary' : '')}</div>
