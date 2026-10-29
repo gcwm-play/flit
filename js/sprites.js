@@ -56,10 +56,7 @@ function probe(url) {
     const img = new Image();
     img.onload = () => {
       art.set(url, 'ok');
-      document.querySelectorAll('[data-art]').forEach((el) => {
-        const src = customSrc(JSON.parse(el.dataset.art));
-        if (src) el.style.setProperty('--sheet', `url("${src}")`);
-      });
+      refreshArt();
       document.querySelectorAll('[data-item]').forEach((el) => {
         if (probe(itemUrl(el.dataset.item))) el.innerHTML = itemHtml({ id: el.dataset.item });
       });
@@ -69,6 +66,75 @@ function probe(url) {
   }
   return art.get(url) === 'ok';
 }
+
+// Points every character on screen at its best picture so far.
+function refreshArt() {
+  document.querySelectorAll('[data-art]').forEach((el) => {
+    const src = artSrc(JSON.parse(el.dataset.art));
+    if (src) el.style.setProperty('--sheet', `url("${src}")`);
+  });
+}
+
+// The custom PNGs all wear a light blue shirt. Family members get another colour by turning
+// the shirt's blues to a new hue, keeping the shading. Outfit 0 keeps the blue.
+const SHIRT_HUES = [null, 4, 140, 40, 280, 330];
+const tints = new Map(); // `${url}|${outfit}` -> data URL, or 'loading'
+
+function tinted(url, outfit) {
+  const hue = SHIRT_HUES[outfit % SHIRT_HUES.length];
+  if (hue == null) return url;
+  const key = `${url}|${outfit}`;
+  if (!tints.has(key)) {
+    tints.set(key, 'loading');
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = img.width;
+      c.height = img.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      const data = ctx.getImageData(0, 0, c.width, c.height);
+      const px = data.data;
+      for (let i = 0; i < px.length; i += 4) {
+        if (px[i + 3] < 8) continue;
+        const [h, sat, l] = rgbToHsl(px[i], px[i + 1], px[i + 2]);
+        // The shirt and its shading: blues from sky to navy.
+        if (h < 195 || h > 230 || sat < 0.3) continue;
+        const [r, g, b] = hslToRgb(hue, sat, l);
+        px[i] = r; px[i + 1] = g; px[i + 2] = b;
+      }
+      ctx.putImageData(data, 0, 0);
+      tints.set(key, c.toDataURL());
+      refreshArt();
+    };
+    img.src = url;
+  }
+  const t = tints.get(key);
+  return t === 'loading' ? url : t;
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return [0, 0, l];
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  const h = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [h * 60, s, l];
+}
+
+function hslToRgb(h, s, l) {
+  const k = (n) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => Math.round(255 * (l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1))));
+  return [f(0), f(8), f(4)];
+}
+
+const artSrc = (look) => {
+  const src = customSrc(look);
+  return src ? tinted(src, look.outfit || 0) : '';
+};
 
 function customSrc({ stage, animal, gender }) {
   // An absolute URL: inside a CSS variable a relative one would resolve against the stylesheet.
@@ -105,8 +171,8 @@ export function itemHtml(item) {
 
 // HTML for a character. Add the class "walking" to animate the walk cycle.
 export function characterHtml(look, cls = '', alt = '') {
-  const src = customSrc(look) || sheetSrc(look);
-  const data = JSON.stringify({ stage: look.stage, animal: look.animal, gender: look.gender }).replace(/"/g, '&quot;');
+  const src = artSrc(look) || sheetSrc(look);
+  const data = JSON.stringify({ stage: look.stage, animal: look.animal, gender: look.gender, outfit: look.outfit || 0 }).replace(/"/g, '&quot;');
   return `<span class="pixel person ${cls}" role="img" aria-label="${alt || ANIMALS[look.animal].label}" data-art="${data}" style="--sheet:url('${src}')"></span>`;
 }
 

@@ -7,7 +7,7 @@ import * as health from './health.js';
 import * as cars from './car.js';
 import * as tax from './tax.js';
 import { postcard } from './postcards.js';
-import { characterHtml, itemHtml, itemWidth, lookOf, ANIMALS, GENDERS } from './sprites.js';
+import { characterHtml, itemHtml, itemWidth, lookOf, OUTFITS, ANIMALS, GENDERS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS } from './events.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, CAREERS, CAREER_SWITCHES,
@@ -489,14 +489,23 @@ function roomHtml() {
   const spouseStage = S.stage === 'senior' ? 'senior' : 'adult';
   // Each animal carries a small tag with its age.
   const family = [[me(), 'player', esc(S.name), `<b>You</b> ${S.age}`]];
+  // Everyone wears a different shirt colour from you (and each other, while colours last).
+  const used = [S.look.outfit % OUTFITS.length];
+  const ownShirt = (p) => {
+    let o = (p.outfit ?? 0) % OUTFITS.length;
+    for (let i = 0; i < OUTFITS.length && used.includes(o); i++) o = (o + 1) % OUTFITS.length;
+    if (used.includes(o)) o = (S.look.outfit + 1) % OUTFITS.length;
+    used.push(o);
+    return { ...p, outfit: o };
+  };
   if (grown && S.spouse) {
     const age = S.age + (S.spouse.ageGap || 0);
-    family.push([lookOf(S.spouse, spouseStage), 'family-member', `Your spouse, age ${age}`, `${age}`]);
+    family.push([lookOf(ownShirt(S.spouse), spouseStage), 'family-member', `Your spouse, age ${age}`, `${age}`]);
   }
   if (grown) for (const c of S.children || []) {
     const age = S.age - c.bornAge;
     const st = age < 3 ? 'baby' : age < 13 ? 'child' : age < 21 ? 'teen' : 'adult';
-    family.push([lookOf(c, st), 'family-member kid', `Your child, age ${age}`, age < 1 ? '👶' : `${age}`]);
+    family.push([lookOf(ownShirt(c), st), 'family-member kid', `Your child, age ${age}`, age < 1 ? '👶' : `${age}`]);
   }
   return `
     <div class="room room-${kind.cls} stage-${S.stage}">
