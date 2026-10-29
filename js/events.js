@@ -1,7 +1,7 @@
 // Random life events. World events change the coming years (and your stats can
 // soften them); personal events and cash gifts happen to you alone.
 import { rand, pick, FACTS } from './data.js';
-import { money, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar } from './sim.js';
+import { money, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar, allocateGift } from './sim.js';
 import * as cars from './car.js';
 import * as invest from './invest.js';
 
@@ -314,4 +314,31 @@ export function rollPersonalEvent(s) {
     if (r <= 0) return !e.chance || Math.random() < e.chance(s) ? e : null;
   }
   return null;
+}
+
+// ---------- quick start: the same events, resolved without asking ----------
+
+const noteQuick = (s, r) => (s.quickEvents ||= []).push({ age: s.age, text: `${r.icon} ${r.title}` });
+
+export function quietWorldEvent(s) {
+  const w = rollWorldEvent(s);
+  if (!w) return {};
+  const r = w.run(s);
+  noteQuick(s, r);
+  return r.opts || {};
+}
+
+// Choices are picked at random; gifts go to cash, or sometimes half to a CPF top-up by your parents.
+export function quietPersonalEvent(s) {
+  const e = rollPersonalEvent(s);
+  if (!e) return;
+  const r = e.run(s);
+  noteQuick(s, r);
+  const chosen = r.choices ? pick(r.choices).run(s) : null;
+  const g = r.gift ?? (chosen && typeof chosen === 'object' ? chosen.gift : null);
+  const amount = typeof g === 'number' ? g : g?.gift || 0;
+  if (amount > 0) {
+    const toCpf = Math.random() < 0.3 ? Math.round(amount / 2) : 0;
+    allocateGift(s, { cash: amount - toCpf, cpf: toCpf });
+  }
 }

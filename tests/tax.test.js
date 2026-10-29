@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import * as tax from '../js/tax.js';
 import * as sim from '../js/sim.js';
 import * as cpf from '../js/cpf.js';
+import { quietWorldEvent, quietPersonalEvent } from '../js/events.js';
 
 const close = (a, b, tol = 1) => assert.ok(Math.abs(a - b) <= tol, `${a} is not within ${tol} of ${b}`);
 
@@ -208,4 +209,17 @@ test('quick start: lands at 21 with the chosen education, and NS shapes the path
   }
   const s = sim.quickStart(sim.newGame('Q', { animal: 'cat', gender: 'male', outfit: 0 }), 'random');
   assert.equal(s.postNs, undefined); // the player still chooses after NS
+});
+
+test('quick start: rerolls give different cash and CPF', () => {
+  const events = { world: quietWorldEvent, personal: quietPersonalEvent };
+  const runs = Array.from({ length: 12 }, () => sim.quickStart(sim.newGame('Q', { animal: 'dog', gender: 'female', outfit: 0 }), 'poly', Math.random, events));
+  assert.ok(new Set(runs.map((s) => Math.round(s.bank))).size > 6);
+  assert.ok(new Set(runs.map((s) => Math.round(cpf.cpfTotal(s.cpf)))).size > 1);
+});
+
+test('a or an: "a University degree", "an ITE Nitec"', () => {
+  assert.equal(sim.aOrAn('University degree'), 'a');
+  assert.equal(sim.aOrAn('ITE Nitec'), 'an');
+  assert.equal(sim.aOrAn('Office administrator'), 'an');
 });

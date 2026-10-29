@@ -242,7 +242,7 @@ export function chooseCareer(s, careerId) {
   story(s, 'job', c.icon, `Started work as ${aOrAn(c.title || c.label)} ${c.title || c.label}`, { pay: c.startPay });
 }
 
-export const aOrAn = (w) => (/^[aeiou]/i.test(w) ? 'an' : 'a');
+export const aOrAn = (w) => (/^[aeiou]/i.test(w) && !/^(uni|use|usu|eu)/i.test(w) ? 'an' : 'a');
 
 // The job you have now, whether you started in it or switched into it later.
 export function careerInfo(s) {
@@ -405,7 +405,9 @@ export const isStudying = (s) => s.stage === 'adult' && !s.career && s.age < fir
 export const QUICK_EDUCATION = ['ite', 'poly', 'university'];
 const STUDY_BIAS = { university: 0.55, poly: 0.35, ite: 0.1 };
 
-export function quickStart(s, education = 'random', rand = Math.random) {
+// `events` plays the same random events as a normal turn, resolved without asking:
+// `world(s)` returns options for the years ahead, `personal(s)` happens after them.
+export function quickStart(s, education = 'random', rand = Math.random, events = {}) {
   const bias = STUDY_BIAS[education];
   while (s.stage === 'child' || s.stage === 'teen') {
     const open = ACTIVITIES[s.stage].filter((a) => !a.minAge || s.age >= a.minAge);
@@ -415,7 +417,13 @@ export function quickStart(s, education = 'random', rand = Math.random) {
     applyGains(s, activityGains(s, activity, score));
     if (!['study', 'job'].includes(activity.id)) s.joy += 1;
     (s.did ||= {})[activity.label] = (s.did[activity.label] || 0) + 1;
-    advanceYears(s, yearsThisTurn(s), activity.job && !isNsf(s) ? { jobWage: Math.round(600 + 400 * score) } : {});
+    const opts = { ...(events.world ? events.world(s) : {}) };
+    if (activity.job && !isNsf(s)) opts.jobWage = Math.round(600 + 400 * score);
+    advanceYears(s, yearsThisTurn(s), opts);
+    if (events.personal) events.personal(s);
+    // Now and then, something from the shop that you can comfortably afford.
+    const shop = (SHOP[s.stage] || []).filter((it) => !s.room.includes(it.id) && it.price <= s.bank / 3);
+    if (shop.length && rand() < 0.35) buy(s, shop[Math.floor(rand() * shop.length)]);
     checkHybrids(s);
     s.stage = ageStage(s.age);
   }
