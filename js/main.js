@@ -8,7 +8,7 @@ import * as cars from './car.js';
 import * as tax from './tax.js';
 import { postcard } from './postcards.js';
 import { characterHtml, itemHtml, itemWidth, lookOf, OUTFITS, ANIMALS, GENDERS } from './sprites.js';
-import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS } from './events.js';
+import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS, quietWorldEvent, quietPersonalEvent } from './events.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, CAREERS, CAREER_SWITCHES,
   LIFESTYLES, RETIREMENT_LIFESTYLES, RENT_MONTHLY, FACTS, HOLIDAYS, HOLIDAY_GROUPS,
@@ -310,7 +310,7 @@ function quickEducationChoices(gender) {
 // Plays the years to 21 and shows the result, with a reroll, until the player is happy with it.
 async function quickStartFlow(name, look, edu) {
   for (;;) {
-    const s = sim.quickStart(sim.newGame(name, look), edu);
+    const s = sim.quickStart(sim.newGame(name, look), edu, Math.random, { world: quietWorldEvent, personal: quietPersonalEvent });
     const c = await dialog(quickSummaryHtml(s, edu), { wide: true });
     if (c === 'reroll') continue;
     closeModal();
@@ -326,6 +326,11 @@ async function quickStartFlow(name, look, edu) {
   }
 }
 
+const ownedItemsText = (s) => {
+  const names = sim.ownedItems(s).map((it) => it.name.toLowerCase());
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0] || '';
+};
+
 function quickSummaryHtml(s, edu) {
   const ns = sim.doesNs(s);
   const ed = EDUCATION[sim.educationFor(s)];
@@ -334,10 +339,16 @@ function quickSummaryHtml(s, edu) {
       ? `You finished ${sim.preNsQualification(s)}, then did National Service from 18 to 20. ${sim.canGoToUniversity(s) ? 'Next you choose: start work at 21, or go to university and start at 23.' : `Next you start work at 21: university needs Knowledge ${EDUCATION.university.minKnowledge} and you have ${Math.round(s.stats.knowledge)}.`}`
       : edu === 'university'
         ? 'You finished A-levels or a polytechnic diploma, did National Service from 18 to 20, and now go to university. Your first job is at 23.'
-        : `You finished ${/^[AEIOU]/.test(ed.label) ? 'an' : 'a'} ${ed.label}, then did National Service from 18 to 20. Your first job is at 21.`
-    : `You finished with ${/^[AEIOU]/.test(ed.label) ? 'an' : 'a'} ${ed.label}. Your first job is at 21.`;
+        : `You finished ${sim.aOrAn(ed.label)} ${ed.label}, then did National Service from 18 to 20. Your first job is at 21.`
+    : `You finished with ${sim.aOrAn(ed.label)} ${ed.label}. Your first job is at 21.`;
   const did = Object.entries(s.did || {}).sort((a, b) => b[1] - a[1]).slice(0, 4);
   const hybrids = Object.keys(s.hybrids || {}).filter((h) => s.hybrids[h]);
+  // Events and purchases from the years played, most frequent first.
+  const counts = new Map();
+  for (const e of s.quickEvents || []) counts.set(e.text, (counts.get(e.text) || 0) + 1);
+  const bought = ownedItemsText(s);
+  const happened = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  if (bought) happened.push([`🛍️ Bought ${bought}`, 1]);
   return `
     <p class="eyebrow">Quick start · age ${s.age}</p>
     <h2>Here's how ${esc(s.name)} grew up</h2>
@@ -347,6 +358,7 @@ function quickSummaryHtml(s, edu) {
     </div>
     <h3>What you spent your time on</h3>
     <ul class="qs-did">${did.map(([label, n]) => `<li>${label} <b>×${n}</b></li>`).join('')}</ul>
+    ${happened.length ? `<h3>Along the way</h3><ul class="qs-did">${happened.map(([t, n]) => `<li>${t}${n > 1 ? ` <b>×${n}</b>` : ''}</li>`).join('')}</ul>` : ''}
     <h3>Your stats</h3>
     <div class="qs-stats">${sim.unlockedStats(s).filter((k) => STATS[k].stage !== 'adult').map((k) => `<span>${STATS[k].icon} ${STATS[k].label} <b>${Math.round(s.stats[k])}</b></span>`).join('')}
       ${hybrids.map((h) => `<span class="hy">${HYBRIDS[h].icon} ${HYBRIDS[h].label}</span>`).join('')}</div>
@@ -1676,7 +1688,7 @@ async function postNsChoice() {
       <button class="career" data-choice="work">
         <span class="c-icon">💼</span><b>Start work now</b>
         <span>First job at ${STAGES.adult.startAge}</span>
-        <small>Pay as ${/^[AEIOU]/.test(workEd.label) ? 'an' : 'a'} ${workEd.label} holder (about ${Math.round(workEd.pay * 100)}% of a graduate's starting pay). Your CPF starts growing now.</small>
+        <small>Pay as ${sim.aOrAn(workEd.label)} ${workEd.label} holder (about ${Math.round(workEd.pay * 100)}% of a graduate's starting pay). Your CPF starts growing now.</small>
       </button>
       <button class="career" data-choice="uni" ${uniOk ? '' : 'disabled'}>
         <span class="c-icon">🎓</span><b>Go to university</b>
@@ -1708,7 +1720,7 @@ async function adultStart() {
   const opts = sim.careerOptions(S);
   const c = await dialog(`
     <p class="eyebrow">Your education</p>
-    <h2>You finished with ${/^[AEIOU]/.test(ed.label) ? 'an' : 'a'} ${ed.label}</h2>
+    <h2>You finished with ${sim.aOrAn(ed.label)} ${ed.label}</h2>
     <p class="small">Knowledge ${Math.round(S.stats.knowledge)}: University needs ${EDUCATION.university.minKnowledge}, Polytechnic ${EDUCATION.poly.minKnowledge}. Your qualification sets your starting pay.</p>
     <h3>Choose your first job</h3>
     <div class="careers">${opts.map((o) => `
@@ -1731,7 +1743,7 @@ async function adultStart() {
   const career = opts.find((o) => o.id === c);
   const contrib = cpf.monthlyContribution(S.age, S.salary, { selfEmployed: S.selfEmployed });
   await dialog(`
-    <h2>${career.icon} You're ${/^[aeiou]/i.test(career.label) ? 'an' : 'a'} ${career.label}!</h2>
+    <h2>${career.icon} You're ${sim.aOrAn(career.label)} ${career.label}!</h2>
     <p>Pay: <b>${money(S.salary)}</b> a month.</p>
     ${S.selfEmployed
       ? `<p>As a self-employed person, only MediSave contributions are required (${money(contrib.ma)} a month). Nobody else adds to your OA or SA, so saving for your home and retirement is up to you.</p>`
@@ -2777,7 +2789,7 @@ function careerRecap() {
     : now ? `<li><span class="j-age">${S.careerStartAge ?? 21}</span><span>${now.icon} <b>${now.title || now.label}</b></span></li>` : '';
   return `<div class="recap-card">
     <h3>💼 Your career</h3>
-    <p>${S.education ? `You finished with ${/^[aeiou]/i.test(EDUCATION[S.education].label) ? 'an' : 'a'} <b>${EDUCATION[S.education].label}</b>. ` : ''}${retiredAt ? `You retired at <b>${retiredAt}</b>.` : S.age >= 55 && !sim.isWorking(S) ? 'You have stopped working.' : S.age >= 21 ? 'You are still working.' : ''}</p>
+    <p>${S.education ? `You finished with ${sim.aOrAn(EDUCATION[S.education].label)} <b>${EDUCATION[S.education].label}</b>. ` : ''}${retiredAt ? `You retired at <b>${retiredAt}</b>.` : S.age >= 55 && !sim.isWorking(S) ? 'You have stopped working.' : S.age >= 21 ? 'You are still working.' : ''}</p>
     ${lines ? `<ol class="timeline">${lines}</ol>` : '<p class="small muted-ink">You haven\'t started work yet.</p>'}
     ${knocks.length ? `<p class="small">Setbacks: retrenched ${knocks.length} time${knocks.length > 1 ? 's' : ''} (age ${knocks.map((e) => e.age).join(', ')}).</p>` : ''}
     <div class="recap-nums">
