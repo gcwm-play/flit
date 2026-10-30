@@ -10,7 +10,7 @@ import { postcard } from './postcards.js';
 import { characterHtml, itemHtml, itemWidth, lookOf, OUTFITS, ANIMALS, GENDERS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS, quietWorldEvent, quietPersonalEvent } from './events.js';
 import {
-  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, CAREERS, CAREER_SWITCHES,
+  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, SCHOOLS, CAREERS, CAREER_SWITCHES,
   LIFESTYLES, RETIREMENT_LIFESTYLES, RENT_MONTHLY, FACTS, HOLIDAYS, HOLIDAY_GROUPS,
 } from './data.js';
 
@@ -329,10 +329,10 @@ function titleScreen() {
 function quickEducationChoices(gender) {
   const ns = gender === 'male';
   return [
-    ['ite', '🛠️', 'ITE Nitec', ns ? 'ITE, then NS. First job at 21.' : 'First job at 21.'],
-    ['poly', '📐', 'Polytechnic diploma', ns ? 'Poly, then NS. First job at 21.' : 'First job at 21.'],
-    ['university', '🎓', 'University degree', ns ? 'JC or poly, NS, then university. First job at 23.' : 'JC or poly, then university. First job at 21.'],
-    ['random', '🎲', 'Let my grades decide', ns ? 'Your Knowledge decides. After NS you choose work or university.' : 'Your Knowledge decides what you qualify for.'],
+    ['ite', '🛠️', 'ITE Nitec', ns ? 'ITE from 17, then NS. First job at 21.' : 'ITE from 17. First job at 21.'],
+    ['poly', '📐', 'Polytechnic diploma', ns ? 'Poly from 17, then NS. First job at 21.' : 'Poly from 17. First job at 21.'],
+    ['university', '🎓', 'University degree', ns ? 'JC or poly, NS, then university. First job at 23.' : 'JC or poly, then straight to university. First job at 22.'],
+    ['random', '🎲', 'Let my grades decide', ns ? 'Your Knowledge picks your school. After NS you choose work or university.' : 'Your Knowledge picks your school, then you choose work or university.'],
   ];
 }
 
@@ -715,17 +715,27 @@ async function takeTurn(activityId) {
     const fun = !['study', 'job', 'upskill', 'budget'].includes(activity.id);
     if (fun) S.joy += 1;
     const newHybrids = sim.checkHybrids(S);
+    const tj = activity.job && !sim.isNsf(S) ? sim.teenJob(S.age, score) : null;
+    const tjCpf = tj ? cpf.monthlyContribution(S.age, tj.monthly) : null;
     await dialog(`
       <div class="event"><div class="e-icon">${activity.icon}</div><h2>${activity.label}: ${scoreWord(score)}</h2></div>
       <p class="score">How it went: ${Math.round(score * 100)}%</p>
       <ul class="gains">${Object.entries(gains).map(([k, v]) => `<li>${STATS[k].icon} ${STATS[k].label} <b>+${v}</b></li>`).join('')}
       ${fun ? '<li>😊 Joy <b>+1</b></li>' : ''}</ul>
       ${newHybrids.map((h) => `<p class="unlock">✨ New hybrid stat: <b>${HYBRIDS[h].icon} ${HYBRIDS[h].label}</b></p>`).join('')}
+      ${tj ? `<table class="summary">
+        <tr><td>Weekend shifts</td><td>${tj.hours} hours a week</td></tr>
+        <tr><td>Hourly pay at ${S.age}</td><td>${money(tj.rate)}/hour</td></tr>
+        <tr><td>Pay each month</td><td class="pos">${money(tj.monthly)}</td></tr>
+        <tr><td>You pay into CPF</td><td>${money(tjCpf.employee)}</td></tr>
+        <tr><td>Your employer adds to your CPF</td><td class="pos">${money(tjCpf.employer)}</td></tr>
+      </table>
+      <p class="small">CPF rules for low wages: nothing is paid on $50 a month or less. From $50 to $500 only your employer pays (${tj.monthly > 500 ? 'and ' : ''}17% at your age), and your full pay is yours to keep. From $500 to $750 your share is phased in. ${S.age < 15 ? 'At 13 and 14 the law only allows light work, so you get fewer hours.' : ''}</p>` : ''}
       ${btn('ok', 'Continue', 'primary')}`);
 
     // World events change the years ahead.
     let opts = {};
-    if (activity.job) opts.jobWage = Math.round(600 + 400 * score);
+    if (tj) opts.jobWage = tj.monthly;
     const world = rollWorldEvent(S);
     if (world) {
       const w = world.run(S);
@@ -1404,7 +1414,7 @@ async function nsIntro() {
       <li>No CPF is paid on NSF allowances, and they aren't taxed.</li>
       <li>No part-time job during these two years.</li>
       <li>After NS you're an NSman: in-camp training most years until about 40, and NSman Self Relief cuts your income tax ($3,000 in a year with training, $1,500 without).</li>
-      <li>After NS you choose: start work, or go to university if your Knowledge is high enough (which means starting work two years later). Poly and JC come before NS.</li>
+      <li>After NS you choose: start work, or go to university if you went to JC or poly and your Knowledge is high enough (which means starting work two years later). JC and poly come before NS.</li>
     </ul>
     ${btn('ok', 'Report for duty', 'primary')}`);
 }
@@ -1433,7 +1443,9 @@ async function milestones() {
     closeModal();
     render();
   }
+  if (S.stage === 'teen' && S.age >= 17 && !S.school) await schoolChoice();
   if (sim.doesNs(S) && S.age >= sim.NS.startAge - 1 && S.age < sim.NS.startAge + sim.NS.years && !S.nsIntro) await nsIntro();
+  if (!sim.doesNs(S) && S.stage === 'teen' && S.age >= 19 && S.school && !S.postNs) await uniChoice();
   if (S.stage === 'adult' && !S.home && ((S.spouse && S.homeAskedMarried == null) || (S.age >= 27 && (S.homeAskedAt == null || S.age - S.homeAskedAt >= 6)))) {
     await homeDecision();
   }
@@ -1788,12 +1800,12 @@ async function stageIntro(stage) {
 async function postNsChoice() {
   const uniOk = sim.canGoToUniversity(S);
   const need = EDUCATION.university.minKnowledge;
-  const k = Math.round(S.stats.knowledge);
-  const workEd = S.stats.knowledge >= EDUCATION.poly.minKnowledge ? EDUCATION.poly : EDUCATION.ite;
+  const k = sim.lvl(S, 'knowledge');
+  const workEd = EDUCATION[S.school || (k >= EDUCATION.poly.minKnowledge ? 'poly' : 'ite')];
   const c = await dialog(`
     <p class="eyebrow">After National Service</p>
     <h2>You've finished NS. What next?</h2>
-    <p>Before NS you finished ${sim.preNsQualification(S)}. Now you can start work, or go to university${uniOk ? '' : ' if your Knowledge is high enough'}.</p>
+    <p>Before NS you finished ${sim.preNsQualification(S)}. Now you can start work, or go to university${uniOk ? '' : S.school === 'ite' ? ' (from ITE you would need a poly diploma first)' : ' if your Knowledge is high enough'}.</p>
     <div class="careers">
       <button class="career" data-choice="work">
         <span class="c-icon">💼</span><b>Start work now</b>
@@ -1803,12 +1815,47 @@ async function postNsChoice() {
       <button class="career" data-choice="uni" ${uniOk ? '' : 'disabled'}>
         <span class="c-icon">🎓</span><b>Go to university</b>
         <span>First job at ${STAGES.adult.startAge + sim.NS.years}</span>
-        <small>${uniOk ? `✓ Knowledge ${need} (you have ${k})` : `<span class="neg">✗ Needs Knowledge ${need} (you have ${k})</span>`}<br>A degree pays the most to start, but your pay and CPF start later.</small>
+        <small>${uniOk ? `✓ Knowledge ${need} (you have ${k})` : S.school === 'ite' ? '<span class="neg">✗ Needs JC or a poly diploma</span>' : `<span class="neg">✗ Needs Knowledge ${need} (you have ${k})</span>`}<br>A degree pays the most to start, but your pay and CPF start later.</small>
       </button>
     </div>
     <p class="small">Either way is fine: starting earlier gives your CPF more years to grow, while a degree usually means higher pay for the rest of your career.</p>`, { wide: true });
   S.postNs = c === 'uni' && uniOk ? 'uni' : 'work';
   sim.story(S, 'job', S.postNs === 'uni' ? '🎓' : '💼', S.postNs === 'uni' ? 'Went to university after NS' : 'Started work after NS');
+}
+
+// At 16 you sit your O-levels; at 17 you start JC, poly or ITE. Knowledge stands in for your grades.
+async function schoolChoice() {
+  const opts = sim.schoolOptions(S);
+  const k = sim.lvl(S, 'knowledge');
+  const c = await dialog(`<div class="event"><div class="e-icon">📝</div><p class="eyebrow">Your O-level results are out</p>
+    <h2>Where to next, at 17?</h2>
+    <p>Your Knowledge is <b>${k}</b>. It decides which schools you can get into.</p></div>
+    <div class="careers">${opts.map((o) => `
+      <button class="career" data-choice="${o.id}" ${o.ok ? '' : 'disabled'}><span class="c-icon">${o.icon}</span><b>${o.label}</b><span>Ages ${o.years}</span>
+        <small>${o.desc}<br>${o.minKnowledge ? (o.ok ? `✓ Knowledge ${o.minKnowledge}` : `<span class="neg">✗ Needs Knowledge ${o.minKnowledge} (you have ${k})</span>`) : 'Open to everyone'}</small></button>`).join('')}</div>
+    <p class="small">JC and poly can both lead to university (it needs Knowledge ${EDUCATION.university.minKnowledge}). ${sim.doesNs(S) ? 'Men do National Service first, from 18.' : 'You can go straight to university after JC or poly.'} Studying hard now keeps more doors open.</p>`, { wide: true });
+  sim.chooseSchool(S, c);
+  if (c === 'ite') S.postNs = 'work';
+  logEvent(`${SCHOOLS[c].icon} Off to ${SCHOOLS[c].label}`);
+}
+
+// Women: after JC or poly, go straight to university or start work at 21.
+async function uniChoice() {
+  const ok = sim.canGoToUniversity(S);
+  const need = EDUCATION.university.minKnowledge;
+  const k = sim.lvl(S, 'knowledge');
+  const workEd = EDUCATION[S.school];
+  const c = await dialog(`<div class="event"><div class="e-icon">🎓</div><p class="eyebrow">After ${S.school === 'jc' ? 'JC' : 'poly'}</p>
+    <h2>University, or start work?</h2>
+    <p>You finished ${sim.preNsQualification(S)}.</p></div>
+    <div class="careers">
+      <button class="career" data-choice="work"><span class="c-icon">💼</span><b>Start work</b><span>First job at ${STAGES.adult.startAge}</span>
+        <small>Pay as ${sim.aOrAn(workEd.label)} ${workEd.label} holder (about ${Math.round(workEd.pay * 100)}% of a graduate's starting pay for most jobs). Your CPF starts growing sooner.</small></button>
+      <button class="career" data-choice="uni" ${ok ? '' : 'disabled'}><span class="c-icon">🎓</span><b>Go to university</b><span>First job at ${STAGES.adult.startAge + 1}</span>
+        <small>${ok ? `✓ Knowledge ${need} (you have ${k})` : `<span class="neg">✗ Needs Knowledge ${need} (you have ${k})</span>`}<br>Three years of study from 19. A degree pays the most to start.</small></button>
+    </div>`, { wide: true });
+  S.postNs = c === 'uni' && ok ? 'uni' : 'work';
+  sim.story(S, 'job', S.postNs === 'uni' ? '🎓' : '💼', S.postNs === 'uni' ? 'Went to university at 19' : 'Chose to start work at 21');
 }
 
 async function studyAfterNs() {
@@ -1817,7 +1864,7 @@ async function studyAfterNs() {
   const start = sim.firstJobAge(S);
   logEvent(`🎓 At university until ${start}`);
   await dialog(`
-    <p class="eyebrow">After National Service</p>
+    <p class="eyebrow">${sim.doesNs(S) ? 'After National Service' : 'After JC or poly'}</p>
     <h2>Off to university</h2>
     <p>You study for your ${ed.label} and start your first job at <b>${start}</b>.</p>
     <p class="small">Your CPF starts later, so it has less time to grow, but graduates usually start on higher pay. Your parents support you until then, and you can still pick activities to build your skills.</p>
@@ -1831,17 +1878,18 @@ async function adultStart() {
   const c = await dialog(`
     <p class="eyebrow">Your education</p>
     <h2>You finished with ${sim.aOrAn(ed.label)} ${ed.label}</h2>
-    <p class="small">Knowledge ${Math.round(S.stats.knowledge)}: University needs ${EDUCATION.university.minKnowledge}, Polytechnic ${EDUCATION.poly.minKnowledge}. Your qualification sets your starting pay.</p>
+    <p class="small">Your qualification sets the starting pay for most jobs (a Nitec pays about ${Math.round(EDUCATION.ite.pay * 100)}% of a graduate's, a diploma ${Math.round(EDUCATION.poly.pay * 100)}%). Jobs marked 🧰 pay the same whatever your certificate.</p>
     <h3>Choose your first job</h3>
+    <p class="small"><b>${opts.filter((o) => o.eligible).length} open to you</b>, then the ones that need more skills.</p>
     <div class="careers">${opts.map((o) => `
       <button class="career" data-choice="${o.id}" ${o.eligible ? '' : 'disabled'}>
         <span class="c-icon">${o.icon}</span><b>${o.label}</b>
-        <span>${money(o.startPay)}/month${o.selfEmployed ? ' (varies)' : ''}</span>
-        <small>${Object.entries(o.needs).map(([k, v]) => S.stats[k] >= v
+        <span>${money(o.startPay)}/month${o.selfEmployed ? ' (varies)' : ''}${o.flat ? ' 🧰' : ''}</span>
+        <small>${Object.entries(o.needs).map(([k, v]) => sim.lvl(S, k) >= v
           ? `✓ ${STATS[k].label} ${v}`
           : `<span class="neg">✗ ${STATS[k].label} ${v} (you have ${Math.round(S.stats[k])})</span>`).join('<br>') || 'No requirements'}${o.selfEmployed ? '<br>Self-employed: no employer CPF, only MediSave' : ''}</small>
       </button>`).join('')}</div>
-    <p class="small">Locked jobs need a second skill as well as your qualification. You can still switch later: build the skill as an adult, then use "Look for a new job".</p>
+    <p class="small">Locked jobs need more of a skill. You can still switch later: build the skill as an adult, then look for a new job from the Work tile.</p>
     ${advancedJobHtml()}`, { wide: true });
   if (c === 'custom') {
     if (!(await customJobDialog())) return adultStart();
