@@ -124,7 +124,7 @@ test('men do two years of NS at 18 with an allowance and no CPF, and start work 
   const cpfBefore = cpf.cpfTotal(m.cpf);
   const sum = sim.advanceYears(m, 2, { jobWage: 1000 });
   assert.equal(sum.nsPay, sim.NS.allowance[18] * 12);
-  assert.equal(sum.cpfIn, 3000 * 0.37); // only the age-17 holiday job pays CPF
+  assert.equal(sum.cpfIn, cpf.monthlyContribution(17, 1000).total * 12); // only the age-17 weekend job pays CPF, all year
   assert.ok(cpf.cpfTotal(m.cpf) > cpfBefore);
   assert.equal(sim.firstJobAge(m), 23);
   const f = sim.newGame('F', { gender: 'female', animal: 'cat', outfit: 0 });
@@ -202,13 +202,13 @@ test('quick start: lands at 21 with the chosen education, and NS shapes the path
         assert.equal(s.age, 21);
         assert.equal(s.stage, 'adult');
         assert.equal(sim.educationFor(s), ed);
-        assert.equal(sim.firstJobAge(s), gender === 'male' && ed === 'university' ? 23 : 21);
+        assert.equal(sim.firstJobAge(s), ed !== 'university' ? 21 : gender === 'male' ? 23 : 22);
         assert.ok(cpf.cpfTotal(s.cpf) > 0);
       }
     }
   }
   const s = sim.quickStart(sim.newGame('Q', { animal: 'cat', gender: 'male', outfit: 0 }), 'random');
-  assert.equal(s.postNs, undefined); // the player still chooses after NS
+  assert.equal(s.postNs, s.school === 'ite' ? 'work' : undefined); // the player still chooses after NS (ITE leads to work)
 });
 
 test('quick start: rerolls give different cash and CPF', () => {
@@ -274,4 +274,34 @@ test('a solo trip costs one fare; a family trip costs everyone\'s, split with a 
   s.age = 40; s.stage = 'adult'; s.spouse = { salary: 4000, home: false }; s.children = [{ bornAge: 32 }];
   assert.equal(sim.holidayCost(s, 'bali', 'solo'), 1200);
   assert.equal(sim.holidayCost(s, 'bali', 'family'), 1200 * 3 / 2);
+});
+
+test('a weekend job from 13 pays by the hour, and under $500 a month only the employer pays CPF', () => {
+  const j = sim.teenJob(13, 1);
+  assert.equal(j.rate, 7);
+  assert.ok(j.monthly < 500);
+  const c = cpf.monthlyContribution(13, j.monthly);
+  assert.equal(c.employee, 0);
+  assert.equal(c.employer, Math.round(j.monthly * 0.17));
+  const t = sim.newGame('T', { gender: 'female', animal: 'cat', outfit: 0 });
+  Object.assign(t, { age: 13, stage: 'teen' });
+  const sum = sim.advanceYears(t, 2, { jobWage: j.monthly });
+  assert.ok(sum.cpfIn > 0);
+});
+
+test('school at 17: JC or poly can lead to university, ITE cannot; women go straight, men after NS', () => {
+  const f = sim.newGame('F', { gender: 'female', animal: 'cat', outfit: 0 });
+  f.stats.knowledge = 27.6; // shows as 28
+  sim.chooseSchool(f, 'jc');
+  assert.ok(sim.canGoToUniversity(f));
+  f.postNs = 'uni';
+  assert.equal(sim.firstJobAge(f), 22);
+  assert.equal(sim.educationFor(f), 'university');
+  const m = sim.newGame('M', { gender: 'male', animal: 'cat', outfit: 0 });
+  m.stats.knowledge = 40;
+  sim.chooseSchool(m, 'ite');
+  assert.ok(!sim.canGoToUniversity(m));
+  m.postNs = 'work';
+  assert.equal(sim.educationFor(m), 'ite');
+  assert.equal(sim.firstJobAge(m), 21);
 });

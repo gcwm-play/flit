@@ -7,7 +7,7 @@ import * as cars from './car.js';
 import * as tax from './tax.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, ACTIVITIES, SHOP, LIFESTYLES,
-  RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
+  RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, SCHOOLS, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
 } from './data.js';
 
 // Cash earns the base rate of a normal Singapore bank savings account (0.05% a year in 2026).
@@ -216,20 +216,36 @@ export function canTopUpCpf(s) {
   return true;
 }
 
+// A stat as the player sees it (rounded), so "you have 30" always meets "needs 30".
+export const lvl = (s, k) => Math.round(s.stats[k] || 0);
+
+// Your qualification: university if you went, else what you finished at 16 to 19.
 export function educationFor(s) {
-  // Men choose after NS: university, or start work with what they finished before NS.
   if (s.postNs === 'uni') return 'university';
-  if (s.postNs !== 'work' && s.stats.knowledge >= EDUCATION.university.minKnowledge) return 'university';
-  if (s.stats.knowledge >= EDUCATION.poly.minKnowledge) return 'poly';
+  if (s.school) return s.school;
+  // Older saves, from before choosing a school at 16: Knowledge decides.
+  if (s.postNs !== 'work' && lvl(s, 'knowledge') >= EDUCATION.university.minKnowledge) return 'university';
+  if (lvl(s, 'knowledge') >= EDUCATION.poly.minKnowledge) return 'poly';
   return 'ite';
 }
 
+// The schools you can enter after O-levels, with what each needs.
+export function schoolOptions(s) {
+  return Object.entries(SCHOOLS).map(([id, sc]) => ({ id, ...sc, ok: lvl(s, 'knowledge') >= sc.minKnowledge }));
+}
+export function chooseSchool(s, id) {
+  s.school = id;
+  story(s, 'life', SCHOOLS[id].icon, `Went to ${id === 'ite' ? 'ITE' : id === 'jc' ? 'junior college' : 'polytechnic'} at 17`);
+}
+
+// Jobs open to you: most pay more with a better qualification; trade jobs (`flat`) pay the same.
 export function careerOptions(s) {
-  return CAREERS.map((c) => ({
+  const ed = EDUCATION[s.education] || EDUCATION.ite;
+  return CAREERS.filter((c) => !c.degree || s.education === 'university').map((c) => ({
     ...c,
-    eligible: Object.entries(c.needs).every(([k, v]) => s.stats[k] >= v),
-    startPay: Math.round((c.pay * EDUCATION[s.education].pay) / 50) * 50,
-  }));
+    eligible: Object.entries(c.needs).every(([k, v]) => lvl(s, k) >= v),
+    startPay: Math.round((c.pay * (c.flat ? 1 : ed.pay)) / 50) * 50,
+  })).sort((a, b) => b.eligible - a.eligible || b.startPay - a.startPay);
 }
 
 export function chooseCareer(s, careerId) {
@@ -297,7 +313,7 @@ export function careerSwitchOffer(s) {
     if (c.id === s.career) return false;
     const last = (s.switchOffers || {})[c.id];
     if (last != null && s.age - last < 10) return false;
-    const level = c.stat ? s.stats[c.stat] : s.hybrids[c.hybrid] ? hybridValue(s, c.hybrid) : 0;
+    const level = c.stat ? lvl(s, c.stat) : s.hybrids[c.hybrid] ? hybridValue(s, c.hybrid) : 0;
     return level >= c.min;
   });
   return ok.length ? ok[Math.floor(Math.random() * ok.length)] : null;
@@ -344,13 +360,13 @@ export function jobOffers(s, economy = 'normal') {
     if (c.id === s.career) continue;
     const job = { id: c.id, label: c.label, icon: c.icon, selfEmployed: !!c.selfEmployed, pay: round50(c.startPay * experience * skills * eco * jitter()) };
     if (c.eligible) offers.push(job);
-    else locked.push({ ...job, needs: Object.entries(c.needs).filter(([k, v]) => s.stats[k] < v) });
+    else locked.push({ ...job, needs: Object.entries(c.needs).filter(([k, v]) => lvl(s, k) < v) });
   }
   // Not every opening comes up at once: at most 3 of the careers your strengths unlock, at random.
   const open = [];
   for (const c of CAREER_SWITCHES) {
     if (c.id === s.career) continue;
-    const level = c.stat ? s.stats[c.stat] : s.hybrids[c.hybrid] ? hybridValue(s, c.hybrid) : 0;
+    const level = c.stat ? lvl(s, c.stat) : s.hybrids[c.hybrid] ? hybridValue(s, c.hybrid) : 0;
     const job = { id: c.id, label: c.label, icon: c.icon, selfEmployed: !!c.selfEmployed, desc: c.desc, pay: round50(c.pay * skills * eco * jitter()) };
     if (level >= c.min) open.push(job);
     else locked.push({ ...job, needs: [[c.stat || c.hybrid, c.min]], hybrid: !c.stat });
@@ -405,10 +421,14 @@ export const doesNs = (s) => !!(s.look && s.look.gender === 'male');
 export const isNsf = (s, age = s.age) => doesNs(s) && age >= NS.startAge && age < NS.startAge + NS.years;
 // The game starts working life at 21. Men who go to university after NS start two years later;
 // men who go straight to work after NS start at 21 too. (Poly and JC come before NS.)
-export const firstJobAge = (s) => STAGES.adult.startAge + (doesNs(s) && s.postNs !== 'work' ? NS.years : 0);
-export const canGoToUniversity = (s) => s.stats.knowledge >= EDUCATION.university.minKnowledge;
-// What you finished before NS, from your Knowledge.
-export const preNsQualification = (s) => (canGoToUniversity(s) ? 'A-levels or a polytechnic diploma' : s.stats.knowledge >= EDUCATION.poly.minKnowledge ? 'a polytechnic diploma' : 'an ITE Nitec');
+// Women go to university straight after JC or poly, at 19, and start work at 22; men go after NS
+// and start at 23. (Three-year degrees.)
+export const firstJobAge = (s) => STAGES.adult.startAge + (s.postNs === 'uni' ? (doesNs(s) ? NS.years : 1) : doesNs(s) && s.postNs !== 'work' && !s.school ? NS.years : 0);
+// University needs JC or poly (not ITE) and enough Knowledge.
+export const canGoToUniversity = (s) => s.school !== 'ite' && lvl(s, 'knowledge') >= EDUCATION.university.minKnowledge;
+// What you finished before NS (or before university).
+export const preNsQualification = (s) => (s.school === 'jc' ? 'junior college (A-levels)' : s.school === 'poly' ? 'a polytechnic diploma' : s.school === 'ite' ? 'an ITE Nitec'
+  : canGoToUniversity(s) ? 'A-levels or a polytechnic diploma' : lvl(s, 'knowledge') >= EDUCATION.poly.minKnowledge ? 'a polytechnic diploma' : 'an ITE Nitec');
 export const isStudying = (s) => s.stage === 'adult' && !s.career && s.age < firstJobAge(s);
 
 // ---------- quick start ----------
@@ -432,7 +452,7 @@ export function quickStart(s, education = 'random', rand = Math.random, events =
     if (!['study', 'job'].includes(activity.id)) s.joy += 1;
     (s.did ||= {})[activity.label] = (s.did[activity.label] || 0) + 1;
     const opts = { ...(events.world ? events.world(s) : {}) };
-    if (activity.job && !isNsf(s)) opts.jobWage = Math.round(600 + 400 * score);
+    if (activity.job && !isNsf(s)) opts.jobWage = teenJob(s.age, score).monthly;
     advanceYears(s, yearsThisTurn(s), opts);
     if (events.personal) events.personal(s);
     // Now and then, something from the shop that you can comfortably afford.
@@ -450,17 +470,34 @@ export function quickStart(s, education = 'random', rand = Math.random, events =
   if (education === 'poly' && (k < poly || k >= uni)) s.stats.knowledge = pick(poly, poly + 6);
   if (education === 'ite' && k >= poly) s.stats.knowledge = pick(poly - 8, poly - 2);
   checkHybrids(s);
+  // The school at 17: chosen, or the best your Knowledge allowed.
+  const kk = lvl(s, 'knowledge');
+  s.school = education === 'ite' ? 'ite' : education === 'poly' ? 'poly' : education === 'university' ? (rand() < 0.6 ? 'jc' : 'poly')
+    : kk >= SCHOOLS.jc.minKnowledge ? 'jc' : kk >= SCHOOLS.poly.minKnowledge ? 'poly' : 'ite';
+  story(s, 'life', SCHOOLS[s.school].icon, `Went to ${s.school === 'ite' ? 'ITE' : s.school === 'jc' ? 'junior college' : 'polytechnic'} at 17`);
   if (doesNs(s)) {
     s.nsIntro = true;
     story(s, 'life', '🪖', `Enlisted for National Service at ${NS.startAge}`);
-    // A chosen education settles what happens after NS; 'random' leaves the choice to the player.
-    if (education !== 'random') s.postNs = education === 'university' ? 'uni' : 'work';
   }
+  // A chosen education settles university; 'random' leaves the choice to the player (after NS for men, now for women).
+  if (education !== 'random') s.postNs = education === 'university' ? 'uni' : 'work';
+  else if (s.school === 'ite') s.postNs = 'work';
   s.quickStart = true;
   return s;
 }
 
 // ---------- the money simulation ----------
+
+// A teen's weekend part-time job. Under MOM rules, 13 and 14 year olds may only do light
+// work, so fewer hours; from 15 more shifts are allowed. Typical 2026 youth hourly rates for
+// F&B, retail and tuition-centre helpers. How well it goes decides how many shifts you get.
+export function teenJob(age, score = 1) {
+  const rate = age < 15 ? 7 : age < 17 ? 8 : 9;
+  const maxHours = age < 15 ? 8 : 12; // a week, across Saturday and Sunday
+  const hours = Math.max(4, Math.round(maxHours * (0.6 + 0.4 * score)));
+  const monthly = Math.round((rate * hours * 52) / 12);
+  return { rate, hours, monthly };
+}
 
 // Runs `years` years of life. `opts.jobWage` is a teen's part-time monthly pay.
 // Returns a summary of what happened to the money.
@@ -498,7 +535,7 @@ function oneYear(s, sum, opts) {
     }
   }
   const wage = young ? 0 : currentWage(s);
-  const jobMonths = young && opts.jobWage && age >= 16 && !nsf ? 3 : 0; // teen holiday job (not during NS)
+  const jobMonths = young && opts.jobWage && age >= 13 && !nsf ? 12 : 0; // a teen's weekend job, all year (not during NS)
   // Everyday spending, split into its parts so the player can see where it goes.
   const parts = young ? null : spendBreakdown(s);
   const costFactor = opts.costFactor || 1;
