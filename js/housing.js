@@ -76,10 +76,12 @@ const maxLoan = (monthly, rate, years) => Math.max(0, monthly / cpf.monthlyInsta
 // What a home costs this household. `share` is the player's part (0.5 with a working spouse).
 // `grant` is the household's CPF housing grants. Loan limits don't block a purchase: they cap
 // the loan, and you pay the rest upfront.
-export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash, years = 25, age = 30, grant = 0 }) {
+// `years` 0 means no loan: you pay the whole price upfront from your OA and cash.
+// `payFrom` 'cash' uses your cash first for the upfront part and keeps your CPF for retirement.
+export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash, years = 25, age = 30, grant = 0, payFrom = 'oa' }) {
   const hdb = home.kind === 'hdb';
   years = hdb ? Math.min(years, 30) : years;
-  const terms = loanFor(home, years, age);
+  const terms = years > 0 ? loanFor(home, years, age) : { type: 'No loan', rate: 0, ltv: 0, minCashPct: 0 };
   const rate = terms.rate;
   const full = home.price;
   grant = Math.min(grant, full);
@@ -88,24 +90,31 @@ export function quote(home, { share, grossIncome, otherDebt = 0, oa, cash, years
   // 3% for HDB loans and 4% for bank loans.
   const floor = terms.type === 'HDB loan' ? HDB_LOAN_FLOOR : TDSR_STRESS_RATE;
   const byLtv = Math.min(full * terms.ltv, full - grant);
-  const byMsr = hdb ? maxLoan(MSR * grossIncome, floor, years) : Infinity;
-  const byTdsr = maxLoan(TDSR * grossIncome - otherDebt, floor, years);
+  const byMsr = !years ? 0 : hdb ? maxLoan(MSR * grossIncome, floor, years) : Infinity;
+  const byTdsr = !years ? 0 : maxLoan(TDSR * grossIncome - otherDebt, floor, years);
   const fullLoan = Math.min(byLtv, byMsr, byTdsr);
-  const cappedBy = fullLoan >= byLtv - 1 ? null : byMsr <= byTdsr ? 'MSR' : 'TDSR';
+  const cappedBy = !years || fullLoan >= byLtv - 1 ? null : byMsr <= byTdsr ? 'MSR' : 'TDSR';
   const price = full * share;
   const loan = fullLoan * share;
   const myGrant = grant * share;
   const down = price - myGrant - loan;
   const minCash = price * terms.minCashPct; // bank loans need part of the down payment in cash
   const bsd = buyersStampDuty(full) * share;
-  const instalment = cpf.monthlyInstalment(loan, rate, years);
+  const instalment = years ? cpf.monthlyInstalment(loan, rate, years) : 0;
   const upfront = down + bsd;
-  const fromOa = Math.min(oa, Math.max(0, upfront - minCash));
-  const fromCash = upfront - fromOa;
+  let fromOa, fromCash;
+  if (payFrom === 'cash') {
+    fromCash = Math.max(minCash, Math.min(Math.max(0, cash), upfront));
+    fromOa = Math.min(oa, upfront - fromCash);
+    fromCash = upfront - fromOa;
+  } else {
+    fromOa = Math.min(oa, Math.max(0, upfront - minCash));
+    fromCash = upfront - fromOa;
+  }
   return {
     ...home, share, price, grant: myGrant, loan, ltv: terms.ltv, loanType: terms.type, down, bsd, rate, years, instalment,
     maxLtvLoan: byLtv * share, cappedBy, fromOa, fromCash, minCash, affordable: fromCash <= cash,
-    msrPct: instalment / share / grossIncome, tdsrPct: (cpf.monthlyInstalment(fullLoan, floor, years) + otherDebt) / grossIncome,
+    msrPct: instalment / share / grossIncome, tdsrPct: years ? (cpf.monthlyInstalment(fullLoan, floor, years) + otherDebt) / grossIncome : 0,
   };
 }
 

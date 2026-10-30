@@ -271,7 +271,7 @@ export const PERSONAL_EVENTS = [
     when: (s) => working(s) && s.stats.career >= 15 && Math.random() < s.stats.career / 60,
     run: (s) => {
       s.salary *= 1.1;
-      return { icon: '📈', title: 'Promotion!', text: `Your Career Skills pay off: a 10% raise. Your monthly pay is now ${money(s.salary)}.` };
+      return { icon: '📈', title: 'Promotion!', good: true, text: `Your Career Skills pay off: a 10% raise. Your monthly pay is now ${money(s.salary)}.` };
     },
   },
   {

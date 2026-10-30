@@ -292,13 +292,15 @@ export function takeCustomJob(s, { title, annual, growth = 0, growthYears = 65 -
 // A career switch you've earned with a very high stat, not offered in the last 10 years.
 export function careerSwitchOffer(s) {
   if (s.stage !== 'adult' || s.age < 25 || s.age > 60 || (s.customJobs || {})[s.career]) return null;
-  return CAREER_SWITCHES.find((c) => {
+  // Any career you qualify for, picked at random so lives don't all lead to the same job.
+  const ok = CAREER_SWITCHES.filter((c) => {
     if (c.id === s.career) return false;
     const last = (s.switchOffers || {})[c.id];
     if (last != null && s.age - last < 10) return false;
     const level = c.stat ? s.stats[c.stat] : s.hybrids[c.hybrid] ? hybridValue(s, c.hybrid) : 0;
     return level >= c.min;
-  }) || null;
+  });
+  return ok.length ? ok[Math.floor(Math.random() * ok.length)] : null;
 }
 
 export function switchCareer(s, id) {
@@ -333,7 +335,8 @@ export function jobOffers(s, economy = 'normal') {
   const offers = [];
   const locked = [];
   const now = careerInfo(s);
-  if (now) {
+  // Some jobs have only one employer in Singapore (the SAF, the SPF, SCDF), so there's no other company to move to.
+  if (now && !now.oneEmployer) {
     offers.push({ id: now.id, same: true, label: `${now.label}, at another company`, icon: now.icon, selfEmployed: !!now.selfEmployed,
       pay: round50((s.salary || now.pay) * eco * (0.96 + Math.random() * 0.1)) });
   }
@@ -343,17 +346,25 @@ export function jobOffers(s, economy = 'normal') {
     if (c.eligible) offers.push(job);
     else locked.push({ ...job, needs: Object.entries(c.needs).filter(([k, v]) => s.stats[k] < v) });
   }
+  // Not every opening comes up at once: at most 3 of the careers your strengths unlock, at random.
+  const open = [];
   for (const c of CAREER_SWITCHES) {
     if (c.id === s.career) continue;
     const level = c.stat ? s.stats[c.stat] : s.hybrids[c.hybrid] ? hybridValue(s, c.hybrid) : 0;
     const job = { id: c.id, label: c.label, icon: c.icon, selfEmployed: !!c.selfEmployed, desc: c.desc, pay: round50(c.pay * skills * eco * jitter()) };
-    if (level >= c.min) offers.push(job);
+    if (level >= c.min) open.push(job);
     else locked.push({ ...job, needs: [[c.stat || c.hybrid, c.min]], hybrid: !c.stat });
   }
+  for (let i = open.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [open[i], open[j]] = [open[j], open[i]]; }
+  offers.push(...open.slice(0, 3));
   offers.sort((a, b) => b.pay - a.pay);
   // The jobs closest to reach come first: the ones a bit of upskilling would unlock.
   const gap = (j) => j.needs.reduce((t, [k, v]) => t + Math.max(0, v - (j.hybrid ? hybridValue(s, k) : s.stats[k])), 0);
-  return { economy, offers, locked: locked.filter((j) => j.pay > (s.salary || 0) * 0.9).sort((a, b) => gap(a) - gap(b) || b.pay - a.pay).slice(0, 4) };
+  // At most 2 of the special careers, so everyday jobs you're close to still show.
+  const isSwitch = (j) => CAREER_SWITCHES.some((c) => c.id === j.id);
+  const near = locked.filter((j) => j.pay > (s.salary || 0) * 0.9).sort((a, b) => gap(a) - gap(b) || b.pay - a.pay);
+  const shown = [...near.filter(isSwitch).slice(0, 2), ...near.filter((j) => !isSwitch(j))].sort((a, b) => gap(a) - gap(b) || b.pay - a.pay);
+  return { economy, offers, locked: shown.slice(0, 5) };
 }
 
 export function takeJob(s, offer) {
@@ -1047,7 +1058,7 @@ export function otherDebt(s) {
 // Without a home of your own you live with your parents (free) or rent, as you choose.
 export const isRenting = (s) => !s.home && !!s.renting;
 
-export function homeQuotes(s, years = 25) {
+export function homeQuotes(s, years = 25, payFrom = 'oa') {
   const share = householdShare(s);
   return housing.HOMES
     .filter((h) => (s.spouse ? h.id !== 'flexi2' : h.kind === 'private' || (s.age >= 35 && h.singles)))
@@ -1060,11 +1071,12 @@ export function homeQuotes(s, years = 25) {
       cash: s.bank,
       years,
       age: s.age,
+      payFrom,
     }));
 }
 
-export function buyHome(s, id, years = 25) {
-  const q = homeQuotes(s, years).find((x) => x.id === id);
+export function buyHome(s, id, years = 25, payFrom = 'oa') {
+  const q = homeQuotes(s, years, payFrom).find((x) => x.id === id);
   s.cpf.oa -= q.fromOa;
   coverShortfall(s, q.fromCash);
   s.home = housing.newHome(q, s.age);
@@ -1074,6 +1086,21 @@ export function buyHome(s, id, years = 25) {
   s.log.push(`Age ${s.age}: bought a ${q.label}`);
   story(s, 'home', '🔑', `Bought ${aOrAn(q.label)} ${q.label}`, { price: q.price, grant: q.grant, oa: q.fromOa, cash: q.fromCash, instalment: q.instalment });
   return q;
+}
+
+// Pays part of the home loan early with cash (HDB charges no penalty; the game ignores bank
+// penalties). The monthly instalment falls and the loan still ends on time.
+export function prepayLoan(s, amount) {
+  const h = s.home;
+  const a = Math.max(0, Math.min(amount, s.bank, h ? h.loanBalance : 0));
+  if (a <= 0) return 0;
+  const months = housing.monthsLeft(h);
+  spendCash(s, a);
+  h.loanBalance -= a;
+  h.instalment = h.loanBalance > 1 ? cpf.monthlyInstalment(h.loanBalance, h.rate, months / 12) : 0;
+  if (h.loanBalance <= 1) h.loanBalance = 0;
+  story(s, 'home', '💵', `Paid ${money(a)} off the ${h.label} loan in cash at ${s.age}`, { cash: a });
+  return a;
 }
 
 // Sells the current home. CPF refunds go back to the OA (or to the RA from 55).

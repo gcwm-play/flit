@@ -286,7 +286,7 @@ test('a very high stat opens a matching career switch', () => {
   s.stage = 'adult';
   s.stats.communication = 52;
   const offer = sim.careerSwitchOffer(s);
-  assert.equal(offer.id, 'speaker');
+  assert.equal(offer.stat, 'communication'); // one of the careers that need Communication
   sim.switchCareer(s, 'speaker');
   assert.equal(s.selfEmployed, true);
   assert.equal(sim.careerInfo(s).id, 'speaker');
@@ -541,4 +541,21 @@ test('every holiday has a postcard and a tab, and trips record who went', async 
   s.age = 30; s.stage = 'adult'; s.bank = 50000; s.holidayPlans = [{ id: 'kenya', mode: 'times', left: 1 }];
   sim.advanceYears(s, 1);
   assert.deepEqual(s.trips.at(-1), { age: 30, id: 'kenya', party: 'solo' });
+});
+
+test('careers with one employer in Singapore have no "another company" offer', () => {
+  const s = sim.newGame('SAF', { gender: 'male', animal: 'dog', outfit: 0 });
+  s.age = 35; s.stage = 'adult'; s.education = 'university';
+  sim.switchCareer(s, 'officer');
+  for (let i = 0; i < 20; i++) assert.equal(sim.jobOffers(s, 'normal').offers.some((o) => o.same), false);
+});
+
+test('career switches vary: a strong player is not always offered the same job', () => {
+  const s = sim.newGame('Lead', { gender: 'female', animal: 'cat', outfit: 0 });
+  s.age = 40; s.stage = 'adult';
+  for (const k of Object.keys(s.stats)) s.stats[k] = 60;
+  sim.checkHybrids(s);
+  const seen = new Set();
+  for (let i = 0; i < 50; i++) seen.add(sim.careerSwitchOffer(s).id);
+  assert.ok(seen.size >= 8);
 });
