@@ -1,7 +1,7 @@
 // Random life events. World events change the coming years (and your stats can
 // soften them); personal events and cash gifts happen to you alone.
 import { rand, pick, FACTS } from './data.js';
-import { money, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar, allocateGift } from './sim.js';
+import { money, isWorking, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar, allocateGift } from './sim.js';
 import * as cars from './car.js';
 import * as invest from './invest.js';
 
@@ -15,7 +15,7 @@ export function resistance(s, keys, hybrids = []) {
 const pct = (r) => `${Math.round(r * 100)}%`;
 const statLine = (s, keys) => keys.map((k) => `${k === 'moneySense' ? 'Money Sense' : cap(k)} ${Math.round(s.stats[k])}`).join(', ');
 const cap = (t) => t[0].toUpperCase() + t.slice(1);
-const working = (s) => (s.stage === 'adult' || (s.stage === 'senior' && s.age < 70 && s.workMode !== 'retired')) && s.salary > 0;
+const working = (s) => isWorking(s);
 
 // ---------- world events: rolled before the years pass, they return sim options ----------
 

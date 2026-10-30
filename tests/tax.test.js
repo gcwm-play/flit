@@ -244,3 +244,34 @@ test('a yearly CPF top-up never takes the cash needed for income tax', () => {
   assert.equal(s.debt, 0);
   assert.ok(s.bank >= 0);
 });
+
+test('university fees: PSEA first, your half, then OA and cash, itemised', () => {
+  const s = sim.newGame('U', { gender: 'she', animal: 'cat' });
+  s.age = 50; s.stage = 'adult'; s.bank = 50000; s.cpf.oa = 100000;
+  s.spouse = { salary: 4000, home: false };
+  const child = { bornAge: 31, psea: 10000 };
+  const r = sim.payUniversity(s, child, 'oa');
+  assert.equal(r.psea, 10000);
+  assert.equal(r.net, sim.UNI_FEES - 10000);
+  assert.equal(r.yours, r.net / 2);
+  assert.equal(r.used + r.cash, r.yours);
+  assert.equal(s.bank, 50000 - r.cash);
+  assert.equal(s.cpf.oa, 100000 - r.used);
+});
+
+test('retire early, then go back to work part-time', () => {
+  const s = sim.newGame('R', { gender: 'she', animal: 'cat' });
+  s.age = 45; s.stage = 'adult'; s.career = 'admin'; s.salary = 5000;
+  sim.retire(s);
+  assert.equal(sim.currentWage(s), 0);
+  assert.equal(sim.isWorking(s), false);
+  sim.takeJob(s, { id: 'admin', label: 'Office administrator', icon: '🗂️', pay: 5000, part: true });
+  assert.equal(sim.currentWage(s), 2500);
+});
+
+test('a solo trip costs one fare; a family trip costs everyone\'s, split with a working spouse', () => {
+  const s = sim.newGame('H', { gender: 'she', animal: 'cat' });
+  s.age = 40; s.stage = 'adult'; s.spouse = { salary: 4000, home: false }; s.children = [{ bornAge: 32 }];
+  assert.equal(sim.holidayCost(s, 'bali', 'solo'), 1200);
+  assert.equal(sim.holidayCost(s, 'bali', 'family'), 1200 * 3 / 2);
+});

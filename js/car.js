@@ -1,18 +1,32 @@
 // Owning a car in Singapore: a 10-year COE, a car loan, running costs, and what
 // the car is worth when you sell it or its COE runs out. No DOM code here.
 
-// A mass-market (COE Category A) car in 2026, rounded: about $180,000 on the road,
-// of which about $120,000 is the COE and $27,000 the Additional Registration Fee (ARF).
+// Car types, rounded 2026 prices on the road. Category A COE (small cars, up to 1,600cc
+// or 110kW) is about $110,000-120,000; Category B (bigger or more powerful) about $125,000.
+// The ARF is the registration fee: a tiered share of the car's open market value, so it is
+// much bigger for pricey cars. EVs pay less ARF after the EV rebates.
+// MAS caps car loans at 70% of the price if the open market value is $20,000 or less, 60% above.
+export const CAR_TYPES = {
+  compact: { label: 'Compact hatchback', icon: '🚗', cat: 'A', price: 150000, coe: 112000, arf: 14000, downPct: 0.3, running: 750, joy: 1,
+    desc: 'Small and easy to park. Cheapest to run.' },
+  sedan: { label: 'Family sedan', icon: '🚙', cat: 'A', price: 180000, coe: 120000, arf: 27000, downPct: 0.3, running: 900, joy: 2,
+    desc: 'The most common choice: room for a small family.' },
+  ev: { label: 'Electric car', icon: '🔌', cat: 'A', price: 175000, coe: 120000, arf: 18000, downPct: 0.3, running: 650, joy: 2,
+    desc: 'Charging costs less than petrol and the road tax is lower.' },
+  mpv: { label: '7-seater MPV', icon: '🚐', cat: 'B', price: 260000, coe: 125000, arf: 60000, downPct: 0.4, running: 1200, joy: 2,
+    desc: 'Room for the whole family and the grandparents.' },
+  luxury: { label: 'Luxury car', icon: '🏎️', cat: 'B', price: 400000, coe: 125000, arf: 170000, downPct: 0.4, running: 1700, joy: 4,
+    desc: 'A premium badge with a premium price: the ARF alone is huge.' },
+};
+
+// Shared by every type. (`CAR` keeps the family sedan's figures for older code and saves.)
 export const CAR = {
-  price: 180000,
-  coe: 120000,
-  arf: 27000,
-  downPct: 0.3, // MAS: car loans cover at most 70% of the price (60% for pricier cars)
+  ...CAR_TYPES.sedan,
   loanYears: 7, // the longest car loan allowed
   flatRate: 0.0278, // car loans are quoted as a flat rate a year
-  running: 900, // petrol, parking, insurance, road tax, servicing and ERP a month
   coeYears: 10,
 };
+export const spec = (car) => CAR_TYPES[(car && car.type) || 'sedan'];
 
 // PARF rebate when a car is scrapped, as a share of the ARF, by its age in years.
 // For cars registered from February 2026 (LTA): 30% up to 5 years, 5% less each
@@ -22,13 +36,15 @@ export function parfRebate(years, arf = CAR.arf) {
   return Math.min(30000, arf * Math.max(0, pct));
 }
 
-export function newCar(age) {
-  const loan = CAR.price * (1 - CAR.downPct);
+export function newCar(age, type = 'sedan') {
+  const t = CAR_TYPES[type] || CAR_TYPES.sedan;
+  const loan = t.price * (1 - t.downPct);
   const months = CAR.loanYears * 12;
   return {
+    type: CAR_TYPES[type] ? type : 'sedan',
     boughtAge: age,
-    price: CAR.price,
-    down: CAR.price - loan,
+    price: t.price,
+    down: t.price - loan,
     loan,
     monthly: (loan * (1 + CAR.flatRate * CAR.loanYears)) / months,
     monthsLeft: months,
@@ -37,7 +53,7 @@ export function newCar(age) {
 
 export const carAge = (car, age) => age - car.boughtAge;
 export const loanLeft = (car) => (car.loan * car.monthsLeft) / (CAR.loanYears * 12); // principal still owed
-export const monthlyCost = (car) => CAR.running + (car.monthsLeft > 0 ? car.monthly : 0);
+export const monthlyCost = (car) => spec(car).running + (car.monthsLeft > 0 ? car.monthly : 0);
 
 // One month of the car loan. Returns the instalment paid.
 export function payMonth(car) {
@@ -52,9 +68,10 @@ export function payMonth(car) {
 export function quote(car, age) {
   const years = Math.min(carAge(car, age), CAR.coeYears); // scrapped when the COE ends
   const left = Math.max(0, CAR.coeYears - years);
-  const coeRebate = (CAR.coe * left) / CAR.coeYears;
-  const parf = parfRebate(Math.max(years, 0.5));
-  const extra = (CAR.price - CAR.coe - CAR.arf) * (left / CAR.coeYears) * 0.5;
+  const t = spec(car);
+  const coeRebate = (t.coe * left) / CAR.coeYears;
+  const parf = parfRebate(Math.max(years, 0.5), t.arf);
+  const extra = (t.price - t.coe - t.arf) * (left / CAR.coeYears) * 0.5;
   const value = coeRebate + parf + extra;
   return { years, coeRebate, parf, extra, value, loan: loanLeft(car), net: value - loanLeft(car) };
 }

@@ -863,3 +863,4 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
 @keyframes cheer-pop { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 @keyframes confetti-fall { from { transform: translateY(0) rotate(0); opacity: 1; } to { transform: translateY(90px) rotate(540deg); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cheer b, .confetti i { animation: none; } .confetti { display: none; } }
+.peek-row { margin: 10px 0 0; text-align: center; }

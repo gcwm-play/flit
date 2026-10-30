@@ -337,7 +337,7 @@ export function jobOffers(s, economy = 'normal') {
   const now = careerInfo(s);
   // Some jobs have only one employer in Singapore (the SAF, the SPF, SCDF), so there's no other company to move to.
   if (now && !now.oneEmployer) {
-    offers.push({ id: now.id, same: true, label: `${now.label}, at another company`, icon: now.icon, selfEmployed: !!now.selfEmployed,
+    offers.push({ id: now.id, same: true, label: s.workMode === 'retired' ? now.label : `${now.label}, at another company`, icon: now.icon, selfEmployed: !!now.selfEmployed,
       pay: round50((s.salary || now.pay) * eco * (0.96 + Math.random() * 0.1)) });
   }
   for (const c of careerOptions(s)) {
@@ -374,6 +374,9 @@ export function takeJob(s, offer) {
   s.selfEmployed = !!offer.selfEmployed;
   s.salary = offer.pay;
   s.jobChangedAge = s.age;
+  const wasRetired = s.workMode === 'retired';
+  s.workMode = offer.part ? 'part' : 'full';
+  if (wasRetired) story(s, 'job', '💼', `Went back to work at ${s.age}${offer.part ? ', part-time' : ''}`);
   s.log.push(`Age ${s.age}: started work as ${offer.label} (${money(offer.pay)}/month)`);
   const job = careerInfo(s);
   const label = job ? job.title || job.label : offer.label;
@@ -651,12 +654,28 @@ function oneYear(s, sum, opts) {
 }
 
 export function currentWage(s) {
-  if (s.stage === 'adult') return s.salary;
-  if (s.stage === 'senior') {
-    if (s.age >= 70 || s.workMode === 'retired') return 0;
-    return s.workMode === 'part' ? s.salary * 0.5 : s.salary;
-  }
-  return 0;
+  if (s.stage !== 'adult' && s.stage !== 'senior') return 0;
+  // You can retire early, or go part-time, at any age as a grown-up. Everyone stops at 70.
+  if (s.workMode === 'retired' || (s.stage === 'senior' && s.age >= 70)) return 0;
+  return s.workMode === 'part' ? s.salary * 0.5 : s.salary;
+}
+
+export const isRetired = (s) => (s.stage === 'adult' || s.stage === 'senior') && (s.workMode === 'retired' || s.age >= 70);
+
+// Stop working before 70. Your CPF stays locked until 55 (and CPF LIFE starts at 65), so
+// early retirement runs on your cash and investments.
+export function retire(s) {
+  s.workMode = 'retired';
+  s.retiredAge = s.age;
+  story(s, 'job', '🌅', s.age < 63 ? `Retired early at ${s.age}` : `Retired at ${s.age}`);
+}
+
+export function setWorkMode(s, mode) {
+  if (mode === 'retired') return retire(s);
+  if (mode === s.workMode) return;
+  if (mode === 'part') story(s, 'job', '⏳', `Went part-time at ${s.age}`);
+  else if (s.workMode === 'part') story(s, 'job', '💼', `Went back to full-time work at ${s.age}`);
+  s.workMode = mode;
 }
 
 // Your own monthly spending. With a spouse, you share household costs;
@@ -700,7 +719,7 @@ export function spendBreakdown(s) {
 // What a child costs a month in 2026, after Government subsidies, not counting food
 // (estimates: infant care and diapers; preschool; school, tuition and pocket money; JC or poly).
 export const CHILD_COSTS = [[2, 1000, 'infant care, diapers and milk'], [6, 700, 'preschool and enrichment'],
-  [12, 550, 'school, tuition and pocket money'], [16, 650, 'tuition, transport and pocket money'], [21, 800, 'JC or poly, transport and pocket money']];
+  [12, 550, 'school, tuition and pocket money'], [16, 650, 'tuition, transport and pocket money'], [21, 800, 'JC, poly or university: transport and pocket money']];
 export const childCost = (age) => (CHILD_COSTS.find(([max]) => age <= max) || [0, 0])[1];
 export const GROCERIES = { child: 250, spouse: 300 }; // extra groceries a month for each family member
 
@@ -1003,35 +1022,45 @@ export const UNI_FEES = 34000; // about four years of subsidised local universit
 // The child's PSEA (from the $10,000 top-up at 17) pays part of the fees first.
 export const uniFeesAfterPsea = (child) => Math.max(0, UNI_FEES - (child.psea || 0));
 
+// Returns an itemised bill: { total, psea, net, share, yours, used (OA), cash, loan, refund }.
 export function payUniversity(s, child, how) {
-  const fees = uniFeesAfterPsea(child) * householdShare(s);
-  child.pseaUsed = Math.min(UNI_FEES, child.psea || 0);
+  const psea = Math.min(UNI_FEES, child.psea || 0);
+  const net = uniFeesAfterPsea(child);
+  const share = householdShare(s);
+  const fees = net * share;
+  child.pseaUsed = psea;
   child.psea = 0;
   child.uni = how;
-  if (how === 'cash') coverShortfall(s, fees);
+  const bill = { total: UNI_FEES, psea, net, share, yours: fees, used: 0, cash: 0, loan: 0, refund: 0 };
+  if (how === 'cash') { coverShortfall(s, fees); bill.cash = fees; }
   if (how === 'oa') {
     const used = Math.min(fees, s.cpf.oa * 0.4);
     s.cpf.oa -= used;
     coverShortfall(s, fees - used);
     const owed = used * Math.pow(1 + cpf.INTEREST.oa, 5);
-    s.eduRefunds.push({ startAge: s.age + 5, monthsLeft: 144, monthly: cpf.monthlyInstalment(owed, cpf.INTEREST.oa, 12) });
-    return { used, cash: fees - used };
+    bill.refund = cpf.monthlyInstalment(owed, cpf.INTEREST.oa, 12);
+    s.eduRefunds.push({ startAge: s.age + 5, monthsLeft: 144, monthly: bill.refund });
+    Object.assign(bill, { used, cash: fees - used });
   }
-  return { used: 0, cash: how === 'cash' ? fees : 0 };
+  if (how === 'loan') bill.loan = fees;
+  s.uniPaid = (s.uniPaid || 0) + bill.cash + bill.used;
+  story(s, 'family', '🎓', how === 'loan' ? 'Your child went to university on a tuition fee loan' : `Your child went to university; you paid ${money(bill.cash + bill.used)}${bill.used ? ` (${money(bill.used)} from your OA)` : ''}`, { cash: bill.cash, oa: bill.used });
+  return bill;
 }
 
 // ---------- housing ----------
 
 // ---------- cars ----------
 
-export function buyCar(s) {
-  const car = cars.newCar(s.age);
+export function buyCar(s, type = 'sedan') {
+  const car = cars.newCar(s.age, type);
+  const t = cars.spec(car);
   coverShortfall(s, car.down);
   s.car = car;
-  s.joy += 2;
+  s.joy += t.joy;
   s.carsOwned = (s.carsOwned || 0) + 1;
   s.carSpent = (s.carSpent || 0) + car.down;
-  story(s, 'car', '🚗', `Bought car number ${s.carsOwned}`, { amount: car.down });
+  story(s, 'car', t.icon, `Bought ${s.carsOwned > 1 ? 'another car: ' : ''}${aOrAn(t.label)} ${t.label.toLowerCase()}`, { amount: car.down });
   return car;
 }
 
@@ -1156,32 +1185,46 @@ export function workStatus(s) {
 export const isWorking = (s) => currentWage(s) > 0;
 
 // Who goes on a family holiday: you, your spouse, and children under 21.
-export function travellers(s) {
-  return 1 + (s.spouse ? 1 : 0) + (s.children || []).filter((c) => s.age - c.bornAge < 21).length;
+// Who can go on a trip: just you, you and your spouse, or the whole family (children under 21).
+export function holidayParties(s) {
+  const kids = (s.children || []).filter((c) => s.age - c.bornAge < 21).length;
+  const out = [{ id: 'solo', label: 'Just me', icon: '🧳', people: 1 }];
+  if (s.spouse) out.push({ id: 'couple', label: kids ? 'Me and my spouse' : 'With my spouse', icon: '💑', people: 2 });
+  if (kids) out.push({ id: 'family', label: 'The whole family', icon: '👨‍👩‍👧', people: 1 + (s.spouse ? 1 : 0) + kids });
+  return out;
+}
+// A plan's party, or the biggest one if it was never chosen (older saves), or if it no longer fits.
+export function partyOf(s, party) {
+  const all = holidayParties(s);
+  return all.find((p) => p.id === party) || all[all.length - 1];
+}
+export function travellers(s, party) {
+  return partyOf(s, party).people;
 }
 
-// Your share of one trip. Couples split household costs.
-export function holidayCost(s, id) {
+// Your share of one trip. Couples split shared trips; a solo trip is all yours.
+export function holidayCost(s, id, party) {
   const h = HOLIDAYS.find((x) => x.id === id);
-  return h.cost * travellers(s) * householdShare(s);
+  const p = partyOf(s, party);
+  return h.cost * p.people * (p.id === 'solo' ? 1 : householdShare(s));
 }
 
 // Average monthly cost of your holiday plans over the next year.
 export function holidayMonthly(s) {
-  return (s.holidayPlans || []).reduce((t, p) => t + holidayCost(s, p.id), 0) / 12;
+  return (s.holidayPlans || []).reduce((t, p) => t + holidayCost(s, p.id, p.party), 0) / 12;
 }
 
 function takeHolidays(s, sum) {
   for (const p of s.holidayPlans || []) {
     const h = HOLIDAYS.find((x) => x.id === p.id);
-    const cost = holidayCost(s, p.id);
+    const cost = holidayCost(s, p.id, p.party);
     coverShortfall(s, cost, sum);
     sum.holidays += cost;
-    // The first few visits to a place are the most memorable.
+    // The first few visits to a place are the most memorable; sharing a trip adds a little more.
     const visits = (s.trips || []).filter((t) => t.id === p.id).length;
-    s.joy += h.joy * (visits >= 3 ? 0.5 : 1);
-    const kids = (s.children || []).filter((c) => s.age - c.bornAge < 21).length;
-    (s.trips ||= []).push({ age: s.age, id: p.id, party: kids ? 'family' : s.spouse ? 'couple' : 'solo' });
+    const party = partyOf(s, p.party).id;
+    s.joy += h.joy * (visits >= 3 ? 0.5 : 1) + (party === 'solo' ? 0 : 0.5);
+    (s.trips ||= []).push({ age: s.age, id: p.id, party });
     if (p.mode !== 'yearly') p.left--;
   }
   s.holidayPlans = (s.holidayPlans || []).filter((p) => p.mode === 'yearly' || p.left > 0);

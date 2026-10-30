@@ -174,15 +174,47 @@ function dialog(html, { wide = false } = {}) {
   // Panels you close get a close button that stays in the corner while you scroll.
   const closer = [...modalBox.querySelectorAll('[data-choice="ok"]')].find((x) => /^(Close|Done|Back|Cancel)$/.test(x.textContent.trim()));
   if (closer) modalBox.insertAdjacentHTML('afterbegin', '<button class="modal-x" data-choice="ok" aria-label="Close" title="Close">✕</button>');
+  // A choice that pops up lets grown-ups look at their money first, then come back to it.
+  const grown = S && (S.stage === 'adult' || S.stage === 'senior');
+  const choosing = !closer && modalBox.querySelector('.event') && modalBox.querySelectorAll('[data-choice]').length >= 2
+    && !modalBox.querySelector('[data-amt], input, .modal-x');
+  if (grown && choosing) modalBox.insertAdjacentHTML('beforeend', '<p class="peek-row"><button class="link-btn" data-peek>💵 Check my money first</button></p>');
+  const saved = modalBox.innerHTML;
   modalEl.hidden = false;
   modalBox.scrollTop = 0;
   return new Promise((resolve) => {
     modalBox.onclick = (e) => {
+      if (e.target.closest('[data-peek]')) { modalBox.innerHTML = moneyGlanceHtml(); modalBox.scrollTop = 0; return; }
+      if (e.target.closest('[data-unpeek]')) { modalBox.innerHTML = saved; modalBox.scrollTop = 0; return; }
       const b = e.target.closest('[data-choice]');
       if (!b || b.disabled) return;
       resolve(b.dataset.choice);
     };
   });
+}
+
+// A quick look at your money, shown in place of a choice until you go back to it.
+function moneyGlanceHtml() {
+  const p = monthlyPlan();
+  const c = S.cpf;
+  const left = p.left - p.saving;
+  return `<h2>💵 Your money right now</h2>
+    <table class="summary">
+      <tr><td>Cash savings</td><td>${money(S.bank)}</td></tr>
+      ${invest.total(S) > 0 ? `<tr><td>Investments</td><td>${money(invest.total(S))}</td></tr>` : ''}
+      ${S.debt > 0 ? `<tr><td>${S.dcp ? 'Debt plan' : 'Credit card debt'}</td><td class="neg">−${money(S.debt)}</td></tr>` : ''}
+      ${S.home && S.home.loanBalance > 1 ? `<tr><td>Home loan left</td><td>${money(S.home.loanBalance)}</td></tr>` : ''}
+      ${S.car && S.car.monthsLeft > 0 ? `<tr><td>Car loan left</td><td>${money(cars.loanLeft(S.car))}</td></tr>` : ''}
+      <tr><td>CPF: OA ${money(c.oa)}, ${S.age < 55 ? `SA ${money(c.sa)}` : `RA ${money(c.ra)}`}, MediSave ${money(c.ma)}</td><td>${money(cpf.cpfTotal(c))}</td></tr>
+    </table>
+    <h3>Each month</h3>
+    <table class="summary">
+      <tr><td>Money in</td><td class="pos">${money(p.income)}</td></tr>
+      <tr><td>Spending, bills and tax</td><td class="neg">−${money(p.out)}</td></tr>
+      ${p.saving > 0.5 ? `<tr><td>Planned saving and investing</td><td class="neg">−${money(p.saving)}</td></tr>` : ''}
+      <tr><td><b>${left >= 0 ? 'Left over' : 'Short'}</b></td><td class="${left >= 0 ? 'pos' : 'neg'}"><b>${left < 0 ? '−' : ''}${money(Math.abs(left))}</b></td></tr>
+    </table>
+    <button class="btn primary" data-unpeek>↩️ Back to the choice</button>`;
 }
 
 function closeModal() {
@@ -470,9 +502,10 @@ function actionTiles() {
     const loanYrs = S.home ? Math.ceil(housing.monthsLeft(S.home) / 12) : 0;
     life.push(['home', '🏠', 'Home', S.home ? (S.home.loanBalance > 0.01 ? `${S.home.label}, ${loanYrs} yr${loanYrs === 1 ? '' : 's'} to own` : `${S.home.label}, fully owned 🎉`) : sim.isRenting(S) ? 'Renting' : 'With your parents']);
     if (sim.isStudying(S)) life.push(['stats', '🎓', 'Studying', `First job at ${sim.firstJobAge(S)}`]);
-    else if (S.stage === 'adult' || (working && S.age < 65)) life.push(['job', '💼', working ? 'Change job' : 'Find a job', working && job ? job.label : 'No job', !working]);
+    else if (S.workMode === 'retired' && S.age < 70) life.push(['job', '🌅', 'Work', `Retired${S.retiredAge != null ? ` at ${S.retiredAge}` : ''}`]);
+    else if (S.stage === 'adult' || (working && S.age < 70)) life.push(['job', '💼', working ? 'Work' : 'Find a job', working && job ? `${job.label}${S.workMode === 'part' ? ', part-time' : ''}` : 'No job', !working]);
     fun.push(['holidays', '✈️', 'Holidays', plans.length ? `${plans.length} planned` : 'None planned']);
-    fun.push(['car', '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
+    fun.push(['car', S.car ? cars.spec(S.car).icon : '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
   }
   fun.push(['shop', '🛍️', 'Buy items', `${S.room.length} owned`]);
   const tile = ([panel, icon, label, note, warn]) => `
@@ -795,11 +828,11 @@ async function carPanel() {
   for (;;) {
     const car = S.car;
     const q = car && cars.quote(car, S.age);
-    const fresh = cars.newCar(S.age);
     const c = await dialog(`
       <h2>🚗 Your car</h2>
       ${car ? `
         <table class="summary">
+          <tr><td>Your car</td><td>${cars.spec(car).icon} ${cars.spec(car).label}</td></tr>
           <tr><td>Bought at</td><td>${car.boughtAge} (${q.years} year${q.years === 1 ? '' : 's'} ago)</td></tr>
           <tr><td>COE left</td><td>${Math.max(0, cars.CAR.coeYears - q.years)} years</td></tr>
           <tr><td>Costs you each month</td><td>${money(cars.monthlyCost(car))}${car.monthsLeft > 0 ? `<small>incl. loan ${money(car.monthly)} for ${Math.ceil(car.monthsLeft / 12)} more years</small>` : ''}</td></tr>
@@ -815,14 +848,14 @@ async function carPanel() {
         <p class="small">You paid ${money(car.price)}. In Singapore most of a car's price is the 10-year COE, so its value falls steadily and is close to zero when the COE ends. Cars registered from February 2026 get a smaller PARF rebate (at most 30% of the registration fee).</p>
         <div class="row">${btn('sell', `Sell for ${money(q.value)}`, 'primary')}</div>`
       : `
-        <p>You don't own a car. A new one costs about <b>${money(cars.CAR.price)}</b>, mostly for the 10-year COE.</p>
-        <table class="summary">
-          <tr><td>Down payment (cash, 30%)</td><td>${money(fresh.down)}</td></tr>
-          <tr><td>Car loan for 7 years</td><td>${money(fresh.monthly)}/month</td></tr>
-          <tr><td>Petrol, parking, insurance, road tax, servicing</td><td>${money(cars.CAR.running)}/month</td></tr>
-          <tr><td>Over 10 years, about</td><td>${money(fresh.down + fresh.monthly * 84 + cars.CAR.running * 120)}</td></tr>
-        </table>
-        <div class="row">${btn('buy', `Buy a car (${money(fresh.down)} down)`, 'primary')}</div>`}
+        <p>You don't own a car. In Singapore most of a car's price is the 10-year COE (Certificate of Entitlement), so every car loses its value over 10 years. You pay part in cash and the rest with a car loan of up to 7 years.</p>
+        <div class="careers">${Object.entries(cars.CAR_TYPES).map(([id, t]) => {
+          const f = cars.newCar(S.age, id);
+          const total = f.down + f.monthly * 84 + t.running * 120;
+          return `<button class="career" data-choice="buy:${id}" ${S.bank < f.down ? 'disabled' : ''}><span class="c-icon">${t.icon}</span><b>${t.label}</b><span>${money(t.price)} <small>(COE Category ${t.cat})</small></span>
+            <small>${t.desc}<br>Down payment ${money(f.down)} (${Math.round(t.downPct * 100)}% in cash)<br>Loan ${money(f.monthly)}/month for 7 years<br>Running costs ${money(t.running)}/month<br>Over 10 years, about <b>${money(total)}</b> · Joy +${t.joy}${S.bank < f.down ? `<br>❌ You need ${money(f.down - S.bank)} more cash` : ''}</small></button>`;
+        }).join('')}</div>
+        <p class="small">Running costs cover petrol or charging, parking, insurance, road tax, servicing and ERP. Cars costing more than $20,000 before taxes (open market value) can only be 60% financed, so you pay 40% down.</p>`}
       ${btn('ok', 'Close')}`, { wide: true });
     if (c === 'ok') return;
     if (c === 'sell') {
@@ -830,11 +863,11 @@ async function carPanel() {
       logEvent(`🚗 Sold the car for ${money(r.value)}`);
       toast(`🚗 Sold for ${money(r.value)}${r.loan > 1 ? `; ${money(r.loan)} paid off the loan` : ''}`);
     }
-    if (c === 'buy') {
-      if (S.bank < fresh.down) { toast(`You need ${money(fresh.down)} in cash for the down payment.`); continue; }
-      sim.buyCar(S);
-      logEvent('🚗 Bought a car');
-      toast('🚗 Vroom! Joy +2');
+    if (c.startsWith('buy:')) {
+      const t = cars.CAR_TYPES[c.slice(4)];
+      sim.buyCar(S, c.slice(4));
+      logEvent(`${t.icon} Bought ${sim.aOrAn(t.label)} ${t.label.toLowerCase()}`);
+      toast(`${t.icon} Vroom! Joy +${t.joy}`);
     }
     render();
   }
@@ -843,18 +876,20 @@ async function carPanel() {
 // The COE has run out: scrap the car (and get the small PARF rebate), then buy again or not.
 async function coeEndDialog() {
   const q = cars.quote(S.car, S.age);
-  const fresh = cars.newCar(S.age);
+  const type = S.car.type || 'sedan';
+  const fresh = cars.newCar(S.age, type);
   const c = await dialog(`<div class="event"><div class="e-icon">🚗</div><p class="eyebrow">Your COE has ended</p>
     <h2>Your car is 10 years old</h2>
     <p>A car's Certificate of Entitlement lasts 10 years. Scrapping it now gets you a PARF rebate of only <b>${money(q.parf)}</b>: the car is worth almost nothing. (You could also renew the COE at the current price, but most owners scrap.)</p></div>
     <table class="summary">
-      <tr><td>A new car: down payment</td><td>${money(fresh.down)}</td></tr>
+      <tr><td>A new ${cars.CAR_TYPES[type].label.toLowerCase()}: down payment</td><td>${money(fresh.down)}</td></tr>
       <tr><td>…then each month (loan and running costs)</td><td>${money(cars.monthlyCost(fresh))}</td></tr>
     </table>
-    <div class="row">${btn('new', 'Buy a new car', 'primary')}${btn('none', 'Go car-free: MRT, bus and Grab')}</div>`);
+    <div class="row">${btn('new', 'Buy the same kind again', 'primary')}${btn('pick', 'Choose a different car')}${btn('none', 'Go car-free: MRT, bus and Grab')}</div>`);
   sim.sellCar(S, 'Scrapped');
+  if (c === 'pick') { logEvent('🚗 Scrapped the old car'); await carPanel(); return; }
   if (c === 'new') {
-    sim.buyCar(S);
+    sim.buyCar(S, type);
     logEvent('🚗 Scrapped the old car and bought a new one');
   } else logEvent('🚌 Went car-free');
 }
@@ -1505,11 +1540,51 @@ async function nominationDialog(why = 'panel') {
 
 // Looking for a job: after a retrenchment, or any time you want a change.
 // Offers depend on your stats, experience and the economy; better jobs unlock as you upskill.
+// Part-time, full-time or retiring, from the Work tile.
+function workOptionsHtml() {
+  if (!sim.isWorking(S) || S.age >= 70) return '';
+  const early = S.age < 63;
+  return `<div class="limit-box"><h3>⏳ How much do you want to work?</h3>
+    <p class="small">You can go part-time (half the hours and half the pay), or stop working. ${early ? 'Retiring before 63 means living on your own savings for longer: your CPF stays locked until 55 and CPF LIFE pays from 65.' : 'Singapore\'s retirement age is 63, and employers must offer re-employment up to 68.'}</p>
+    <div class="row">${S.workMode === 'part' ? btn('mode:full', '💼 Go back to full-time') : btn('mode:part', '⏳ Work part-time')}${S.age >= 40 ? btn('mode:retired', early ? '🌅 Retire early' : '🌅 Retire') : ''}</div>
+    ${S.age < 40 ? '<p class="small muted-ink">Early retirement opens up from 40.</p>' : ''}</div>`;
+}
+
+async function changeWorkMode(mode) {
+  if (mode === 'retired') {
+    const p = monthlyPlan();
+    const spend = p.out - (p.incomeTax || 0);
+    const payout = S.life && S.age >= S.life.startAge ? S.life.monthly : 0;
+    const gap = Math.max(0, spend - payout);
+    const savings = Math.max(0, S.bank + invest.total(S, 'cash') - S.debt);
+    const years = gap > 0 ? savings / (gap * 12) : Infinity;
+    const lock = S.age < 55 ? `Your CPF (${money(cpf.cpfTotal(S.cpf))}) stays locked until 55, and CPF LIFE pays from 65.` : S.age < 65 && !S.life ? 'CPF LIFE pays from 65.' : '';
+    const ok = await dialog(`<div class="event"><div class="e-icon">🌅</div><h2>${S.age < 63 ? 'Retire early' : 'Retire'} at ${S.age}?</h2></div>
+      <table class="summary">
+        <tr><td>Your pay stops</td><td class="neg">−${money(sim.takeHome(S))}/month</td></tr>
+        <tr><td>CPF contributions stop</td><td class="neg">−${money(S.selfEmployed ? 0 : cpf.monthlyContribution(S.age, sim.currentWage(S)).total)}/month</td></tr>
+        <tr><td>What you spend now (living, home, insurance and plans)</td><td>${money(spend)}/month</td></tr>
+        ${payout ? `<tr><td>CPF LIFE pays you</td><td class="pos">${money(payout)}/month</td></tr>` : ''}
+        <tr><td>Your cash and cash investments</td><td>${money(savings)}</td></tr>
+        <tr><td><b>They would last about</b></td><td><b>${years === Infinity ? 'for good' : years < 1 ? 'less than a year' : `${Math.floor(years)} year${Math.floor(years) === 1 ? '' : 's'}`}</b></td></tr>
+      </table>
+      <p>${lock} You can go back to work later from the Work tile, but offers may pay less after time away. A simpler lifestyle makes savings last longer.</p>
+      <div class="row">${btn('yes', 'Retire now', 'primary')}${btn('no', 'Keep working')}</div>`, { wide: true });
+    if (ok !== 'yes') return false;
+  }
+  sim.setWorkMode(S, mode);
+  logEvent(mode === 'retired' ? `🌅 Retired at ${S.age}` : mode === 'part' ? '⏳ Went part-time' : '💼 Back to full-time');
+  toast(mode === 'retired' ? '🌅 Enjoy your retirement!' : mode === 'part' ? `⏳ Part-time: ${money(sim.currentWage(S))} a month` : `💼 Full-time again: ${money(sim.currentWage(S))} a month`);
+  return true;
+}
+
 async function jobHunt(reason, economy) {
-  if (reason === 'choice' && S.jobChangedAge === S.age) {
-    await dialog(`<div class="event"><div class="e-icon">💼</div><h2>You've just changed jobs</h2><p>Give it a year before looking again.</p></div>${btn('ok', 'OK', 'primary')}`);
+  if (reason === 'choice' && S.jobChangedAge === S.age && S.workMode !== 'retired') {
+    const c = await dialog(`<div class="event"><div class="e-icon">💼</div><h2>You've just changed jobs</h2><p>Give it a year before looking for another.</p></div>${workOptionsHtml()}${btn('ok', 'OK', 'primary')}`);
+    if (c.startsWith('mode:')) await changeWorkMode(c.slice(5));
     return;
   }
+  const back = reason === 'choice' && S.workMode === 'retired';
   // Offers are fixed for this age, so closing and reopening doesn't re-roll them.
   if (!S.jobMarket || S.jobMarket.age !== S.age || S.jobMarket.reason !== reason) {
     const eco = economy || (Math.random() < 0.15 ? 'boom' : Math.random() < 0.15 ? 'recession' : 'normal');
@@ -1526,8 +1601,8 @@ async function jobHunt(reason, economy) {
   };
   const c = await dialog(`<div class="event"><div class="e-icon">💼</div>
     <p class="eyebrow">The job market is ${sim.ECONOMY[m.economy].label}</p>
-    <h2>${reason === 'retrenched' ? 'Find your next job' : 'Look for a new job'}</h2>
-    <p>${reason === 'retrenched'
+    <h2>${reason === 'retrenched' ? 'Find your next job' : back ? 'Go back to work?' : 'Look for a new job'}</h2>
+    <p>${back ? `You retired${S.retiredAge != null ? ` at ${S.retiredAge}` : ''}. Pick a job to go back to, full-time or part-time (half the pay). Work brings in pay and${S.selfEmployed ? '' : ' CPF contributions'} again, until 70 at the latest.` : reason === 'retrenched'
       ? `You were retrenched${now ? ` as ${now.label}` : ''}. Employers are paying less in a recession, but your skills still count. Pick a job to start once your months out of work are over.`
       : `You earn ${money(S.salary)} a month${now ? ` as ${now.label}` : ''}. Offers depend on your stats, your years of experience, your Career Skills and the economy.`}</p></div>
     <div class="careers">${m.offers.map((o, i) => `
@@ -1536,14 +1611,21 @@ async function jobHunt(reason, economy) {
     </div>
     ${m.locked.length ? `<h3>Better jobs you could reach</h3><ul class="small locked-jobs">${m.locked.map((o) => `<li>${o.icon} <b>${o.label}</b>, about ${money(o.pay)}/month: needs ${o.needs.map(([k, v]) => `${statName(k, o.hybrid)} ${v}`).join(' and ')}</li>`).join('')}</ul>
     <p class="small">Upskill with a SkillsFuture course or other activities to raise these stats.</p>` : ''}
+    ${back ? '' : workOptionsHtml()}
     ${advancedJobHtml()}
-    <div class="row">${working ? btn('stay', 'Stay in my job') : ''}</div>`, { wide: true });
+    <div class="row">${working ? btn('stay', 'Stay in my job') : back ? btn('stay', 'Stay retired') : ''}</div>`, { wide: true });
   if (c === 'stay' || c == null) return;
+  if (c.startsWith('mode:')) { await changeWorkMode(c.slice(5)); return; }
   if (c === 'custom') {
     if (await customJobDialog()) S.jobMarket = null;
     return;
   }
-  const o = m.offers[+c];
+  const o = { ...m.offers[+c] };
+  if (back || S.age >= 55) {
+    const how = await dialog(`<h2>${o.icon} ${o.label}</h2><p>Full-time pays ${money(o.pay)} a month. Part-time is half the hours for half the pay, ${money(o.pay / 2)}.</p>
+      <div class="row">${btn('full', 'Full-time', 'primary')}${btn('part', 'Part-time')}</div>`);
+    o.part = how === 'part';
+  }
   sim.takeJob(S, o);
   S.jobMarket = null;
   logEvent(`${o.icon} New job: ${o.label} (${money(o.pay)}/month)`);
@@ -1659,10 +1741,25 @@ async function universityDecision(child) {
       <button class="career" data-choice="oa"><b>CPF Education Scheme</b><small>Use up to 40% of your OA (${money(oaMax)} now). Your child repays it to your OA, with 2.5% interest, over 12 years after graduating.</small></button>
       <button class="career" data-choice="loan"><b>My child takes a tuition fee loan</b><small>Costs you nothing now; your child starts working life with a loan to repay.</small></button>
     </div>`);
+  const cashBefore = S.bank;
   const r = sim.payUniversity(S, child, c);
-  if (c === 'oa') toast(`🎓 ${money(r.used)} from your OA${r.cash ? `, ${money(r.cash)} in cash` : ''}`);
   if (c === 'oa') sim.story(S, 'cpf', '🎓', `Used ${money(r.used)} of your OA for your child's university (CPF Education Scheme)`, { amount: r.used });
   if (c === 'loan') S.joy -= 1;
+  const onCredit = Math.max(0, r.cash - Math.max(0, cashBefore));
+  logEvent(`🎓 University fees: ${money(r.cash)} cash${r.used ? `, ${money(r.used)} OA` : ''}`);
+  await dialog(`<div class="event"><div class="e-icon">🎓</div><h2>University fees: what you paid</h2></div>
+    <table class="summary">
+      <tr><td>Four years of subsidised fees</td><td>${money(r.total)}</td></tr>
+      ${r.psea ? `<tr><td>Paid from their PSEA (Government top-up at 17)</td><td class="pos">−${money(r.psea)}</td></tr>` : ''}
+      <tr><td>Left to pay</td><td>${money(r.net)}</td></tr>
+      ${r.share < 1 ? `<tr><td>Your spouse pays half</td><td class="pos">−${money(r.net - r.yours)}</td></tr>` : ''}
+      <tr><td><b>Your share</b></td><td><b>${money(r.yours)}</b></td></tr>
+      ${r.used ? `<tr><td>From your CPF OA (CPF Education Scheme)</td><td class="neg">−${money(r.used)}</td></tr>` : ''}
+      ${c !== 'loan' ? `<tr><td>From your cash</td><td class="neg">−${money(r.cash)}</td></tr>` : ''}
+      ${r.loan ? `<tr><td>Your child's tuition fee loan</td><td>${money(r.loan)}</td></tr>` : ''}
+    </table>
+    <p class="small">${c === 'loan' ? 'You pay nothing now. Your child repays the loan once they start work.' : `Your cash is now ${money(S.bank)}.`}${onCredit > 0.5 ? ` You didn't have enough cash, so ${money(onCredit)} went on credit cards.` : ''}${r.refund ? ` From age ${S.age + 5}, your child pays ${money(r.refund)} a month back into your OA for 12 years (what you used plus 2.5% interest).` : ''}</p>
+    ${btn('ok', 'OK', 'primary')}`, { wide: true });
 }
 
 async function stageIntro(stage) {
@@ -1964,7 +2061,7 @@ async function turning55() {
     <div class="careers">${Object.entries(RETIREMENT_LIFESTYLES).map(([k, l]) => `
       <button class="career" data-choice="${k}"><b>${l.label}</b><span>${money(l.monthly)}/month</span><small>${l.desc}</small></button>`).join('')}</div>`);
   S.retirementLifestyle = rl;
-  await workDialog();
+  if (S.workMode !== 'retired') await workDialog();
 }
 
 async function workDialog() {
@@ -1972,8 +2069,7 @@ async function workDialog() {
     <h2>Keep working?</h2>
     <p>Singapore's retirement age is 63 and employers must offer re-employment up to 68. Working longer means more CPF contributions and fewer years living on savings.</p>
     <div class="row">${btn('full', 'Keep working full-time', 'primary')}${btn('part', 'Work part-time (half pay)')}${btn('retired', 'Retire now')}</div>`);
-  if (c !== S.workMode && c !== 'full') sim.story(S, 'job', c === 'retired' ? '🌅' : '⏳', c === 'retired' ? `Retired at ${S.age}` : `Went part-time at ${S.age}`);
-  S.workMode = c;
+  sim.setWorkMode(S, c);
 }
 
 async function cpfLifeDecision() {
@@ -2717,17 +2813,21 @@ async function taxPanel(plan = {}) {
 
 // Plan trips: once, every year, or a set number of times.
 let holidayTab = 'near';
+let holidayParty = null; // who goes on the next trip you plan
 async function holidaysPanel() {
   for (;;) {
     const plans = S.holidayPlans || (S.holidayPlans = []);
-    const people = sim.travellers(S);
+    const parties = sim.holidayParties(S);
+    const party = sim.partyOf(S, holidayParty);
     const trips = S.trips || [];
     const c = await dialog(`
       <h2>✈️ Holidays</h2>
-      <p class="small">Prices are per person for flights and a typical stay. ${people > 1 ? `${people} of you travel together${S.spouse ? ' and you pay half' : ''}.` : 'You travel on your own.'} Trips happen during your next turn.</p>
+      <p class="small">Prices are per person for flights and a typical stay. Trips happen during your next turn.</p>
+      ${parties.length > 1 ? `<div class="term-pick"><span>Who's going?</span>${parties.map((p) => `<button class="pick ${p.id === party.id ? 'on' : ''}" data-choice="party:${p.id}">${p.icon} ${p.label}</button>`).join('')}</div>` : ''}
+      <p class="small">${party.people > 1 ? `${party.people} of you travel together${S.spouse && sim.householdShare(S) < 1 ? ', and you pay half' : ''}. Trips together bring a little more joy.` : `You travel on your own${S.spouse ? ' and pay for it all yourself' : ''}.`}</p>
       ${plans.length ? `<ul class="plans">${plans.map((p, i) => {
         const h = HOLIDAYS.find((x) => x.id === p.id);
-        return `<li>${h.icon} <b>${h.name}</b>: ${p.mode === 'yearly' ? 'every year' : p.left === 1 ? 'once' : `${p.left} more times`} · ${money(sim.holidayCost(S, p.id))} a trip ${btn(`cancel:${i}`, 'Cancel')}</li>`;
+        return `<li>${h.icon} <b>${h.name}</b>: ${p.mode === 'yearly' ? 'every year' : p.left === 1 ? 'once' : `${p.left} more times`} · ${sim.partyOf(S, p.party).icon} ${sim.partyOf(S, p.party).label.toLowerCase()} · ${money(sim.holidayCost(S, p.id, p.party))} a trip ${btn(`cancel:${i}`, 'Cancel')}</li>`;
       }).join('')}</ul>` : ''}
       <div class="tabs" role="tablist">${HOLIDAY_GROUPS.map((g) => `<button class="tab ${g.id === holidayTab ? 'on' : ''}" role="tab" aria-selected="${g.id === holidayTab}" data-choice="tab:${g.id}">${g.label}</button>`).join('')}</div>
       <div class="trips">${HOLIDAYS.filter((h) => h.group === holidayTab).map((h) => {
@@ -2736,7 +2836,7 @@ async function holidaysPanel() {
           ${postcard(h.id, h.name)}
           <div class="trip-text"><b>${h.icon} ${h.name}</b>
             <small>${h.place} · ${h.days} days · Joy +${h.joy}${been ? ` · been ${been}×` : ''}</small>
-            <small>${money(h.cost)}/person · your share <b>${money(sim.holidayCost(S, h.id))}</b></small></div>
+            <small>${money(h.cost)}/person · ${party.people > 1 ? 'your share' : 'you pay'} <b>${money(sim.holidayCost(S, h.id, party.id))}</b></small></div>
           <div class="trip-go">${btn(`once:${h.id}`, 'Once')}${btn(`yearly:${h.id}`, 'Yearly')}${btn(`times:${h.id}`, '3 times')}</div>
         </div>`;
       }).join('')}</div>
@@ -2745,11 +2845,12 @@ async function holidaysPanel() {
     if (c === 'ok') return;
     const [kind, id] = c.split(':');
     if (kind === 'tab') holidayTab = id;
+    else if (kind === 'party') holidayParty = id;
     else if (kind === 'cancel') plans.splice(+id, 1);
     else {
       const h = HOLIDAYS.find((x) => x.id === id);
-      plans.push({ id, mode: kind === 'yearly' ? 'yearly' : 'times', left: kind === 'times' ? 3 : 1 });
-      toast(`${h.icon} ${h.name} planned${kind === 'yearly' ? ' every year' : kind === 'times' ? ' 3 times' : ''}: ${money(sim.holidayCost(S, id))} a trip`);
+      plans.push({ id, mode: kind === 'yearly' ? 'yearly' : 'times', left: kind === 'times' ? 3 : 1, party: party.id });
+      toast(`${h.icon} ${h.name} planned${kind === 'yearly' ? ' every year' : kind === 'times' ? ' 3 times' : ''}: ${money(sim.holidayCost(S, id, party.id))} a trip`);
     }
   }
 }
@@ -2900,7 +3001,7 @@ function careerRecap() {
   const t = S.totals || {};
   const jobs = runs('job').filter((r) => r.value);
   const info = (id) => (S.customJobs || {})[id] || CAREERS.find((c) => c.id === id) || CAREER_SWITCHES.find((c) => c.id === id);
-  const retiredAt = stories('job').find((e) => /^Retired/.test(e.text))?.age;
+  const retiredAt = sim.isRetired(S) ? stories('job').findLast((e) => /^Retired/.test(e.text))?.age : null;
   const knocks = stories('job').filter((e) => e.icon === '📉');
   const peak = Math.max(0, ...(S.history || []).map((h) => h.pay || 0));
   const now = sim.careerInfo(S);
@@ -2909,7 +3010,7 @@ function careerRecap() {
     : now ? `<li><span class="j-age">${S.careerStartAge ?? 21}</span><span>${now.icon} <b>${now.title || now.label}</b></span></li>` : '';
   return `<div class="recap-card">
     <h3>💼 Your career</h3>
-    <p>${S.education ? `You finished with ${sim.aOrAn(EDUCATION[S.education].label)} <b>${EDUCATION[S.education].label}</b>. ` : ''}${retiredAt ? `You retired at <b>${retiredAt}</b>.` : S.age >= 55 && !sim.isWorking(S) ? 'You have stopped working.' : S.age >= 21 ? 'You are still working.' : ''}</p>
+    <p>${S.education ? `You finished with ${sim.aOrAn(EDUCATION[S.education].label)} <b>${EDUCATION[S.education].label}</b>. ` : ''}${retiredAt ? `You retired${retiredAt < 63 ? ' early' : ''} at <b>${retiredAt}</b>.` : S.age >= 55 && !sim.isWorking(S) ? 'You have stopped working.' : S.age >= 21 ? 'You are still working.' : ''}</p>
     ${lines ? `<ol class="timeline">${lines}</ol>` : '<p class="small muted-ink">You haven\'t started work yet.</p>'}
     ${knocks.length ? `<p class="small">Setbacks: retrenched ${knocks.length} time${knocks.length > 1 ? 's' : ''} (age ${knocks.map((e) => e.age).join(', ')}).</p>` : ''}
     <div class="recap-nums">
