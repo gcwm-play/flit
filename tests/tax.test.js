@@ -305,3 +305,14 @@ test('school at 17: JC or poly can lead to university, ITE cannot; women go stra
   assert.equal(sim.educationFor(m), 'ite');
   assert.equal(sim.firstJobAge(m), 21);
 });
+
+test('quick start to 40: a job, a lifestyle, and the years in between played', () => {
+  for (let i = 0; i < 10; i++) {
+    const s = sim.quickStart(sim.newGame('Q', { animal: 'cat', gender: i % 2 ? 'male' : 'female', outfit: 0 }), 'random');
+    sim.quickStartAdult(s, 40);
+    assert.equal(s.age, 40);
+    assert.equal(s.stage, 'adult');
+    assert.ok(s.career && s.salary > 0);
+    assert.ok(cpf.cpfTotal(s.cpf) > 50000);
+  }
+});

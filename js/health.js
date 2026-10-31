@@ -28,7 +28,8 @@ export function coInsurance(claimable, ded) {
 // Claim limits: ward charges of $830 a day, plus $800 a day for the first two days,
 // $5,140 a day in ICU, and a limit for each surgery by its table in the
 // Table of Surgical Procedures (TOSP).
-const MSL_SURGERY = { '2C': 1120, '3A': 1390, '3B': 1740, '4B': 2370, '5B': 3270, '6B': 3540, '7A': 3900, '7B': 3900 };
+// 4A and 6A sit between their neighbours (interpolated).
+const MSL_SURGERY = { '2C': 1120, '3A': 1390, '3B': 1740, '4A': 2050, '4B': 2370, '5B': 3270, '6A': 3400, '6B': 3540, '7A': 3900, '7B': 3900 };
 export function mslLimit(c) {
   return c.days * 830 + Math.min(c.days, 2) * 800 + (c.icu || 0) * 5140 + (MSL_SURGERY[c.tosp] || 0);
 }
@@ -39,7 +40,7 @@ const PRORATION = { C: 1, B2: 1, B1: 0.55, A: 0.35, private: 0.3 };
 
 // ---------- MediSave withdrawal limits for a hospital stay ----------
 // $1,130 a day for the first two days and $400 a day after, plus the surgical limit.
-const MEDISAVE_SURGERY = { '2C': 1120, '3A': 1390, '3B': 1740, '4B': 2440, '5B': 2660, '6B': 3610, '7A': 4340, '7B': 4830 };
+const MEDISAVE_SURGERY = { '2C': 1120, '3A': 1390, '3B': 1740, '4A': 2090, '4B': 2440, '5B': 2660, '6A': 3130, '6B': 3610, '7A': 4340, '7B': 4830 };
 export function medisaveLimit(c) {
   return Math.min(c.days, 2) * 1130 + Math.max(0, c.days - 2) * 400 + (MEDISAVE_SURGERY[c.tosp] || 0);
 }
@@ -65,37 +66,53 @@ export const WARDS = {
 const WARD_COST = { C: 0.65, B2: 0.75, B1: 0.85, A: 1, private: 1.8 };
 
 // ---------- illnesses and accidents ----------
-// `bill` is a typical unsubsidised Class A bill at a public hospital in 2026 (rounded estimates).
+// `bill` is a typical unsubsidised Class A bill at a public hospital. Most are the MOH median
+// (P50) total bill for 2023 (moh.gov.sg, "Bills and fee benchmarks", by TOSP code or DRG),
+// raised about 6% to 2026 and rounded. Ones marked "est." have no MOH figure and are estimates.
+// `minAge`/`maxAge` keep them to the ages they usually happen at.
 export const CONDITIONS = [
-  { id: 'dengue', kind: 'minor', icon: '🦟', label: 'dengue fever', days: 4, bill: 4500 },
-  { id: 'wrist', kind: 'minor', icon: '🦴', label: 'a broken wrist from a fall', days: 2, tosp: '3A', bill: 9000 },
-  { id: 'appendix', kind: 'minor', icon: '🩹', label: 'appendicitis (keyhole surgery)', days: 3, tosp: '4B', bill: 14000 },
-  { id: 'kidney', kind: 'minor', icon: '🪨', label: 'kidney stones', days: 2, tosp: '3B', bill: 10000 },
-  { id: 'knee', kind: 'minor', icon: '⚽', label: 'a torn knee ligament from sport', days: 2, tosp: '5B', bill: 22000 },
-  { id: 'pneumonia', kind: 'minor', icon: '🫁', label: 'pneumonia', days: 6, bill: 11000 },
-  { id: 'heart', kind: 'major', icon: '❤️‍🩹', label: 'a heart attack (a stent was put in)', days: 5, icu: 1, tosp: '6B', bill: 38000 },
-  { id: 'stroke', kind: 'major', icon: '🧠', label: 'a stroke', days: 12, icu: 2, bill: 45000 },
-  { id: 'cancer', kind: 'major', icon: '🎗️', label: 'colorectal cancer (surgery and chemotherapy)', days: 10, icu: 1, tosp: '7A', bill: 95000 },
-  { id: 'crash', kind: 'major', icon: '🚑', label: 'a serious road accident', days: 14, icu: 3, tosp: '7B', bill: 80000 },
+  { id: 'gastro', kind: 'minor', icon: '🤢', label: 'a bad stomach infection (gastroenteritis)', days: 2, bill: 3700 }, // DRG G67B $3,460
+  { id: 'dengue', kind: 'minor', icon: '🦟', label: 'dengue fever', days: 4, bill: 4000, maxAge: 70 }, // est.
+  { id: 'cellulitis', kind: 'minor', icon: '🦵', label: 'a serious skin infection (cellulitis)', days: 3, bill: 4100 }, // DRG J64B $3,912
+  { id: 'uti', kind: 'minor', icon: '💧', label: 'a kidney infection', days: 4, bill: 5000 }, // DRG L63B $4,728
+  { id: 'hernia', kind: 'minor', icon: '🩹', label: 'a hernia (repair surgery)', days: 1, tosp: '3B', bill: 6300, minAge: 30 }, // SF819A $5,974
+  { id: 'wrist', kind: 'minor', icon: '🦴', label: 'a broken wrist from a fall', days: 2, tosp: '3A', bill: 8500 }, // est.
+  { id: 'appendix', kind: 'minor', icon: '🔪', label: 'appendicitis (keyhole surgery)', days: 3, tosp: '3B', bill: 9400, maxAge: 60 }, // SF849A $8,831
+  { id: 'gallstones', kind: 'minor', icon: '🟡', label: 'gallstones (keyhole surgery to remove the gallbladder)', days: 3, tosp: '4A', bill: 9200, minAge: 35 }, // SF801G $8,647
+  { id: 'kidney', kind: 'minor', icon: '🪨', label: 'kidney stones', days: 2, tosp: '3B', bill: 9000 }, // est.
+  { id: 'knee', kind: 'minor', icon: '⚽', label: 'a torn knee ligament from sport', days: 2, tosp: '5B', bill: 20000, maxAge: 50 }, // est.
+  { id: 'pneumonia', kind: 'minor', icon: '🫁', label: 'pneumonia', days: 6, bill: 8000 }, // between DRG E62B and E62A, est.
+  { id: 'cataract', kind: 'minor', icon: '👁️', label: 'cataracts (surgery on one eye)', days: 1, tosp: '2C', bill: 4900, minAge: 55 }, // SL808L, day surgery $4,645
+  { id: 'heartfail', kind: 'minor', icon: '🫀', label: 'heart failure (fluid on the lungs)', days: 5, bill: 6500, minAge: 55 }, // DRG F62B $6,120
+  { id: 'heart', kind: 'major', icon: '❤️‍🩹', label: 'a heart attack (a stent was put in)', days: 5, icu: 1, tosp: '6B', bill: 23400, minAge: 35 }, // SD714H $22,030
+  { id: 'stroke', kind: 'major', icon: '🧠', label: 'a stroke', days: 12, icu: 1, bill: 18000, minAge: 40 }, // DRG B70A $17,052
+  { id: 'hip', kind: 'major', icon: '🦿', label: 'a broken hip from a fall (hip replacement)', days: 11, tosp: '6A', bill: 27500, minAge: 60 }, // SB838H $25,902
+  { id: 'kneejoint', kind: 'major', icon: '🦵', label: 'worn-out knees (knee replacement)', days: 4, tosp: '6A', bill: 27500, minAge: 55 }, // SB810K $25,995
+  { id: 'cancer', kind: 'major', icon: '🎗️', label: 'colorectal cancer (surgery and chemotherapy)', days: 10, icu: 1, tosp: '7A', bill: 95000, minAge: 40 }, // est., incl. chemotherapy
+  { id: 'crash', kind: 'major', icon: '🚑', label: 'a serious road accident', days: 14, icu: 3, tosp: '7B', bill: 80000 }, // est.
 ];
+const fitsAge = (c, age) => age >= (c.minAge || 0) && age <= (c.maxAge || 200);
 
-// 1 to 3 health scares in a lifetime, more likely (and more serious) with age.
-export function planHealthEvents(fromAge = 21, rnd = Math.random) {
-  const n = 1 + Math.floor(rnd() * 3);
-  const ages = [];
-  for (let i = 0; i < n; i++) {
-    // Weight each age by how common hospital stays are at that age.
-    const weights = [];
-    for (let a = 21; a <= 84; a++) weights.push([a, (a - 15) * (a - 15)]);
-    const total = weights.reduce((t, [, w]) => t + w, 0);
+// 1 to 3 health scares in a lifetime (3 to 5 in poor health), more likely and more serious
+// with age. No illness comes twice, and each fits the age it happens at.
+export function planHealthEvents(fromAge = 21, rnd = Math.random, { poor = false } = {}) {
+  const n = poor ? 3 + Math.floor(rnd() * 3) : 1 + Math.floor(rnd() * 3);
+  // Weight each age by how common hospital stays are at that age.
+  const weights = [];
+  // In poor health, problems come earlier in life too.
+  for (let a = Math.max(21, fromAge); a <= 84; a++) weights.push([a, Math.pow(a - 15, poor ? 1.2 : 2)]);
+  const total = weights.reduce((t, [, w]) => t + w, 0);
+  const out = [];
+  for (let tries = 0; out.length < n && tries < 50 && weights.length; tries++) {
     let r = rnd() * total;
-    const age = weights.find(([, w]) => (r -= w) <= 0)[0];
-    if (age < fromAge) { i--; if (fromAge > 84) break; continue; }
-    const major = rnd() < Math.min(0.7, Math.max(0.1, (age - 30) / 60));
-    const pool = CONDITIONS.filter((c) => c.kind === (major ? 'major' : 'minor'));
-    ages.push({ age, id: pool[Math.floor(rnd() * pool.length)].id });
+    const age = (weights.find(([, w]) => (r -= w) <= 0) || weights.at(-1))[0];
+    const majorOdds = Math.min(0.7, Math.max(0.1, (age - 30) / 60)) * (poor ? 1.4 : 1);
+    const kind = rnd() < majorOdds ? 'major' : 'minor';
+    const pool = CONDITIONS.filter((c) => c.kind === kind && fitsAge(c, age) && !out.some((e) => e.id === c.id));
+    if (!pool.length) continue;
+    out.push({ age, id: pool[Math.floor(rnd() * pool.length)].id });
   }
-  return ages.sort((a, b) => a.age - b.age);
+  return out.sort((a, b) => a.age - b.age);
 }
 
 // ---------- private cover: Integrated Shield Plans ----------

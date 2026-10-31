@@ -559,3 +559,17 @@ test('career switches vary: a strong player is not always offered the same job',
   for (let i = 0; i < 50; i++) seen.add(sim.careerSwitchOffer(s).id);
   assert.ok(seen.size >= 8);
 });
+
+test('illnesses never repeat in a life and fit the age; poor health brings 3 to 5', () => {
+  for (let i = 0; i < 200; i++) {
+    const poor = i % 2 === 1;
+    const plan = health.planHealthEvents(21, Math.random, { poor });
+    const ids = plan.map((e) => e.id);
+    assert.equal(new Set(ids).size, ids.length);
+    if (poor) assert.ok(plan.length >= 3 && plan.length <= 5);
+    for (const e of plan) {
+      const c = health.CONDITIONS.find((x) => x.id === e.id);
+      assert.ok(e.age >= (c.minAge || 0) && e.age <= (c.maxAge || 200), `${c.id} at ${e.age}`);
+    }
+  }
+});

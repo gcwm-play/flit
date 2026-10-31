@@ -269,13 +269,15 @@ function titleScreen() {
         <div class="seg" role="group" aria-label="He or she">${Object.entries(GENDERS).map(([k, l]) => `<button class="seg-btn" data-gender="${k}">${l}</button>`).join('')}</div>
         <p class="pick-label">How do you want to start?</p>
         <div class="seg start-mode" role="group" aria-label="How to start">
-          <button class="seg-btn" data-mode="full">🧒 From age 7</button>
-          <button class="seg-btn" data-mode="quick">⚡ Start at 21</button>
+          <button class="seg-btn" data-mode="full">🧒 Age 7</button>
+          <button class="seg-btn" data-mode="quick">⚡ Age 21</button>
+          <button class="seg-btn" data-mode="quick40">⚡ Age 40</button>
         </div>
         <div id="qs-box" class="qs-box" hidden>
-          <p class="small">Your childhood and teen years are played for you with random choices. Pick your education, or let your grades decide.</p>
+          <p class="small" id="qs-text"></p>
           <div class="qs-edu" id="qs-edu" role="group" aria-label="Education"></div>
         </div>
+        <label class="check-row"><input type="checkbox" id="poor"><span><b>🤒 Poor health</b><small>Illnesses and accidents happen more often, and are more often serious. Leave it off for a fairly healthy life.</small></span></label>
         <div class="row">
           <button class="btn primary" id="start">Start a new life</button>
           ${saved ? `<button class="btn" id="continue">Continue (${esc(saved.name)}, age ${saved.age})</button>` : ''}
@@ -288,8 +290,11 @@ function titleScreen() {
   let edu = 'random';
   const refresh = () => {
     app.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
-    $('#qs-box').hidden = mode !== 'quick';
-    $('#start').textContent = mode === 'quick' ? '⚡ Show my path to 21' : 'Start a new life';
+    $('#qs-box').hidden = mode === 'full';
+    $('#qs-text').textContent = mode === 'quick40'
+      ? 'Your life up to 40 is played for you with random choices: school, a job, family, a home and whatever happens along the way. You can reroll it. Pick your education, or let your grades decide.'
+      : 'Your childhood and teen years are played for you with random choices. Pick your education, or let your grades decide.';
+    $('#start').textContent = mode === 'quick' ? '⚡ Show my path to 21' : mode === 'quick40' ? '⚡ Show my life to 40' : 'Start a new life';
     $('#qs-edu').innerHTML = quickEducationChoices(look.gender).map(([k, icon, label, note]) => `
       <button class="qs-opt ${k === edu ? 'on' : ''}" data-edu="${k}"><span class="qs-i">${icon}</span><span><b>${label}</b><small>${note}</small></span></button>`).join('');
     app.querySelectorAll('[data-edu]').forEach((b) => (b.onclick = () => { edu = b.dataset.edu; refresh(); }));
@@ -312,8 +317,9 @@ function titleScreen() {
   refresh();
   $('#start').onclick = async () => {
     const name = nameInput.value.trim() || defaultName(look.gender);
-    if (mode === 'quick') return quickStartFlow(name, { ...look }, edu);
-    S = sim.newGame(name, look);
+    const poor = $('#poor').checked;
+    if (mode !== 'full') return quickStartFlow(name, { ...look }, edu, mode === 'quick40' ? 40 : 21, poor);
+    S = newLife(name, look, poor);
     render();
     await stageIntro('child');
     save();
@@ -343,16 +349,36 @@ function quickEducationChoices(gender) {
 }
 
 // Plays the years to 21 and shows the result, with a reroll, until the player is happy with it.
-async function quickStartFlow(name, look, edu) {
+// A new game, with more frequent illnesses for a life in poor health.
+function newLife(name, look, poor) {
+  const s = sim.newGame(name, look);
+  if (poor) {
+    s.poorHealth = true;
+    s.healthPlan = health.planHealthEvents(21, Math.random, { poor: true });
+  }
+  return s;
+}
+
+async function quickStartFlow(name, look, edu, toAge = 21, poor = false) {
+  const quiet = { world: quietWorldEvent, personal: quietPersonalEvent };
   for (;;) {
-    const s = sim.quickStart(sim.newGame(name, look), edu, Math.random, { world: quietWorldEvent, personal: quietPersonalEvent });
+    const s = sim.quickStart(newLife(name, look, poor), edu, Math.random, quiet);
+    if (toAge > 21) sim.quickStartAdult(s, toAge, Math.random, quiet);
     const c = await dialog(quickSummaryHtml(s, edu), { wide: true });
     if (c === 'reroll') continue;
     closeModal();
     if (c !== 'go') return;
     S = s;
-    logEvent('⚡ Quick start: grew up from 7 to 21 with random choices', STAGES.child.startAge);
-    sim.story(S, 'life', '⚡', 'Quick start: childhood and teen years played with random choices');
+    logEvent(`⚡ Quick start: lived from 7 to ${S.age} with random choices`, STAGES.child.startAge);
+    sim.story(S, 'life', '⚡', toAge > 21 ? `Quick start: life up to ${S.age} played with random choices` : 'Quick start: childhood and teen years played with random choices');
+    if (toAge > 21) {
+      save();
+      render();
+      await milestones();
+      save();
+      render();
+      return;
+    }
     render();
     await stageIntro('adult');
     save();
@@ -361,6 +387,7 @@ async function quickStartFlow(name, look, edu) {
   }
 }
 
+const lowerFirst = (t) => (/^[A-Z][a-z]/.test(t) ? t[0].toLowerCase() + t.slice(1) : t);
 const ownedItemsText = (s) => {
   const names = sim.ownedItems(s).map((it) => it.name.toLowerCase());
   return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0] || '';
@@ -376,32 +403,51 @@ function quickSummaryHtml(s, edu) {
         ? 'You finished A-levels or a polytechnic diploma, did National Service from 18 to 20, and now go to university. Your first job is at 23.'
         : `You finished ${sim.aOrAn(ed.label)} ${ed.label}, then did National Service from 18 to 20. Your first job is at 21.`
     : `You finished with ${sim.aOrAn(ed.label)} ${ed.label}. Your first job is at 21.`;
+  const adult = s.age > STAGES.adult.startAge;
+  const job = sim.careerInfo(s);
+  const kids = (s.children || []).length;
+  const grown = adult ? [
+    job ? `You're ${s.age} and work as ${sim.aOrAn(job.title || job.label)} ${lowerFirst(job.title || job.label)}, earning ${money(s.salary)} a month.` : `You're ${s.age}.`,
+    `Your lifestyle is ${LIFESTYLES[s.lifestyle].label.toLowerCase()}.`,
+    s.spouse ? `You're married${kids ? ` with ${kids} ${kids === 1 ? 'child' : 'children'}` : ''}.` : 'You\'re single.',
+    s.home ? `You own ${sim.aOrAn(s.home.label)} ${s.home.label}.` : 'You live with your parents.',
+  ].join(' ') : '';
   const did = Object.entries(s.did || {}).sort((a, b) => b[1] - a[1]).slice(0, 4);
   const hybrids = Object.keys(s.hybrids || {}).filter((h) => s.hybrids[h]);
   // Events and purchases from the years played, most frequent first.
-  const counts = new Map();
-  for (const e of s.quickEvents || []) counts.set(e.text, (counts.get(e.text) || 0) + 1);
+  // Most frequent first. Past 21, the grown-up years come first, and every hospital stay is shown.
+  const tally = (list) => {
+    const counts = new Map();
+    for (const e of list) counts.set(e.text, (counts.get(e.text) || 0) + 1);
+    return [...counts].sort((a, b) => b[1] - a[1]);
+  };
+  const events = s.quickEvents || [];
+  const grownUp = events.filter((e) => e.age >= STAGES.adult.startAge);
   const bought = ownedItemsText(s);
-  const happened = [...counts].sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const happened = adult
+    ? [...tally(grownUp.filter((e) => /hospital/.test(e.text))), ...tally(grownUp.filter((e) => !/hospital/.test(e.text))).slice(0, 5), ...tally(events.filter((e) => e.age < STAGES.adult.startAge)).slice(0, 2)]
+    : tally(events).slice(0, 5);
   if (bought) happened.push([`🛍️ Bought ${bought}`, 1]);
   return `
     <p class="eyebrow">Quick start · age ${s.age}</p>
-    <h2>Here's how ${esc(s.name)} grew up</h2>
+    <h2>${adult ? `Here's ${esc(s.name)}'s life so far` : `Here's how ${esc(s.name)} grew up`}</h2>
     <div class="qs-sum">
       <div class="qs-me">${person(lookOf(s.look, 'adult'), 'walking')}</div>
-      <p>${path}</p>
+      <p>${adult ? grown : path}</p>
     </div>
     <h3>What you spent your time on</h3>
     <ul class="qs-did">${did.map(([label, n]) => `<li>${label} <b>×${n}</b></li>`).join('')}</ul>
     ${happened.length ? `<h3>Along the way</h3><ul class="qs-did">${happened.map(([t, n]) => `<li>${t}${n > 1 ? ` <b>×${n}</b>` : ''}</li>`).join('')}</ul>` : ''}
     <h3>Your stats</h3>
-    <div class="qs-stats">${sim.unlockedStats(s).filter((k) => STATS[k].stage !== 'adult').map((k) => `<span>${STATS[k].icon} ${STATS[k].label} <b>${Math.round(s.stats[k])}</b></span>`).join('')}
+    <div class="qs-stats">${sim.unlockedStats(s).filter((k) => adult || STATS[k].stage !== 'adult').map((k) => `<span>${STATS[k].icon} ${STATS[k].label} <b>${Math.round(s.stats[k])}</b></span>`).join('')}
       ${hybrids.map((h) => `<span class="hy">${HYBRIDS[h].icon} ${HYBRIDS[h].label}</span>`).join('')}</div>
     <h3>Your money</h3>
     <table class="summary"><tr><td>💵 Cash saved</td><td>${money(s.bank)}</td></tr>
       <tr><td>🏛️ CPF savings</td><td>${money(cpf.cpfTotal(s.cpf))}</td></tr>
+      ${s.debt > 0 ? `<tr><td>💳 Debt</td><td>${money(s.debt)}</td></tr>` : ''}
+      ${s.home && s.home.loanBalance > 1 ? `<tr><td>🏠 Home loan left</td><td>${money(s.home.loanBalance)}</td></tr>` : ''}
       <tr><td>😊 Joy</td><td>${Math.round(s.joy)}</td></tr></table>
-    <div class="row qs-actions">${btn('go', 'Start my adult life', 'primary')}${btn('reroll', '🎲 Reroll')}${btn('back', 'Change my choices')}</div>`;
+    <div class="row qs-actions">${btn('go', adult ? `Carry on from ${s.age}` : 'Start my adult life', 'primary')}${btn('reroll', '🎲 Reroll')}${btn('back', 'Change my choices')}</div>`;
 }
 
 // Saves from before the character picker used numbered sprites.

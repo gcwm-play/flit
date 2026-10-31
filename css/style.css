@@ -947,3 +947,17 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
 .k-plan-track .person.k-runner-art { --size: 64px; }
 .k-plan-track .k-ground { height: 30px; align-items: center; padding-top: 0; }
 .k-done { font-family: 'Nunito', sans-serif; font-weight: 800; }
+.k-bubble.move { background: var(--t-blue-soft); }
+.k-text { min-width: 0; }
+.k-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.k-chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; white-space: nowrap; }
+.k-chip.up { background: var(--t-green); color: var(--t-green-ink); }
+.k-chip.down { background: var(--t-red); color: var(--t-red-ink); }
+.k-chip.move { background: var(--t-blue); color: var(--t-blue-ink); }
+.k-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.k-log { gap: 6px; }
+.check-row { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 0; padding: 10px 12px; border-radius: 14px; background: var(--sunk); cursor: pointer; }
+.check-row input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--accent); flex: none; }
+.check-row b { display: block; }
+.check-row small { color: var(--muted); font-size: 13px; }
+.k-chip.world { background: var(--t-purple); color: var(--t-purple-ink); }
