@@ -668,6 +668,7 @@ function oneYear(s, sum, opts) {
     if (lifeOn) {
       pay += s.life.monthly;
       sum.payouts += s.life.monthly;
+      s.life.paid = (s.life.paid || 0) + s.life.monthly;
     }
     sum.income += pay;
     sum.spend += out;
@@ -993,6 +994,24 @@ export function startCpfLife(s, startAge, plan = 'standard') {
     s.cpf.ra = 0;
   }
   story(s, 'cpf', '🏛️', `Chose the CPF LIFE ${LIFE_PLANS[plan].label} plan, starting at ${startAge}`);
+}
+
+// Where your CPF sits from 55, for the on-screen explanations. The CPF LIFE premium has
+// left your CPF balance; `unpaid` is roughly what your nominees would get (the premium
+// minus the payouts so far, leaving out the interest CPF adds to it).
+export function cpfWhere(s) {
+  const c = s.cpf;
+  const premium = s.life ? s.life.premium : 0;
+  const paid = s.life ? s.life.paid || 0 : 0;
+  const rows = [
+    { icon: '🏦', label: 'Ordinary Account (OA)', amount: c.oa,
+      note: s.age >= 55 ? 'Yours to withdraw in cash at any time from 55. It earns 2.5% while you leave it.' : 'For housing, education and investing. Locked until 55.' },
+  ];
+  if (c.sa > 0 || s.age < 55) rows.push({ icon: '🎯', label: 'Special Account (SA)', amount: c.sa, note: 'For retirement. At 55 it fills your RA, and the rest moves to your OA.' });
+  if (s.age >= 55 && (c.ra > 0 || !s.life)) rows.push({ icon: '🏛️', label: 'Retirement Account (RA)', amount: c.ra,
+    note: s.life && s.age >= s.life.startAge ? 'New money here is added to CPF LIFE each year to raise your payout.' : 'When CPF LIFE starts, all of it becomes your CPF LIFE premium.' });
+  rows.push({ icon: '🩺', label: 'MediSave (MA)', amount: c.ma, note: 'Only for hospital bills and health insurance. You can\'t withdraw it as cash.' });
+  return { rows, total: cpf.cpfTotal(c), premium, paid, unpaid: Math.max(0, premium - paid), monthly: s.life ? s.life.monthly : 0, started: !!(s.life && s.age >= s.life.startAge && premium > 0) };
 }
 
 export function retirementIncome(s) {
