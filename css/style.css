@@ -1004,3 +1004,10 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
 .k-hint[hidden] { display: none; }
 @media (hover: none) { .k-hint span:nth-child(n+2) { display: none; } }
 @media (hover: hover) { .k-hint span:first-child { display: none; } }
+html.k-running, html.k-running body { overscroll-behavior: none; }
+.k-pad { display: none; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 200px; margin-top: 4px;
+  border: 2px dashed var(--edge); border-radius: 24px; background: var(--t-blue-soft); color: var(--muted); font-size: 15px; text-align: center; padding: 16px;
+  touch-action: none; user-select: none; -webkit-user-select: none; }
+.k-pad small { font-size: 13px; }
+@media (hover: none) { .k-pad { display: flex; } .k-hint span:first-child { display: none; } }
+.k-pad[hidden] { display: none !important; }
