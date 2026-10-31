@@ -26,6 +26,7 @@ let busy = false;
 // ---------- saving ----------
 
 function save() {
+  if (!S) return; // back on the start screen: keep the saved life as it is
   try {
     localStorage.setItem(SAVE_KEY, JSON.stringify(S));
   } catch {}
@@ -2934,8 +2935,16 @@ async function shopPanel() {
 async function menuPanel() {
   const c = await dialog(`
     <h2>Menu</h2>
-    <div class="row wrap">${btn('rewind', '⏪ Go back to an earlier age')}${btn('recap', 'End my story here and see my life recap')}${btn('about', 'About the CPF figures')}${btn('restart', 'Start a new life')}${btn('ok', 'Back', 'primary')}</div>`);
+    <div class="row wrap">${btn('home', '💾 Save and go to the start screen')}${btn('rewind', '⏪ Go back to an earlier age')}${btn('recap', 'End my story here and see my life recap')}${btn('about', 'About the CPF figures')}${btn('restart', 'Start a new life')}${btn('ok', 'Back', 'primary')}</div>`);
   if (c === 'rewind') return rewindDialog();
+  if (c === 'home') {
+    // Your life is saved, and the start screen offers to continue it.
+    save();
+    S = null;
+    closeModal();
+    render();
+    return;
+  }
   if (c === 'recap') {
     const sure = await dialog(`<h2>End your story at ${S.age}?</h2><p>You'll see a recap of the life you've lived so far. You can keep playing afterwards.</p><div class="row">${btn('yes', 'Show my recap', 'primary')}${btn('no', 'Keep playing')}</div>`);
     if (sure === 'yes') await endScreen();

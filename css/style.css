@@ -941,3 +941,9 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
 .k-end .facts { padding-left: 20px; }
 .k-end .feel { flex-wrap: nowrap; gap: 6px; }
 .k-end .feel .pick { flex: 1 1 0; min-width: 0; padding: 6px 0; font-size: 26px; }
+.k-plan-track { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 3; height: 104px; border-radius: 20px; overflow: hidden; box-shadow: var(--shadow);
+  background: linear-gradient(#bfe3ff, #e6f4ff 75%); }
+.k-plan-track .k-runner { bottom: 26px; left: calc(var(--p) * (100% - 64px)); transition: left 0.6s ease-out; }
+.k-plan-track .person.k-runner-art { --size: 64px; }
+.k-plan-track .k-ground { height: 30px; align-items: center; padding-top: 0; }
+.k-done { font-family: 'Nunito', sans-serif; font-weight: 800; }

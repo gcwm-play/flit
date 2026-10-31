@@ -73,7 +73,8 @@ const me = (stage = sim.ageStage(S.age)) => lookOf(S.look, stage);
 function screen(html, wire) {
   app.innerHTML = `<div class="kids">${html}</div>`;
   window.scrollTo({ top: 0 });
-  if (wire) wire(app);
+  // Wire the new screen itself, so listeners from earlier screens never pile up.
+  if (wire) wire(app.firstElementChild);
   return new Promise((resolve) => {
     app.onclick = (e) => {
       const b = e.target.closest('[data-choice]');
@@ -278,8 +279,8 @@ function planPeriod() {
   const years = per.to - S.age;
   const acts = ACTIVITIES[per.acts].filter((a) => !a.minAge || per.to > a.minAge);
   const extras = extrasFor(S);
-  // Start with the years shared out evenly, so a quick tap on Go always works.
-  const share = (ids) => Object.fromEntries(ids.map((id, i) => [id, Math.floor(years / ids.length) + (i < years % ids.length ? 1 : 0)]));
+  // Everything starts at 0: the player shares out every action.
+  const share = (ids) => Object.fromEntries(ids.map((id) => [id, 0]));
   const focus = share(acts.map((a) => a.id));
   const extra = share(extras);
   const row = (kind, id, icon, label, note, n) => `
@@ -295,10 +296,14 @@ function planPeriod() {
   const gains = (a) => Object.keys(a.gains).map((k) => `${STATS[k].icon} ${STATS[k].label}`).join(', ');
   const html = `
     ${hud()}
+    <div class="k-plan-track" aria-hidden="true">
+      <div class="k-runner" style="--p:0">${characterHtml(me(), 'k-runner-art')}</div>
+      <div class="k-ground"><span>${S.age}</span><span class="k-done" data-done>0 of ${years * 2} chosen</span><span>${per.to}</span></div>
+    </div>
     <div class="card k-card">
       <p class="eyebrow">${per.icon} Age ${S.age} to ${per.to}</p>
       <h2>${per.title}</h2>
-      <p>You have <b>${years} focus actions</b> and <b>${years} extras</b>, one of each for every year until you turn ${per.to}.</p>
+      <p>You have <b>${years} focus actions</b> and <b>${years} extras</b> to give out, one of each for every year until you turn ${per.to}. Tap <b>+</b> to choose. ${esc(S.name)} walks forward with every one you pick.</p>
       <h3>🎯 Focus <span class="k-left" data-left="focus"></span></h3>
       <div class="k-rows">${acts.map((a) => row('focus', a.id, a.icon, a.label, gains(a) + (a.job ? `. Earn about ${money(sim.teenJob(Math.max(13, S.age)).monthly)}/month` : ''), focus[a.id])).join('')}</div>
       <h3>⭐ Extras <span class="k-left" data-left="extra"></span></h3>
@@ -318,8 +323,21 @@ function planPeriod() {
       });
       for (const [id, n] of Object.entries(plan[kind])) root.querySelector(`[data-n="${kind}|${id}"]`).textContent = n;
     }
-    const full = ['focus', 'extra'].every((k) => Object.values(plan[k]).reduce((t, n) => t + n, 0) === years);
-    root.querySelector('[data-choice="go"]').disabled = !full;
+    const chosen = ['focus', 'extra'].reduce((t, k) => t + Object.values(plan[k]).reduce((a, n) => a + n, 0), 0);
+    const go = root.querySelector('[data-choice="go"]');
+    go.disabled = chosen < years * 2;
+    go.textContent = go.disabled ? `Choose ${years * 2 - chosen} more to start` : `▶️ Live ages ${S.age} to ${per.to}`;
+    root.querySelector('[data-done]').textContent = `${chosen} of ${years * 2} chosen`;
+    // The character walks along as a progress bar: one step for each action given out.
+    const runner = root.querySelector('.k-plan-track .k-runner');
+    const p = chosen / (years * 2);
+    if (+runner.style.getPropertyValue('--p') !== p) {
+      runner.style.setProperty('--p', p);
+      const art = runner.querySelector('.person');
+      art.classList.add('walking');
+      clearTimeout(runner.stop);
+      runner.stop = setTimeout(() => art.classList.remove('walking'), 650);
+    }
   };
   return screen(html, (root) => {
     refresh(root);
