@@ -4,6 +4,7 @@ import { rand, pick, FACTS } from './data.js';
 import { money, isWorking, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar, allocateGift } from './sim.js';
 import * as cars from './car.js';
 import * as invest from './invest.js';
+import { scamsFor, mishapsFor, randomScam, randomMishap } from './mishaps.js';
 
 // How much your stats protect you: 0 (none) to 0.8 (mostly), plus hybrid bonuses.
 export function resistance(s, keys, hybrids = []) {
@@ -212,24 +213,42 @@ export const PERSONAL_EVENTS = [
   // Money choices
   {
     id: 'scam',
-    stages: ['teen', 'adult', 'senior'],
+    stages: ['child', 'teen', 'adult', 'senior'],
     weight: 2,
-    when: (s) => s.bank > 2000,
+    when: (s) => s.bank > 20 && scamsFor(s.age).length > 0,
     run: (s) => {
-      const amount = Math.min(10000, Math.round(s.bank / 2 / 100) * 100);
+      const x = randomScam(s.age);
+      const amount = Math.max(5, x.cost(s.bank));
       return {
-        icon: '📲',
-        title: '"Guaranteed 30% returns!"',
-        text: `Someone online offers a "risk-free" investment that doubles your money. They want ${money(amount)} now.`,
+        icon: x.icon,
+        title: x.title,
+        text: `${x.bait} It would cost you ${money(amount)}.`,
         choices: [
-          { label: 'Invest!', run: (s) => {
-            if (s.stats.moneySense >= 15) return 'Your Money Sense kicks in: no real investment is "guaranteed" to return 30%. You back out just in time.';
-            spendCash(s, amount);
-            return `It was a scam and the money is gone. Remember: if it sounds too good to be true, it is. (Check with ScamShield.)`;
+          { label: x.risky, run: (s) => {
+            // Money Sense helps you spot it in time.
+            if (Math.random() < resistance(s, ['moneySense']) * 0.8) {
+              s.stats.moneySense += 1;
+              return `Something feels off, and your Money Sense kicks in: it's a scam! You back out just in time. ${x.lesson}`;
+            }
+            spendCash(s, Math.min(amount, Math.max(0, s.bank)));
+            s.joy = Math.max(0, s.joy - 1);
+            return `It was a scam, and ${money(amount)} is gone. ${x.lesson}`;
           } },
-          { label: 'No thanks', run: (s) => { s.stats.moneySense += 1; return 'Smart. Money Sense +1.'; } },
+          { label: 'Check first (ScamShield, call 1799)', run: (s) => { s.stats.moneySense += 1; return `ScamShield confirms it's a scam, so you keep your money. ${x.lesson} Money Sense +1.`; } },
         ],
       };
+    },
+  },
+  {
+    id: 'mishap',
+    stages: ['child', 'teen', 'adult', 'senior'],
+    weight: 2,
+    when: (s) => s.bank > 5 && mishapsFor(s.age).length > 0,
+    run: (s) => {
+      const x = randomMishap(s.age);
+      const lost = Math.max(1, x.cost(s.bank));
+      spendCash(s, lost);
+      return { icon: x.icon, title: x.title, text: `${x.text(money(lost))} ${x.lesson}` };
     },
   },
   {
@@ -281,18 +300,6 @@ export const PERSONAL_EVENTS = [
     run: (s) => {
       s.joy += 2;
       return { icon: '👶', title: 'Family time', text: 'Your family visits for a big reunion dinner. Joy +2.' };
-    },
-  },
-  {
-    id: 'lostwallet',
-    stages: ['child'],
-    weight: 1,
-    when: (s) => s.bank > 10,
-    run: (s) => {
-      // Only what a kid would actually carry; the rest is safe in the piggy bank.
-      const lost = Math.min(s.bank, rand(5, 20));
-      spendCash(s, lost);
-      return { icon: '👛', title: 'Lost your wallet!', text: `You dropped your wallet at the playground with ${money(lost)} of pocket money inside. Luckily you only carry a little each day, and the rest of your savings are safe at home and in the bank.` };
     },
   },
 ];

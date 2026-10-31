@@ -6,6 +6,7 @@ import * as sim from './sim.js';
 import * as invest from './invest.js';
 import { characterHtml, lookOf } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent } from './events.js';
+import { scamsFor, mishapsFor } from './mishaps.js';
 import { STATS, HYBRIDS, ACTIVITIES, SHOP, SCHOOLS, EDUCATION, LIFESTYLES, RETIREMENT_LIFESTYLES, HOLIDAYS } from './data.js';
 
 const SAVE_KEY = 'flit-simple-v1';
@@ -128,16 +129,25 @@ export async function startSimple(name, look, back) {
     ${characterHtml(me(), 'walking k-big')}
     <p class="eyebrow">Simple mode</p>
     <h2>Hi, ${esc(S.name)}! You're 7.</h2>
-    <p>Your life is played in steps. Before each step, choose what to focus on each year, and one extra thing to do with your money. Then watch the years go by.</p>
+    <p>Your life is played in steps. In each step you choose what to focus on each year, and one extra thing to do with your money. Then watch the years go by.</p>
     <p>${PERIODS[0].tip}</p>
-    ${btn('go', 'Let\'s go!', 'primary')}</div>`);
+    <h3>How do you want to play?</h3>
+    <div class="careers k-picks">
+      <button class="career" data-choice="run"><span class="c-icon">🏃</span><b>Run mode</b><small>Run through life! Pick a path at each gate, collect stars and jump over scams and mishaps.</small></button>
+      <button class="career" data-choice="plan"><span class="c-icon">🧮</span><b>Plan mode</b><small>Share out your choices with + and − buttons, then watch the years go by.</small></button>
+    </div></div>`).then((c) => { S.runMode = c === 'run'; });
   return play(back);
 }
 
 async function play(back) {
   while (P < PERIODS.length) {
     await bigChoicesBefore();
-    const plan = await planPeriod();
+    let plan;
+    for (;;) {
+      plan = S.runMode ? await runGame() : await planPeriod();
+      if (plan !== 'switch') break;
+      S.runMode = !S.runMode;
+    }
     if (plan === 'quit') { save(); return back(); }
     const before = snapshot();
     const happened = await runPeriod(plan);
@@ -309,7 +319,7 @@ function planPeriod() {
       <h3>⭐ Extras <span class="k-left" data-left="extra"></span></h3>
       <div class="k-rows">${extras.map((id) => row('extra', id, EXTRAS[id].icon, EXTRAS[id].label, EXTRAS[id].note(S), extra[id])).join('')}</div>
       <p class="k-tip">💡 ${per.tip}</p>
-      <div class="row">${btn('go', `▶️ Live ages ${S.age} to ${per.to}`, 'primary')}${btn('quit', 'Save and leave')}</div>
+      <div class="row">${btn('go', `▶️ Live ages ${S.age} to ${per.to}`, 'primary')}${btn('switch', '🏃 Play as a run instead')}${btn('quit', 'Save and leave')}</div>
     </div>`;
   const plan = { focus, extra, years };
   const refresh = (root) => {
@@ -348,7 +358,7 @@ function planPeriod() {
       plan[kind][id] = Math.max(0, plan[kind][id] + +d);
       refresh(root);
     });
-  }).then((c) => (c === 'quit' ? 'quit' : plan));
+  }).then((c) => (c === 'quit' || c === 'switch' ? c : plan));
 }
 
 // Turns { id: count } into one id per year. Weekend jobs go last, so they land once you're 13.
@@ -360,6 +370,215 @@ function schedule(counts, years) {
   }
   list.sort((a, b) => (a === 'job') - (b === 'job'));
   return list.slice(0, years);
+}
+
+
+// ---------- run mode ----------
+// An endless-runner take on planning: three paths, gates that choose your focus and your
+// extra for each age, stars for joy, and scams and mishaps to jump over. The choices then
+// run through the same simulation as plan mode.
+
+const STAR_JOY = 0.25;
+const SHORT = {
+  study: 'Study', play: 'Play', friends: 'Friends', create: 'Create', sports: 'Sports', hangout: 'Friends', arts: 'Arts',
+  job: 'Part-time job', volunteer: 'Volunteer', upskill: 'Upskill', exercise: 'Exercise', network: 'Network', hobby: 'Hobby',
+  budget: 'Budget', active: 'Stay active', learn: 'Learn', family: 'Family',
+  save: 'Save', treat: 'Treat', give: 'Give', cpf: 'Top up CPF', holiday: 'Holiday', invest: 'Invest',
+};
+const pick3 = (xs) => [...xs].sort(() => Math.random() - 0.5).slice(0, 3);
+
+async function runGame() {
+  const per = PERIODS[P];
+  const years = per.to - S.age;
+  const c = await screen(`
+    ${hud()}
+    <div class="card k-card">
+      <p class="eyebrow">${per.icon} Age ${S.age} to ${per.to}</p>
+      <h2>${per.title}</h2>
+      <p>Run through ages ${S.age} to ${per.to}! At each 🚧 gate, move to the path you want: the first gate of each age picks your <b>focus</b>, the second your <b>extra</b>.</p>
+      <ul class="k-how">
+        <li>⬆️ ⬇️ Change path (or swipe up and down)</li>
+        <li>⤴️ Jump over scams and mishaps (or tap the track). If you hit one, it costs real money!</li>
+        <li>⭐ Collect stars for joy</li>
+      </ul>
+      <p class="k-tip">💡 ${per.tip}</p>
+      <div class="row">${btn('go', '🏃 Start running', 'primary')}${btn('switch', '🧮 Use plan mode instead')}${btn('quit', 'Save and leave')}</div>
+    </div>`);
+  if (c !== 'go') return c;
+  return runTrack(per, years);
+}
+
+function runTrack(per, years) {
+  const startAge = S.age;
+  const acts = ACTIVITIES[per.acts];
+  const extras = extrasFor(S);
+  // At most 6 ages to run through; in longer periods each one stands for a few years.
+  const gates = Math.min(years, 6);
+  const span = Array.from({ length: gates }, (_, g) => Math.floor(years / gates) + (g < years % gates ? 1 : 0));
+  const first = span.map((_, g) => span.slice(0, g).reduce((t, n) => t + n, 0));
+  const ageLabel = (g) => (span[g] > 1 ? `Age ${startAge + first[g]}–${startAge + first[g] + span[g] - 1}` : `Age ${startAge + first[g]}`);
+  const plan = { years, focus: {}, extra: {}, order: { focus: [], extra: [] }, obstacles: [], stars: 0 };
+  let html = '';
+  const objs = [];
+  // Lay out the track in units of its width (W), filled in once it's on screen.
+  const L = 2.3; // track length for each age
+  const x0 = 0.9;
+  const add = (o) => objs.push(o);
+  for (let g = 0; g < gates; g++) {
+    const base = x0 + g * L;
+    const age = startAge + first[g];
+    add({ t: 'age', x: base - 0.15, g });
+    for (const at of [0.12, 0.62]) {
+      const lane = Math.floor(Math.random() * 3);
+      for (let k = 0; k < 3; k++) add({ t: 'star', x: base + at + k * 0.1, lane });
+    }
+    const focusOpts = pick3(acts.filter((a) => !a.minAge || age >= a.minAge)).map((a) => ({ id: a.id, icon: a.icon }));
+    add({ t: 'gate', kind: 'focus', x: base + 0.5, g, opts: focusOpts });
+    add({ t: 'gate', kind: 'extra', x: base + 1.05, g, opts: pick3(extras).map((id) => ({ id, icon: EXTRAS[id].icon })) });
+    // A scam or a mishap, now and then.
+    for (const at of [Math.random() < 0.5 ? 0.32 : 0.85]) {
+      if (Math.random() > 0.55) continue;
+      const pool = Math.random() < 0.5 ? scamsFor(age) : mishapsFor(age);
+      if (!pool.length) continue;
+      add({ t: 'obstacle', x: base + at, lane: Math.floor(Math.random() * 3), year: first[g], o: pool[Math.floor(Math.random() * pool.length)] });
+    }
+  }
+  const endX = x0 + gates * L + 0.1;
+  objs.forEach((o, i) => {
+    o.id = i;
+    if (o.t === 'star') html += `<span class="k-obj k-star" data-o="${i}">⭐</span>`;
+    if (o.t === 'obstacle') html += `<span class="k-obj k-bad" data-o="${i}"><em>${o.o.tag}</em>${o.o.icon}</span>`;
+    if (o.t === 'gate') html += `<span class="k-obj k-gate ${o.kind}" data-o="${i}">${o.opts.map((p, l) => `<span class="k-sign" style="--l:${l}"><b>${p.icon}</b>${SHORT[p.id] || p.id}</span>`).join('')}</span>`;
+    if (o.t === 'age') html += `<span class="k-obj k-agesign" data-o="${i}">${ageLabel(o.g)}</span>`;
+  });
+  return screen(`
+    <div class="k-game" tabindex="0" aria-label="Run mode: up and down change path, space jumps">
+      <div class="k-game-sky"><span class="k-cloud c1">☁️</span><span class="k-cloud c2">☁️</span></div>
+      <div class="k-bigage" data-big>${ageLabel(0)}</div>
+      <div class="k-next" data-next>Next gate: pick a focus</div>
+      ${[0, 1, 2].map((l) => `<div class="k-lane" style="--l:${l}"></div>`).join('')}
+      ${html}
+      <div class="k-player" data-player>${characterHtml(me(), 'walking k-runner-art')}</div>
+      <div class="k-pops" data-pops></div>
+      <div class="k-finish" data-finish hidden></div>
+    </div>
+    <div class="k-score"><span>⭐ <b data-s="stars">0</b></span><span>🛡️ Dodged <b data-s="dodged">0</b></span><span>💥 Hit <b data-s="hit">0</b></span></div>
+    <div class="k-controls">
+      <button class="btn" data-ctl="up" aria-label="Path up">⬆️</button>
+      <button class="btn primary" data-ctl="jump">⤴️ Jump</button>
+      <button class="btn" data-ctl="down" aria-label="Path down">⬇️</button>
+    </div>
+    <div class="row k-run-btns" data-after hidden></div>`, (root) => {
+    const game = root.querySelector('.k-game');
+    const player = root.querySelector('[data-player]');
+    const els = new Map([...root.querySelectorAll('[data-o]')].map((e) => [+e.dataset.o, e]));
+    const W = game.clientWidth;
+    const laneTop = (l) => 52 + l * 74;
+    const px = W * 0.14;
+    const speed = W * 0.42;
+    let dist = 0, lane = 1, y = laneTop(1), jump = -1, last = 0, done = false, raf = 0;
+    const score = { stars: 0, dodged: 0, hit: 0 };
+    const setScore = () => { for (const k in score) root.querySelector(`[data-s="${k}"]`).textContent = score[k]; };
+    const pop = (text, cls = '') => {
+      const el = document.createElement('span');
+      el.className = `k-pop ${cls}`;
+      el.textContent = text;
+      el.style.top = `${y - 10}px`;
+      el.style.left = `${px + 30}px`;
+      root.querySelector('[data-pops]').append(el);
+      setTimeout(() => el.remove(), 1200);
+    };
+    const move = (d) => { lane = Math.max(0, Math.min(2, lane + d)); };
+    const hop = () => { if (jump < 0) jump = 0; };
+    root.querySelectorAll('[data-ctl]').forEach((b) => b.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const k = b.dataset.ctl;
+      if (k === 'up') move(-1); else if (k === 'down') move(1); else hop();
+    }));
+    let touchY = null;
+    game.addEventListener('pointerdown', (e) => { touchY = e.clientY; });
+    game.addEventListener('pointerup', (e) => {
+      if (touchY == null) return;
+      const dy = e.clientY - touchY;
+      touchY = null;
+      if (Math.abs(dy) > 25) move(dy < 0 ? -1 : 1); else hop();
+    });
+    const onKey = (e) => {
+      if (!document.body.contains(game)) { window.removeEventListener('keydown', onKey); return; }
+      if (e.key === 'ArrowUp') move(-1);
+      else if (e.key === 'ArrowDown') move(1);
+      else if (e.key === ' ' || e.key === 'ArrowRight') hop();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    game.focus({ preventScroll: true });
+
+    const resolve = (o) => {
+      o.done = true;
+      const el = els.get(o.id);
+      const airborne = jump >= 0;
+      if (o.t === 'star') {
+        if (o.lane === lane) { score.stars++; el.classList.add('got'); pop('+⭐', 'good'); }
+      } else if (o.t === 'obstacle') {
+        const hit = o.lane === lane && !airborne;
+        plan.obstacles.push({ year: o.year, x: o.o, hit });
+        if (hit) { score.hit++; el.classList.add('hit'); pop(`💥 ${o.o.title}`, 'bad'); }
+        else if (o.lane === lane) { score.dodged++; el.classList.add('dodged'); pop('🛡️ Dodged!', 'good'); }
+        else { score.dodged++; }
+      } else if (o.t === 'gate') {
+        const choice = o.opts[Math.min(lane, o.opts.length - 1)];
+        const box = o.kind === 'focus' ? plan.focus : plan.extra;
+        box[choice.id] = (box[choice.id] || 0) + span[o.g];
+        for (let k = 0; k < span[o.g]; k++) plan.order[o.kind].push(choice.id);
+        el.querySelectorAll('.k-sign')[Math.min(lane, o.opts.length - 1)].classList.add('on');
+        pop(`${choice.icon} ${SHORT[choice.id]}`, 'pick');
+        root.querySelector('[data-next]').textContent = o.kind === 'focus' ? 'Next gate: pick an extra' : 'Next gate: pick a focus';
+      } else if (o.t === 'age') {
+        root.querySelector('[data-big]').textContent = ageLabel(o.g);
+      }
+      setScore();
+    };
+
+    const finish = () => {
+      done = true;
+      cancelAnimationFrame(raf);
+      player.querySelector('.person').classList.remove('walking');
+      plan.stars = score.stars;
+      const f = root.querySelector('[data-finish]');
+      f.hidden = false;
+      f.innerHTML = `<b>🏁 You made it to ${per.to}!</b><span>⭐ ${score.stars} stars · 🛡️ ${score.dodged} dodged · 💥 ${score.hit} hit</span>`;
+      root.querySelector('.k-controls').hidden = true;
+      const after = root.querySelector('[data-after]');
+      after.hidden = false;
+      after.innerHTML = btn('done', `See how ages ${startAge} to ${per.to} went`, 'primary');
+    };
+
+    const frame = (t) => {
+      if (done) return;
+      if (!document.body.contains(game)) return;
+      const dt = last ? Math.min(0.05, (t - last) / 1000) : 0;
+      last = t;
+      dist += speed * dt;
+      y += (laneTop(lane) - y) * Math.min(1, dt * 14);
+      if (jump >= 0) { jump += dt; if (jump > 0.6) jump = -1; }
+      const lift = jump >= 0 ? Math.sin((Math.PI * jump) / 0.6) * 46 : 0;
+      player.style.transform = `translate(${px}px, ${y - lift}px)`;
+      player.classList.toggle('air', jump >= 0);
+      for (const o of objs) {
+        const sx = o.x * W - dist;
+        const el = els.get(o.id);
+        if (!o.done && sx <= px + 24) resolve(o);
+        if (sx < -120 || sx > W + 40) { el.style.visibility = 'hidden'; continue; }
+        el.style.visibility = '';
+        const oy = o.t === 'gate' || o.t === 'age' ? 0 : laneTop(o.lane) + 18;
+        el.style.transform = `translate(${sx}px, ${oy}px)`;
+      }
+      if (dist >= endX * W) return finish();
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+  }).then(() => plan);
 }
 
 // ---------- running through the years ----------
@@ -387,14 +606,16 @@ function snapshot() {
 async function runPeriod(plan) {
   const per = PERIODS[P];
   const startAge = S.age;
-  const focus = schedule(plan.focus, plan.years);
-  const extras = schedule(plan.extra, plan.years);
+  // Run mode chose the order itself; plan mode shuffles the years.
+  const focus = plan.order ? plan.order.focus : schedule(plan.focus, plan.years);
+  const extras = plan.order ? plan.order.extra : schedule(plan.extra, plan.years);
+  if (plan.stars) S.joy += plan.stars * STAR_JOY;
   const acts = ACTIVITIES[per.acts];
   const kidsAt = Array.from({ length: S.plannedKids || 0 }, (_, i) => startAge + 1 + i * 2);
   S.plannedKids = 0;
   const happened = [];
   const money0 = { income: 0, spend: 0, cpfIn: 0, interest: 0, tax: 0 };
-  fast = false;
+  fast = !!plan.order;
   await screen(`
     ${hud()}
     <div class="k-run" style="--years:${plan.years}">
@@ -418,6 +639,20 @@ async function runPeriod(plan) {
     for (let i = 0; i < plan.years; i++) {
       const age = S.age;
       S.stage = sim.ageStage(age);
+      // The obstacles from run mode: the ones you ran into cost real money.
+      for (const o of (plan.obstacles || []).filter((x) => x.year === i)) {
+        if (o.hit) {
+          const w1 = wallet();
+          const lost = Math.min(o.x.cost(S.bank), Math.max(0, S.bank));
+          if (lost > 0) sim.spendCash(S, lost);
+          S.joy = Math.max(0, S.joy - 0.5);
+          feed(`${o.x.icon} ${o.x.title}. ${o.x.lesson}`, age, 'bad', change(w1));
+        } else {
+          S.joy += 0.5;
+          S.stats.moneySense = Math.round((S.stats.moneySense + 0.3) * 10) / 10;
+          feed(`🛡️ Jumped over: ${o.x.title}`, age, 'good');
+        }
+      }
       if (S.pendingCareer && age >= sim.firstJobAge(S)) startJob();
       // Girls choose at 19, after JC or poly.
       if (!sim.doesNs(S) && age === 19 && S.school && S.school !== 'ite' && !S.postNs) await uniOrWorkPopup();
@@ -507,11 +742,12 @@ async function runPeriod(plan) {
   // Personal events and gifts. Love and babies are chosen up front in simple mode.
   async function personalEvent(age) {
     const e = rollPersonalEvent(S);
-    if (!e || ['partner', 'baby'].includes(e.id)) return;
+    // Love and babies are chosen up front; in run mode, scams and mishaps were the obstacles.
+    if (!e || ['partner', 'baby'].includes(e.id) || (plan.order && ['scam', 'mishap'].includes(e.id))) return;
+    const w0 = wallet();
     const r = e.run(S);
     if (!r) return;
     let result = null;
-    const w0 = wallet();
     if (r.choices) {
       const i = await popup(`<div class="event"><div class="e-icon">${r.icon}</div><h2>${r.title}</h2><p>${r.text}</p></div>
         ${r.choices.map((ch, k) => btn(String(k), ch.label, k ? '' : 'primary')).join('')}`);
@@ -623,7 +859,7 @@ function results(before, { happened, money: m, startAge }) {
         ${S.debt > 0 || before.debt > 0 ? `<tr><td>💳 Debt</td><td>${money(S.debt)}</td>${delta(before.debt, S.debt)}</tr>` : ''}
         ${acct('oa', '🏛️ CPF Ordinary')}${acct('sa', '🏛️ CPF Special')}${acct('ma', '🏛️ CPF MediSave')}${acct('ra', '🏛️ CPF Retirement')}
       </table>
-      <p class="small">Over these years you took home ${money(m.income)} and spent ${money(m.spend)} on living costs. ${m.cpfIn > 0 ? `${money(m.cpfIn)} of pay went into your CPF, ` : ''}and your savings earned ${money(m.interest)} in interest.${S.life && S.life.monthly ? ` CPF LIFE pays you ${money(S.life.monthly)} a month.` : ''}</p>
+      <p class="small">Over these years you took home ${money(m.income)} and spent ${money(m.spend)} on living costs.${m.cpfIn > 0 ? ` ${money(m.cpfIn)} of pay went into your CPF.` : ''} Your savings earned ${money(m.interest)} in interest.${S.life && S.life.monthly ? ` CPF LIFE pays you ${money(S.life.monthly)} a month.` : ''}</p>
       <h3>📊 Your stats</h3>
       <div class="k-stats">${statRows}</div>
       ${happened.length ? `<h3>📅 What happened</h3><p class="k-legend small"><span class="k-chip up">+ money in</span> <span class="k-chip down">− money out</span> <span class="k-chip move">moved</span> <span class="k-chip world">🌍 news</span></p><div class="k-feed k-log">${happened.map((h) => bubbleHtml(h, 'p')).join('')}</div>` : ''}
