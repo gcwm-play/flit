@@ -518,6 +518,20 @@ function runTrack(per, years) {
     wire(game, false);
     const pad = root.querySelector('[data-pad]');
     wire(pad, true);
+    // Let the pad fill the rest of the screen below the track.
+    const fitPad = () => {
+      if (!document.body.contains(pad)) { window.removeEventListener('resize', fitPad); return; }
+      if (pad.hidden || !pad.offsetParent) return;
+      const top = pad.getBoundingClientRect().top + window.scrollY;
+      const below = pad.nextElementSibling;
+      const hint = below && below.offsetHeight ? below.offsetHeight + 12 : 0;
+      const h = Math.max(200, Math.floor(window.innerHeight - top - hint - 16));
+      pad.style.minHeight = `${h}px`;
+      const over = document.documentElement.scrollHeight - window.innerHeight;
+      if (over > 0) pad.style.minHeight = `${Math.max(200, h - over)}px`;
+    };
+    fitPad();
+    window.addEventListener('resize', fitPad);
     // Stop pull-to-refresh while the run is on.
     document.documentElement.classList.add('k-running');
     const onKey = (e) => {
