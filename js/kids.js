@@ -464,6 +464,7 @@ function runTrack(per, years) {
       <div class="k-finish" data-finish hidden></div>
     </div>
     <div class="k-score"><span>⭐ <b data-s="stars">0</b></span><span>🛡️ Dodged <b data-s="dodged">0</b></span><span>💥 Hit <b data-s="hit">0</b></span></div>
+    <div class="k-pad" data-pad aria-hidden="true"><span>👆 Drag up and down here or on the track</span><small>Tap to jump</small></div>
     <p class="k-hint" data-hint><span>📱 Drag up and down to change path, tap to jump</span><span>🖱️ Move the mouse up and down, click to jump</span><span>⌨️ Arrow keys or W and S, space to jump</span></p>
     <div class="row k-run-btns" data-after hidden></div>`, (root) => {
     const game = root.querySelector('.k-game');
@@ -493,24 +494,32 @@ function runTrack(per, years) {
       const top = game.getBoundingClientRect().top;
       return Math.max(0, Math.min(2, Math.round((clientY - top - laneTop(0) - 35) / 74)));
     };
+    // The pad under the track works like a trackpad: every 48px of drag moves one path.
     let press = null;
-    game.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      press = { y: e.clientY, t: performance.now(), moved: false };
-      game.setPointerCapture?.(e.pointerId);
-    });
-    game.addEventListener('pointermove', (e) => {
-      if (e.pointerType === 'mouse' && !press) { lane = laneAt(e.clientY); return; }
-      if (!press) return;
-      if (Math.abs(e.clientY - press.y) > 10) press.moved = true;
-      if (press.moved || e.pointerType === 'mouse') lane = laneAt(e.clientY);
-    });
-    const release = () => {
-      if (press && !press.moved && performance.now() - press.t < 350) hop();
-      press = null;
+    const wire = (el, onPad) => {
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        press = { y: e.clientY, t: performance.now(), moved: false, lane, onPad };
+        el.setPointerCapture?.(e.pointerId);
+      });
+      el.addEventListener('pointermove', (e) => {
+        if (!onPad && e.pointerType === 'mouse' && !press) { lane = laneAt(e.clientY); return; }
+        if (!press) return;
+        if (Math.abs(e.clientY - press.y) > 10) press.moved = true;
+        if (onPad) lane = Math.max(0, Math.min(2, press.lane + Math.round((e.clientY - press.y) / 48)));
+        else if (press.moved || e.pointerType === 'mouse') lane = laneAt(e.clientY);
+      });
+      el.addEventListener('pointerup', () => {
+        if (press && !press.moved && performance.now() - press.t < 350) hop();
+        press = null;
+      });
+      el.addEventListener('pointercancel', () => { press = null; });
     };
-    game.addEventListener('pointerup', release);
-    game.addEventListener('pointercancel', () => { press = null; });
+    wire(game, false);
+    const pad = root.querySelector('[data-pad]');
+    wire(pad, true);
+    // Stop pull-to-refresh while the run is on.
+    document.documentElement.classList.add('k-running');
     const onKey = (e) => {
       if (!document.body.contains(game)) { window.removeEventListener('keydown', onKey); return; }
       if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') move(-1);
@@ -557,6 +566,8 @@ function runTrack(per, years) {
       f.hidden = false;
       f.innerHTML = `<b>🏁 You made it to ${per.to}!</b><span>⭐ ${score.stars} stars · 🛡️ ${score.dodged} dodged · 💥 ${score.hit} hit</span>`;
       root.querySelector('[data-hint]').hidden = true;
+      pad.hidden = true;
+      document.documentElement.classList.remove('k-running');
       const after = root.querySelector('[data-after]');
       after.hidden = false;
       after.innerHTML = btn('done', `See how ages ${startAge} to ${per.to} went`, 'primary');
@@ -564,7 +575,7 @@ function runTrack(per, years) {
 
     const frame = (t) => {
       if (done) return;
-      if (!document.body.contains(game)) return;
+      if (!document.body.contains(game)) { document.documentElement.classList.remove('k-running'); return; }
       const dt = last ? Math.min(0.05, (t - last) / 1000) : 0;
       last = t;
       dist += speed * dt;
