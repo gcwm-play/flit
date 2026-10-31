@@ -279,6 +279,7 @@ function titleScreen() {
           <button class="btn primary" id="start">Start a new life</button>
           ${saved ? `<button class="btn" id="continue">Continue (${esc(saved.name)}, age ${saved.age})</button>` : ''}
         </div>
+        <button class="simple-mode" id="simple"><span class="sm-i">🧸</span><span><b>Play simple mode</b><small>Fewer, simpler choices for younger players. Same CPF rules.</small></span></button>
       </div>
       <p class="small muted">CPF figures use the 2026 rates from cpf.gov.sg, simplified for a game. Amounts are in today's dollars.</p>
     </div>`;
@@ -316,6 +317,10 @@ function titleScreen() {
     await stageIntro('child');
     save();
     render();
+  };
+  $('#simple').onclick = async () => {
+    const { startSimple } = await import('./kids.js');
+    startSimple(nameInput.value.trim() || defaultName(look.gender), { ...look }, () => render());
   };
   if (saved) $('#continue').onclick = () => {
     S = migrate(saved);
