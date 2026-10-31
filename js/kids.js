@@ -429,13 +429,17 @@ async function runPeriod(plan) {
       if (!['study', 'job', 'upskill', 'budget'].includes(act.id)) S.joy += 1;
       if (act.job && age >= 13 && !sim.isNsf(S)) opts.jobWage = sim.teenJob(age, score).monthly;
       // The extra for this year.
+      let w0 = wallet();
       const note = doExtra(extras[i]);
-      if (note) feed(note, age);
+      // A holiday is paid during the year, so its cost is shown up front.
+      if (note && note.cost) feed(note.text, age, '', { cash: -note.cost, inv: 0, cpf: 0 });
+      else if (note) feed(note, age, '', change(w0));
       if (kidsAt.includes(age) && S.spouse) {
+        w0 = wallet();
         const b = sim.haveChild(S);
         S.bank += b.cashGift;
         S.joy += 4;
-        feed(`👶 A baby is born! The Government gives a ${money(b.cashGift)} Baby Gift.`, age, 'good');
+        feed(`👶 A baby is born! The Government gives a ${money(b.cashGift)} Baby Gift.`, age, '', change(w0));
       }
       // Something in the world, now and then.
       const w = rollWorldEvent(S);
@@ -455,9 +459,10 @@ async function runPeriod(plan) {
       for (const e of S.healthPlan || []) {
         if (!e.done && e.age === age) {
           e.done = true;
+          const h0 = wallet();
           const { c, b } = sim.treat(S, e.id);
           const covered = b.gross - b.fromCash;
-          feed(`${c.icon} ${c.label}. The bill was ${money(b.gross)}; subsidies, MediShield Life and MediSave paid ${money(covered)}${b.fromCash > 0 ? `, you paid ${money(b.fromCash)} cash` : ''}.`, age, 'bad');
+          feed(`${c.icon} ${c.label}. The bill was ${money(b.gross)}; subsidies, MediShield Life and MediSave paid ${money(covered)}${b.fromCash > 0 ? `, you paid ${money(b.fromCash)} cash` : ''}.`, age, 'bad', change(h0));
         }
       }
       await personalEvent(age);
@@ -477,11 +482,14 @@ async function runPeriod(plan) {
     app.querySelector('.k-runner .person')?.classList.remove('walking');
   }
 
-  function feed(text, age, kind = '') {
-    happened.push({ age, text, kind });
+  // `d` is how the event changed your cash, investments and CPF. It sets the colour:
+  // green when you gained, red when you lost, blue when money only moved between them.
+  function feed(text, age, kind = '', d = null) {
+    if (d) kind = flowKind(d) || kind;
+    happened.push({ age, text, kind, d });
     const el = app.querySelector('.k-feed');
     if (!el) return;
-    el.insertAdjacentHTML('afterbegin', `<p class="k-bubble ${kind}"><span class="k-age">${age}</span><span>${text}</span></p>`);
+    el.insertAdjacentHTML('afterbegin', bubbleHtml({ age, text, kind, d }, 'p'));
     while (el.children.length > 4) el.lastElementChild.remove();
   }
 
@@ -503,6 +511,7 @@ async function runPeriod(plan) {
     const r = e.run(S);
     if (!r) return;
     let result = null;
+    const w0 = wallet();
     if (r.choices) {
       const i = await popup(`<div class="event"><div class="e-icon">${r.icon}</div><h2>${r.title}</h2><p>${r.text}</p></div>
         ${r.choices.map((ch, k) => btn(String(k), ch.label, k ? '' : 'primary')).join('')}`);
@@ -511,9 +520,29 @@ async function runPeriod(plan) {
     const g = r.gift ?? (result && typeof result === 'object' ? result.gift : null);
     const amount = typeof g === 'number' ? g : g?.gift || 0;
     if (amount > 0) S.bank += amount;
-    feed(`${r.icon} ${amount > 0 ? `${r.title.replace(/[!.]$/, '')}: +${money(amount)}` : r.title}`, age, amount > 0 ? 'good' : '');
+    feed(`${r.icon} ${r.title}`, age, '', change(w0));
   }
 }
+
+// What you have, to see how an event changed it.
+const wallet = () => ({ cash: S.bank - S.debt, inv: invest.total(S, 'cash'), cpf: totalCpf() });
+function change(w0) {
+  const w = wallet();
+  return { cash: w.cash - w0.cash, inv: w.inv - w0.inv, cpf: w.cpf - w0.cpf };
+}
+const moved = (v) => Math.abs(v) >= 1;
+function flowKind(d) {
+  if (![d.cash, d.inv, d.cpf].some(moved)) return '';
+  const net = d.cash + d.inv + d.cpf;
+  return Math.abs(net) < 1 ? 'move' : net > 0 ? 'good' : 'bad';
+}
+function chips(d) {
+  if (!d) return '';
+  const chip = (v, label) => (moved(v) ? `<span class="k-chip ${v > 0 ? 'up' : 'down'}">${v > 0 ? '+' : '−'}${money(Math.abs(v))} ${label}</span>` : '');
+  const out = chip(d.cash, 'cash') + chip(d.inv, 'invested') + chip(d.cpf, 'CPF');
+  return out ? `<span class="k-chips">${out}</span>` : '';
+}
+const bubbleHtml = (h, tag) => `<${tag} class="k-bubble ${h.kind}"><span class="k-age">${h.age}</span><span class="k-text">${h.text}${chips(h.d)}</span></${tag}>`;
 
 // Does this year's extra. Returns a line for the feed, or nothing.
 function doExtra(id) {
@@ -558,7 +587,8 @@ function doExtra(id) {
     if (!trips.length) return '✈️ Not enough cash for a holiday this year';
     const h = trips[Math.min(trips.length - 1, Math.floor(Math.random() * 3) + Math.max(0, trips.length - 3))];
     (S.holidayPlans ||= []).push({ id: h.id, mode: 'times', left: 1, party });
-    return `${h.icon} Holiday: ${h.name} (${money(sim.holidayCost(S, h.id, party))})`;
+    const cost = sim.holidayCost(S, h.id, party);
+    return { text: `${h.icon} Holiday: ${h.name}`, cost };
   }
   return '';
 }
@@ -596,7 +626,7 @@ function results(before, { happened, money: m, startAge }) {
       <p class="small">Over these years you took home ${money(m.income)} and spent ${money(m.spend)} on living costs. ${m.cpfIn > 0 ? `${money(m.cpfIn)} of pay went into your CPF, ` : ''}and your savings earned ${money(m.interest)} in interest.${S.life && S.life.monthly ? ` CPF LIFE pays you ${money(S.life.monthly)} a month.` : ''}</p>
       <h3>📊 Your stats</h3>
       <div class="k-stats">${statRows}</div>
-      ${happened.length ? `<h3>📅 What happened</h3><ol class="k-list">${happened.map((h) => `<li><span class="k-age">${h.age}</span><span>${h.text}</span></li>`).join('')}</ol>` : ''}
+      ${happened.length ? `<h3>📅 What happened</h3><p class="k-legend small"><span class="k-chip up">+ money in</span> <span class="k-chip down">− money out</span> <span class="k-chip move">moved</span> <span class="k-chip world">🌍 news</span></p><div class="k-feed k-log">${happened.map((h) => bubbleHtml(h, 'p')).join('')}</div>` : ''}
       <div class="row">${next ? btn('next', `Next: ${next.title} ▶️`, 'primary') : btn('next', 'See my life story ▶️', 'primary')}${next ? btn('quit', 'Save and leave') : ''}</div>
     </div>`);
 }

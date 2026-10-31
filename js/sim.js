@@ -486,6 +486,54 @@ export function quickStart(s, education = 'random', rand = Math.random, events =
   return s;
 }
 
+// Quick start further, to `toAge` (40): after the years to 21, plays working life with random
+// but sensible choices: a job you qualify for, a lifestyle, family events as they come, a home
+// you can afford, the odd holiday, and the illnesses planned for this life.
+export function quickStartAdult(s, toAge = 40, rand = Math.random, events = {}) {
+  if (!s.postNs) s.postNs = canGoToUniversity(s) && rand() < 0.5 ? 'uni' : 'work';
+  if (s.postNs === 'uni') story(s, 'life', '🎓', 'Went to university');
+  const any = (xs) => xs[Math.floor(rand() * xs.length)];
+  while (s.age < toAge) {
+    s.stage = ageStage(s.age);
+    if (!s.career && s.age >= firstJobAge(s)) {
+      s.education = educationFor(s);
+      // One of the three best-paid jobs you qualify for.
+      chooseCareer(s, any(careerOptions(s).filter((o) => o.eligible).slice(0, 3)).id);
+      const r = rand();
+      s.lifestyle = r < 0.45 ? 'simple' : r < 0.85 ? 'comfortable' : 'lavish';
+    }
+    const activity = any(ACTIVITIES.adult);
+    applyGains(s, activityGains(s, activity, 0.35 + rand() * 0.65));
+    (s.did ||= {})[activity.label] = (s.did[activity.label] || 0) + 1;
+    if (s.career && rand() < 0.5) {
+      const party = holidayParties(s).at(-1).id;
+      const trips = HOLIDAYS.filter((h) => holidayCost(s, h.id, party) <= s.bank / 4);
+      if (trips.length) (s.holidayPlans ||= []).push({ id: any(trips).id, mode: 'times', left: 1, party });
+    }
+    const startAge = s.age;
+    const years = Math.min(yearsThisTurn(s), toAge - s.age);
+    advanceYears(s, years, { ...(events.world ? events.world(s) : {}) });
+    if (s.career) s.joy += LIFESTYLES[s.lifestyle].joy;
+    for (const e of s.healthPlan || []) {
+      if (!e.done && e.age >= startAge && e.age < s.age) {
+        e.done = true;
+        const { c } = treat(s, e.id);
+        (s.quickEvents ||= []).push({ age: e.age, text: `${c.icon} In hospital with ${c.label}` });
+      }
+    }
+    if (events.personal) events.personal(s);
+    // A home, once married or old enough to buy as a single, if one fits the budget.
+    if (!s.home && s.career && (s.spouse || s.age >= 35) && rand() < 0.6) {
+      const fit = homeQuotes(s).filter((q) => q.affordable);
+      if (fit.length) buyHome(s, any(fit.slice(0, 3)).id);
+    }
+    checkHybrids(s);
+  }
+  s.stage = ageStage(s.age);
+  s.quickStart = toAge;
+  return s;
+}
+
 // ---------- the money simulation ----------
 
 // A teen's weekend part-time job. Under MOM rules, 13 and 14 year olds may only do light
