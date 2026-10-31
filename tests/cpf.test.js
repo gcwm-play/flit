@@ -573,3 +573,20 @@ test('illnesses never repeat in a life and fit the age; poor health brings 3 to 
     }
   }
 });
+
+test('cpfWhere: at 65 the RA becomes the CPF LIFE premium and leaves the balance', async () => {
+  const sim = await import('../js/sim.js');
+  const { cpfWhereHtml } = await import('../js/cpfwhere.js');
+  const s = sim.newGame('t', { animal: 'cat', gender: 'f' });
+  s.age = 65; s.stage = 'senior';
+  s.cpf = { oa: 500000, sa: 0, ma: 79000, ra: 330000 };
+  sim.startCpfLife(s, 65);
+  const w = sim.cpfWhere(s);
+  assert.equal(w.total, 579000);
+  assert.equal(w.premium, 330000);
+  assert.ok(w.started);
+  assert.ok(!w.rows.some((r) => r.label.startsWith('Retirement')));
+  const html = cpfWhereHtml(s);
+  assert.match(html, /CPF LIFE premium: \$330,000/);
+  assert.match(html, /\$579,000/);
+});

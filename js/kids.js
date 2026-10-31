@@ -4,6 +4,7 @@
 import * as cpf from './cpf.js';
 import * as sim from './sim.js';
 import * as invest from './invest.js';
+import { cpfWhereHtml } from './cpfwhere.js';
 import { characterHtml, lookOf } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent } from './events.js';
 import { scamsFor, mishapsFor } from './mishaps.js';
@@ -264,7 +265,7 @@ async function turning65() {
   if (S.life) return;
   const now = cpf.cpfLifePayout(S.cpf.ra, 65);
   const later = cpf.cpfLifePayout(S.cpf.ra * Math.pow(1 + cpf.INTEREST.ra, 5), 70);
-  const c = await pick('Happy 65th birthday', 'Start your CPF LIFE income?', `Your Retirement Account has <b>${money(S.cpf.ra)}</b>. CPF LIFE turns it into a monthly income for as long as you live.`, [
+  const c = await pick('Happy 65th birthday', 'Start your CPF LIFE income?', `Your Retirement Account has <b>${money(S.cpf.ra)}</b>. CPF LIFE turns it into a monthly income for as long as you live. When it starts, all your RA money becomes your CPF LIFE premium and leaves your CPF balance. Your OA (${money(S.cpf.oa)}) and MediSave stay.`, [
     { id: '65', icon: '🏛️', label: 'Start now', sub: `${money(now)}/month` },
     { id: '70', icon: '⏳', label: 'Wait until 70', sub: `about ${money(later)}/month`, note: 'Up to 7% more for each year you wait.' },
   ]);
@@ -893,6 +894,7 @@ function results(before, { happened, money: m, startAge }) {
         ${acct('oa', '🏛️ CPF Ordinary')}${acct('sa', '🏛️ CPF Special')}${acct('ma', '🏛️ CPF MediSave')}${acct('ra', '🏛️ CPF Retirement')}
       </table>
       <p class="small">Over these years you took home ${money(m.income)} and spent ${money(m.spend)} on living costs.${m.cpfIn > 0 ? ` ${money(m.cpfIn)} of pay went into your CPF.` : ''} Your savings earned ${money(m.interest)} in interest.${S.life && S.life.monthly ? ` CPF LIFE pays you ${money(S.life.monthly)} a month.` : ''}</p>
+      ${S.life && S.age >= S.life.startAge && startAge <= S.life.startAge ? cpfWhereHtml(S, { title: '🏛️ What happened to your CPF at 65' }) : ''}
       <h3>📊 Your stats</h3>
       <div class="k-stats">${statRows}</div>
       ${happened.length ? `<h3>📅 What happened</h3><p class="k-legend small"><span class="k-chip up">+ money in</span> <span class="k-chip down">− money out</span> <span class="k-chip move">moved</span> <span class="k-chip world">🌍 news</span></p><div class="k-feed k-log">${happened.map((h) => bubbleHtml(h, 'p')).join('')}</div>` : ''}
@@ -924,6 +926,7 @@ async function recap(back) {
         <tr><td>🏛️ CPF savings left</td><td>${money(totalCpf())}</td></tr>
         <tr><td>😊 Joy</td><td>${Math.round(S.joy)}</td></tr>
       </table>
+      ${cpfWhereHtml(S)}
       <h3>Looking back</h3>
       <p>How do you feel about your life?</p>
       <div class="feel">${['😞', '🙁', '😐', '🙂', '😄'].map((f, i) => `<button class="pick" data-feel="${i}">${f}</button>`).join('')}</div>

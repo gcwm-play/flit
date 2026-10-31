@@ -6,6 +6,7 @@ import * as invest from './invest.js';
 import * as health from './health.js';
 import * as cars from './car.js';
 import * as tax from './tax.js';
+import { cpfWhereHtml } from './cpfwhere.js';
 import { postcard } from './postcards.js';
 import { characterHtml, itemHtml, itemWidth, lookOf, OUTFITS, ANIMALS, GENDERS } from './sprites.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS, quietWorldEvent, quietPersonalEvent } from './events.js';
@@ -2178,6 +2179,7 @@ async function cpfLifeDecision() {
   const start = await dialog(`
     <h2>🎂 You're 65: start CPF LIFE?</h2>
     <p>Your RA has <b>${money(S.cpf.ra)}</b>. CPF LIFE turns it into a monthly income for as long as you live.</p>
+    <p class="small">When payouts start, <b>all your RA savings become your CPF LIFE premium</b> and leave your CPF balance. Your OA (${money(S.cpf.oa)}) and MediSave (${money(S.cpf.ma)}) stay as they are.</p>
     <table class="summary">
       <tr><td>Start now (Standard plan)</td><td><b>${money(now)}</b>/month</td></tr>
       <tr><td>Defer to 70 (up to 7% more for each year you wait)</td><td>about <b>${money(later)}</b>/month</td></tr>
@@ -2448,6 +2450,7 @@ function cpfPanelOnce() {
     <h3>Today</h3>
     ${cpfBars()}
     <p class="total">Total: <b>${money(cpf.cpfTotal(S.cpf))}</b>${S.life ? ` · CPF LIFE ${S.age >= S.life.startAge ? `pays <b>${money(S.life.monthly)}</b>/month` : `starts at ${S.life.startAge}`}` : ''}</p>
+    ${S.age >= 55 ? cpfWhereHtml(S) : ''}
     <h3>At your age (${S.age})</h3>
     <ul class="facts">
       <li>Rates change with age: the total drops after 55, 60, 65 and 70, and the OA's share drops after 35, 45 and 50.</li>
@@ -3306,6 +3309,7 @@ async function endScreen() {
         <tr><td>…of which your employers paid</td><td>${money(t.employerIn || 0)}</td></tr>
         ${t.cpfInterest != null ? `<tr><td>Interest on your CPF</td><td>${money(t.cpfInterest)}</td></tr><tr><td>Interest on your cash (bank)</td><td>${money(t.bankInterest || 0)}</td></tr>` : `<tr><td>Interest earned</td><td>${money(t.interest || 0)}</td></tr>`}
       </table>
+      ${cpfWhereHtml(S)}
       <h3>🏛️ Your CPF over your life</h3>
       ${cpfTrendChart()}
       ${S.life ? `<p class="small">At ${S.life.startAge} your RA savings (${money(S.life.premium)}) went into CPF LIFE, so they leave the chart and come back as monthly payouts for life: ${money(t.payouts || 0)} paid so far.</p>` : ''}

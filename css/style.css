@@ -1011,3 +1011,7 @@ html.k-running, html.k-running body { overscroll-behavior: none; }
 .k-pad small { font-size: 13px; }
 @media (hover: none) { .k-pad { display: flex; } .k-hint span:first-child { display: none; } }
 .k-pad[hidden] { display: none !important; }
+.where-note { display: block; font-size: 12px; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.cpf-where td:first-child { text-align: left; }
+.cpf-where .where-total td { font-weight: 700; }
+.where-life { background: var(--t-purple-soft); border: 1px solid var(--t-purple); border-radius: 14px; padding: 10px 12px; font-size: 14px; text-align: left; }
