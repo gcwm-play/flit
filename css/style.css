@@ -963,7 +963,7 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
 .k-chip.world { background: var(--t-purple); color: var(--t-purple-ink); }
 /* simple mode: run mode */
 .k-how { margin: 6px 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
-.k-game { position: relative; height: 290px; border-radius: 24px; overflow: hidden; box-shadow: var(--shadow); outline: none; touch-action: none; user-select: none; -webkit-user-select: none;
+.k-game { position: relative; height: 300px; border-radius: 24px; overflow: hidden; box-shadow: var(--shadow); outline: none; touch-action: none; user-select: none; -webkit-user-select: none;
   background: linear-gradient(#bfe3ff, #e6f4ff 30%); }
 .k-game-sky { position: absolute; inset: 0 0 auto; height: 50px; }
 .k-bigage { position: absolute; left: 14px; top: 8px; font: 700 26px/1 var(--display); color: rgba(30, 34, 56, 0.35); z-index: 1; }
@@ -998,7 +998,9 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
   background: rgba(255, 255, 255, 0.85); font-size: 15px; }
 .k-finish b { font: 600 22px/1.2 var(--display); }
 .k-score { display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; font-size: 14px; }
-.k-controls { display: grid; grid-template-columns: 1fr 1.4fr 1fr; gap: 10px; }
-.k-controls .btn { min-height: 56px; font-size: 20px; touch-action: manipulation; }
-.k-controls[hidden] { display: none; }
 .k-finish[hidden], .k-run-btns[hidden] { display: none; }
+.k-game { cursor: ns-resize; }
+.k-hint { display: flex; flex-direction: column; gap: 2px; align-items: center; text-align: center; margin: 0; font-size: 13px; color: var(--muted); }
+.k-hint[hidden] { display: none; }
+@media (hover: none) { .k-hint span:nth-child(n+2) { display: none; } }
+@media (hover: hover) { .k-hint span:first-child { display: none; } }

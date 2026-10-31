@@ -397,8 +397,9 @@ async function runGame() {
       <h2>${per.title}</h2>
       <p>Run through ages ${S.age} to ${per.to}! At each 🚧 gate, move to the path you want: the first gate of each age picks your <b>focus</b>, the second your <b>extra</b>.</p>
       <ul class="k-how">
-        <li>⬆️ ⬇️ Change path (or swipe up and down)</li>
-        <li>⤴️ Jump over scams and mishaps (or tap the track). If you hit one, it costs real money!</li>
+        <li>📱 On a phone, drag up and down on the track to change path, and tap to jump.</li>
+        <li>🖱️ On a computer, move the mouse up and down and click to jump, or use the arrow keys and space.</li>
+        <li>⤴️ Jump over scams and mishaps, or run around them. If you hit one, it costs real money!</li>
         <li>⭐ Collect stars for joy</li>
       </ul>
       <p class="k-tip">💡 ${per.tip}</p>
@@ -463,11 +464,7 @@ function runTrack(per, years) {
       <div class="k-finish" data-finish hidden></div>
     </div>
     <div class="k-score"><span>⭐ <b data-s="stars">0</b></span><span>🛡️ Dodged <b data-s="dodged">0</b></span><span>💥 Hit <b data-s="hit">0</b></span></div>
-    <div class="k-controls">
-      <button class="btn" data-ctl="up" aria-label="Path up">⬆️</button>
-      <button class="btn primary" data-ctl="jump">⤴️ Jump</button>
-      <button class="btn" data-ctl="down" aria-label="Path down">⬇️</button>
-    </div>
+    <p class="k-hint" data-hint><span>📱 Drag up and down to change path, tap to jump</span><span>🖱️ Move the mouse up and down, click to jump</span><span>⌨️ Arrow keys or W and S, space to jump</span></p>
     <div class="row k-run-btns" data-after hidden></div>`, (root) => {
     const game = root.querySelector('.k-game');
     const player = root.querySelector('[data-player]');
@@ -490,24 +487,35 @@ function runTrack(per, years) {
     };
     const move = (d) => { lane = Math.max(0, Math.min(2, lane + d)); };
     const hop = () => { if (jump < 0) jump = 0; };
-    root.querySelectorAll('[data-ctl]').forEach((b) => b.addEventListener('pointerdown', (e) => {
+    // Touch: the path under your finger as you drag; a tap jumps. Mouse: the path under the
+    // pointer as you move it; a click jumps.
+    const laneAt = (clientY) => {
+      const top = game.getBoundingClientRect().top;
+      return Math.max(0, Math.min(2, Math.round((clientY - top - laneTop(0) - 35) / 74)));
+    };
+    let press = null;
+    game.addEventListener('pointerdown', (e) => {
       e.preventDefault();
-      const k = b.dataset.ctl;
-      if (k === 'up') move(-1); else if (k === 'down') move(1); else hop();
-    }));
-    let touchY = null;
-    game.addEventListener('pointerdown', (e) => { touchY = e.clientY; });
-    game.addEventListener('pointerup', (e) => {
-      if (touchY == null) return;
-      const dy = e.clientY - touchY;
-      touchY = null;
-      if (Math.abs(dy) > 25) move(dy < 0 ? -1 : 1); else hop();
+      press = { y: e.clientY, t: performance.now(), moved: false };
+      game.setPointerCapture?.(e.pointerId);
     });
+    game.addEventListener('pointermove', (e) => {
+      if (e.pointerType === 'mouse' && !press) { lane = laneAt(e.clientY); return; }
+      if (!press) return;
+      if (Math.abs(e.clientY - press.y) > 10) press.moved = true;
+      if (press.moved || e.pointerType === 'mouse') lane = laneAt(e.clientY);
+    });
+    const release = () => {
+      if (press && !press.moved && performance.now() - press.t < 350) hop();
+      press = null;
+    };
+    game.addEventListener('pointerup', release);
+    game.addEventListener('pointercancel', () => { press = null; });
     const onKey = (e) => {
       if (!document.body.contains(game)) { window.removeEventListener('keydown', onKey); return; }
-      if (e.key === 'ArrowUp') move(-1);
-      else if (e.key === 'ArrowDown') move(1);
-      else if (e.key === ' ' || e.key === 'ArrowRight') hop();
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') move(-1);
+      else if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') move(1);
+      else if (e.key === ' ' || e.key === 'ArrowRight' || e.key === 'Enter') hop();
       else return;
       e.preventDefault();
     };
@@ -548,7 +556,7 @@ function runTrack(per, years) {
       const f = root.querySelector('[data-finish]');
       f.hidden = false;
       f.innerHTML = `<b>🏁 You made it to ${per.to}!</b><span>⭐ ${score.stars} stars · 🛡️ ${score.dodged} dodged · 💥 ${score.hit} hit</span>`;
-      root.querySelector('.k-controls').hidden = true;
+      root.querySelector('[data-hint]').hidden = true;
       const after = root.querySelector('[data-after]');
       after.hidden = false;
       after.innerHTML = btn('done', `See how ages ${startAge} to ${per.to} went`, 'primary');
