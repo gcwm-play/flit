@@ -864,3 +864,80 @@ label.check input { width: 20px; height: 20px; accent-color: var(--cpf); }
 @keyframes confetti-fall { from { transform: translateY(0) rotate(0); opacity: 1; } to { transform: translateY(90px) rotate(540deg); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .cheer b, .confetti i { animation: none; } .confetti { display: none; } }
 .peek-row { margin: 10px 0 0; text-align: center; }
+
+/* ---------- simple mode ---------- */
+.simple-mode { display: flex; align-items: center; gap: 12px; width: 100%; margin-top: 14px; padding: 12px 14px; text-align: left; font: inherit; color: var(--ink);
+  background: var(--t-yellow-soft); border: 2px solid var(--t-yellow); border-radius: 16px; box-shadow: var(--shadow); cursor: pointer; }
+.simple-mode:hover { border-color: var(--t-yellow-ink); }
+.simple-mode .sm-i { font-size: 30px; }
+.simple-mode b { display: block; font-family: var(--display); font-weight: 600; font-size: 17px; }
+.simple-mode small { color: var(--muted); font-size: 13px; }
+.kids { max-width: 720px; margin: 0 auto; padding: 12px max(16px, env(safe-area-inset-left, 0px)) 32px max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; gap: 12px; }
+.k-card h2 { font-family: var(--display); text-wrap: balance; margin: 4px 0 8px; }
+.k-card h3 { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 18px 0 8px; }
+.k-hello, .k-end { text-align: center; }
+.k-hello .row, .k-end .row { justify-content: center; }
+.k-hello > .btn { width: 100%; margin-top: 10px; }
+.person.k-big { --size: 120px; }
+.person.k-mini { --size: 44px; vertical-align: middle; }
+.k-hud { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.k-hud span { background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); padding: 6px 8px; text-align: center; min-width: 0; }
+.k-hud small { display: block; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.k-hud b { font-family: var(--display); font-size: 16px; white-space: nowrap; }
+.k-left { font-family: 'Nunito', sans-serif; font-size: 13px; font-weight: 700; color: var(--t-red-ink); }
+.k-left.done { color: var(--good); }
+.k-rows { display: flex; flex-direction: column; gap: 8px; }
+.k-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 14px; background: var(--sunk); }
+.k-i { font-size: 26px; flex: none; }
+.k-l { flex: 1; min-width: 0; }
+.k-l b { display: block; }
+.k-l small { color: var(--muted); font-size: 13px; }
+.k-step { display: flex; align-items: center; gap: 6px; flex: none; }
+.k-pm { width: 38px; height: 38px; border-radius: 12px; border: 0; background: var(--panel); box-shadow: var(--shadow); font: 700 22px/1 var(--display); color: var(--ink); cursor: pointer; }
+.k-pm:disabled { opacity: 0.35; cursor: not-allowed; }
+.k-n { min-width: 1.4em; text-align: center; font-family: var(--display); font-size: 20px; }
+.k-tip { background: var(--t-blue-soft); border-radius: 14px; padding: 10px 12px; font-size: 14px; margin: 16px 0 0; }
+.k-picks .career .c-icon { font-size: 28px; }
+.k-run { position: relative; height: 220px; border-radius: 24px; overflow: hidden; box-shadow: var(--shadow);
+  background: linear-gradient(#bfe3ff, #e6f4ff 70%); }
+.k-sky { position: absolute; inset: 0; }
+.k-sun { position: absolute; right: 16px; top: 12px; font-size: 34px; }
+.k-track { position: absolute; left: 0; right: 0; bottom: 0; height: 120px; }
+.k-ground { position: absolute; left: 0; right: 0; bottom: 0; height: 34px; background: #8fcf7a; border-top: 4px solid #6fb35a;
+  display: flex; justify-content: space-between; padding: 6px 10px 0; font: 700 12px/1 var(--display); color: #2f5b27; }
+.k-runner { position: absolute; bottom: 30px; left: calc(var(--p) * (100% - 84px)); transition: left 0.9s linear; }
+.person.k-runner-art { --size: 84px; }
+.person.k-runner-art.walking { animation-duration: 0.4s; }
+.k-feed { display: flex; flex-direction: column; gap: 6px; min-height: 60px; }
+.k-bubble { display: flex; gap: 10px; align-items: flex-start; margin: 0; padding: 8px 12px; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); animation: k-in 0.3s ease-out; }
+.k-bubble.good { background: var(--t-green-soft); }
+.k-bubble.bad { background: var(--t-red-soft); }
+.k-bubble.world { background: var(--t-purple-soft); }
+@keyframes k-in { from { opacity: 0; transform: translateY(-6px); } }
+.k-age { flex: none; min-width: 2em; font-family: var(--display); font-weight: 600; color: var(--link); }
+.k-run-btns { justify-content: center; margin-top: 0; }
+.k-run-btns .btn { flex: 1 1 220px; }
+.k-stats { display: flex; flex-wrap: wrap; gap: 6px; }
+.k-stat { background: var(--sunk); border-radius: 12px; padding: 4px 10px; font-size: 14px; }
+.k-stat em { font-style: normal; font-weight: 800; color: var(--good); }
+.k-money th { text-align: right; font-size: 12px; color: var(--muted); }
+.k-money td:nth-child(2) { text-align: right; white-space: nowrap; }
+.k-money td.pos { color: var(--good); }
+.k-money td.neg { color: var(--bad); }
+.k-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.k-list li { display: flex; gap: 10px; }
+.k-life { text-align: left; font-size: 15px; margin: 10px 0; }
+.k-card .row .btn { flex: 1 1 200px; }
+@media (prefers-reduced-motion: reduce) { .k-runner { transition: none; } .k-bubble { animation: none; } }
+.k-cloud { position: absolute; font-size: 30px; opacity: 0.9; animation: k-drift 30s linear infinite; }
+.k-cloud.c1 { top: 18px; left: 10%; }
+.k-cloud.c2 { top: 54px; left: 55%; font-size: 22px; animation-duration: 42s; }
+@keyframes k-drift { to { transform: translateX(-60px); } }
+@media (prefers-reduced-motion: reduce) { .k-cloud { animation: none; } }
+.k-money td, .k-money th { padding: 8px 6px; }
+@media (max-width: 400px) { .k-money { font-size: 13px; } .k-money td:first-child { word-break: break-word; } }
+.simple-mode small { display: block; line-height: 1.35; }
+.k-end .k-life, .k-end table, .k-end .facts { text-align: left; }
+.k-end .facts { padding-left: 20px; }
+.k-end .feel { flex-wrap: nowrap; gap: 6px; }
+.k-end .feel .pick { flex: 1 1 0; min-width: 0; padding: 6px 0; font-size: 26px; }
