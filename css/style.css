@@ -1069,7 +1069,9 @@ html.k-running, html.k-running body { overscroll-behavior: none; }
 .rm-zone { flex: none; }
 .rm-zone > h2 { margin: 0 0 8px; }
 .rm-back { margin-top: 8px; }
-.rm-focus-step .rm-room { flex: 1 1 0; }
+/* Step 2 can be taller than the screen (6+ focus cards), so the page scrolls and the room keeps a fixed height. */
+.rm.rm-focus-step { height: auto; min-height: 100vh; min-height: 100dvh; overflow: visible; }
+.rm-focus-step .rm-room { flex: none; height: clamp(200px, 34vh, 320px); }
 @media (max-width: 900px) {
   .rm-groups { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
   .rm-group, .rm-tiles { display: contents; }
