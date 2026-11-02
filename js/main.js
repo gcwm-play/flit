@@ -8,7 +8,8 @@ import * as cars from './car.js';
 import * as tax from './tax.js';
 import { cpfWhereHtml } from './cpfwhere.js';
 import { postcard } from './postcards.js';
-import { characterHtml, itemHtml, itemWidth, lookOf, OUTFITS, ANIMALS, GENDERS } from './sprites.js';
+import { characterHtml, itemHtml, itemWidth, lookOf, sheetUrl, OUTFITS, ANIMALS, GENDERS } from './sprites.js';
+import { mountRoom } from './room25d.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS, quietWorldEvent, quietPersonalEvent } from './events.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, SCHOOLS, CAREERS, CAREER_SWITCHES,
@@ -268,34 +269,49 @@ function titleScreen() {
         <p class="small muted">Everyone in this Singapore is an animal, but the rules are real: the same CPF, HDB and marriage rules apply.</p>
         <p class="pick-label">You are</p>
         <div class="seg" role="group" aria-label="He or she">${Object.entries(GENDERS).map(([k, l]) => `<button class="seg-btn" data-gender="${k}">${l}</button>`).join('')}</div>
-        <p class="pick-label">How do you want to start?</p>
-        <div class="seg start-mode" role="group" aria-label="How to start">
-          <button class="seg-btn" data-mode="full">🧒 Age 7</button>
-          <button class="seg-btn" data-mode="quick">⚡ Age 21</button>
-          <button class="seg-btn" data-mode="quick40">⚡ Age 40</button>
-        </div>
-        <div id="qs-box" class="qs-box" hidden>
-          <p class="small" id="qs-text"></p>
-          <div class="qs-edu" id="qs-edu" role="group" aria-label="Education"></div>
-        </div>
         <label class="check-row"><input type="checkbox" id="poor"><span><b>🤒 Poor health</b><small>Illnesses and accidents happen more often, and are more often serious. Leave it off for a fairly healthy life.</small></span></label>
         <div class="row">
-          <button class="btn primary" id="start">Start a new life</button>
-          ${saved ? `<button class="btn" id="continue">Continue (${esc(saved.name)}, age ${saved.age})</button>` : ''}
+          <button class="btn primary" id="start">Start a new life at 7</button>
+          ${saved ? `<button class="btn" id="continue">Continue (${esc(saved.name)}, age ${saved.age}${saved.roomMode ? ', room mode' : ''})</button>` : ''}
         </div>
-        <button class="simple-mode" id="simple"><span class="sm-i">🧸</span><span><b>Play simple mode</b><small>Fewer, simpler choices for younger players. Same CPF rules.</small></span></button>
       </div>
+      <section class="alpha" aria-labelledby="alpha-h">
+        <h2 class="alpha-divider" id="alpha-h"><span>Alpha</span></h2>
+        <p class="alpha-intro">Early prototypes we're trying out. They use your name, animal and choices above, and may change or have rough edges.</p>
+        <div class="alpha-mode">
+          <h3><span class="sm-i">🏠</span> Room mode <em>Alpha</em></h3>
+          <p>The full life from age 7, played around a 2.5D room: your animal wanders between the things you've bought, with your money above and your choices below.</p>
+          <button class="btn" id="room-mode">Try room mode</button>
+        </div>
+        <div class="alpha-mode">
+          <h3><span class="sm-i">⚡</span> Jump in at 21 or 40 <em>Alpha</em></h3>
+          <p>Skip ahead: the years before are played for you with random choices you can reroll, then you take over.</p>
+          <div class="seg start-mode" role="group" aria-label="Age to start at">
+            <button class="seg-btn" data-mode="quick">Age 21</button>
+            <button class="seg-btn" data-mode="quick40">Age 40</button>
+          </div>
+          <div id="qs-box" class="qs-box">
+            <p class="small" id="qs-text"></p>
+            <div class="qs-edu" id="qs-edu" role="group" aria-label="Education"></div>
+          </div>
+          <button class="btn" id="quick-start">⚡ Show my path to 21</button>
+        </div>
+        <div class="alpha-mode">
+          <h3><span class="sm-i">🧸</span> Simple mode <em>Alpha</em></h3>
+          <p>A shorter game for younger players: fewer, simpler choices in eight life periods, with the same CPF rules.</p>
+          <button class="btn" id="simple">Play simple mode</button>
+        </div>
+      </section>
       <p class="small muted">CPF figures use the 2026 rates from cpf.gov.sg, simplified for a game. Amounts are in today's dollars.</p>
     </div>`;
-  let mode = 'full';
+  let mode = 'quick';
   let edu = 'random';
   const refresh = () => {
     app.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === mode));
-    $('#qs-box').hidden = mode === 'full';
     $('#qs-text').textContent = mode === 'quick40'
       ? 'Your life up to 40 is played for you with random choices: school, a job, family, a home and whatever happens along the way. You can reroll it. Pick your education, or let your grades decide.'
       : 'Your childhood and teen years are played for you with random choices. Pick your education, or let your grades decide.';
-    $('#start').textContent = mode === 'quick' ? '⚡ Show my path to 21' : mode === 'quick40' ? '⚡ Show my life to 40' : 'Start a new life';
+    $('#quick-start').textContent = mode === 'quick40' ? '⚡ Show my life to 40' : '⚡ Show my path to 21';
     $('#qs-edu').innerHTML = quickEducationChoices(look.gender).map(([k, icon, label, note]) => `
       <button class="qs-opt ${k === edu ? 'on' : ''}" data-edu="${k}"><span class="qs-i">${icon}</span><span><b>${label}</b><small>${note}</small></span></button>`).join('');
     app.querySelectorAll('[data-edu]').forEach((b) => (b.onclick = () => { edu = b.dataset.edu; refresh(); }));
@@ -316,16 +332,17 @@ function titleScreen() {
   app.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => { mode = b.dataset.mode; refresh(); }));
   app.querySelectorAll('[data-outfit]').forEach((b) => (b.onclick = () => { look.outfit = +b.dataset.outfit; refresh(); }));
   refresh();
-  $('#start').onclick = async () => {
-    const name = nameInput.value.trim() || defaultName(look.gender);
-    const poor = $('#poor').checked;
-    if (mode !== 'full') return quickStartFlow(name, { ...look }, edu, mode === 'quick40' ? 40 : 21, poor);
-    S = newLife(name, look, poor);
+  const begin = async (roomMode) => {
+    S = newLife(nameInput.value.trim() || defaultName(look.gender), look, $('#poor').checked);
+    if (roomMode) S.roomMode = true;
     render();
     await stageIntro('child');
     save();
     render();
   };
+  $('#start').onclick = () => begin(false);
+  $('#room-mode').onclick = () => begin(true);
+  $('#quick-start').onclick = () => quickStartFlow(nameInput.value.trim() || defaultName(look.gender), { ...look }, edu, mode === 'quick40' ? 40 : 21, $('#poor').checked);
   $('#simple').onclick = async () => {
     const { startSimple } = await import('./kids.js');
     startSimple(nameInput.value.trim() || defaultName(look.gender), { ...look }, () => render());
@@ -482,11 +499,10 @@ function migrate(s) {
 
 // ---------- main screen ----------
 
-function render() {
-  if (!S) return titleScreen();
+function hudHtml() {
   const st = STAGES[S.stage];
   const cpfTotal = cpf.cpfTotal(S.cpf);
-  app.innerHTML = `
+  return `
     <header class="hud">
       <div class="who"><span class="who-pic">${person(me(), 'mini')}</span><div><b>${esc(S.name)}</b><span>Age ${S.age} · ${st.label} · <em class="status ${sim.isWorking(S) ? 'on' : ''}">${sim.workStatus(S)}</em></span></div></div>
       <div class="chips">
@@ -501,7 +517,13 @@ function render() {
         <button class="btn small-btn nav-btn" data-panel="cpf"><span class="nav-i" aria-hidden="true">🏛️</span><span>CPF</span></button>
         <button class="btn small-btn nav-btn" data-panel="menu"><span class="nav-i" aria-hidden="true">☰</span><span>Menu</span></button>
       </nav>
-    </header>
+    </header>`;
+}
+
+function render() {
+  if (!S) return titleScreen();
+  if (S.roomMode && !S.done) return renderRoomMode();
+  app.innerHTML = `${hudHtml()}
     <div class="play">
     <div class="play-main">
     <div class="top-row">
@@ -526,14 +548,84 @@ function render() {
   if (endBtn) endBtn.onclick = endScreen;
 }
 
+// ---------- room mode (alpha) ----------
+// The turn on one screen: money in the header, the 2.5D room in the middle (the pet wanders
+// between the things you own), the optional choices below, then a button to the focus step.
+let roomStep = 'room';
+let roomStepAge = null;
+
+function roomWalls() {
+  if (S.stage === 'child') return 'bedroom';
+  if (S.stage === 'teen') return 'teenroom';
+  if (S.home) return S.home.kind === 'private' ? 'condo' : (S.home.id || 'bto4');
+  return sim.isRenting(S) ? 'rental' : 'parents';
+}
+
+function roomItems() {
+  const bought = new Map((S.story || []).filter((e) => e.kind === 'buy').map((e) => [e.text, e.age]));
+  return sim.ownedItems(S).map((it) => ({
+    ...it,
+    age: bought.get(it.name),
+    perk: Object.entries(it.perTurn || {}).map(([k, v]) => `+${v} ${(STATS[k] || { label: k }).label}`).join(', '),
+  }));
+}
+
+function roomItemLine(it) {
+  if (!it) return '<span class="muted">Tap an item in your room to see what it is.</span>';
+  return `<b>${it.icon} ${esc(it.name)}</b><span>Cost <b class="num">${money(it.price)}</b></span>${it.age != null ? `<span>Bought at age <b class="num">${it.age}</b></span>` : ''}<span class="pos">+${it.joy} Joy${it.perk ? `, ${esc(it.perk)} each turn` : ''}</span>`;
+}
+
+function renderRoomMode() {
+  if (roomStepAge !== S.age) { roomStep = 'room'; roomStepAge = S.age; }
+  const years = sim.yearsThisTurn(S);
+  const kind = roomKind();
+  const groups = actionTileGroups();
+  const tile = ([panel, icon, label, note, warn]) => `
+      <button class="rm-tile" data-panel="${panel}"><span class="rm-ti">${icon}</span><span class="rm-tl">${label}</span><span class="rm-tn ${warn ? 'neg' : ''}">${note}</span></button>`;
+  const focus = roomStep === 'focus';
+  app.innerHTML = `<div class="rm ${focus ? 'rm-focus-step' : ''}">${hudHtml()}
+    <div class="rm-body">
+      <p class="rm-step"><span class="rm-tag">Step ${focus ? 2 : 1} of 2</span>${focus
+        ? `Pick one focus. It plays out ${years > 1 ? `ages ${S.age} to ${S.age + years - 1}` : 'this year'}.`
+        : 'Watch your room, tap things to see them, and make any optional choices. Then choose your focus.'}</p>
+      <p class="rm-line" id="rm-line" aria-live="polite">${roomItemLine(null)}</p>
+      <section class="rm-room" id="rm-room" aria-label="${kind.label}"><span class="rm-label">${kind.label} · Age ${S.age}${years > 1 ? `, this turn ${S.age} to ${S.age + years - 1}` : ''}</span></section>
+      ${focus ? `
+      <section class="zone zone-focus rm-zone">
+        <h2>Age ${S.age}: ${turnPrompt()}</h2>
+        <div class="cards">${activityCards()}</div>
+        <button class="link-btn rm-back" id="rm-back">← Back to my room and choices</button>
+      </section>` : `
+      <section class="rm-extras" aria-label="Optional choices">
+        <p class="rm-extras-head"><b>Optional choices</b><span>None of these use up your ${years > 1 ? 'turn' : 'year'}.</span></p>
+        <div class="rm-groups">${groups.map(([title, list]) => `<div class="rm-group" style="flex:${list.length} 1 0">${title ? `<span class="rm-gt">${title}</span>` : ''}<div class="rm-tiles">${list.map(tile).join('')}</div></div>`).join('')}</div>
+      </section>
+      <div class="rm-next"><span>Next, you pick one focus for ${years > 1 ? `ages ${S.age} to ${S.age + years - 1}` : 'this year'}.</span><button class="btn primary rm-go" id="rm-go">Next: choose my focus →</button></div>`}
+    </div></div>`;
+  if (S.ledgerFresh) S.ledgerFresh = false;
+  app.querySelectorAll('[data-panel]').forEach((b) => (b.onclick = () => openPanel(b.dataset.panel)));
+  app.querySelectorAll('[data-activity]').forEach((b) => (b.onclick = () => takeTurn(b.dataset.activity)));
+  const line = $('#rm-line');
+  mountRoom($('#rm-room'), {
+    items: roomItems(),
+    walls: roomWalls(),
+    sheet: () => sheetUrl(me()),
+    onItem: (it) => { line.innerHTML = roomItemLine(it); },
+  });
+  const go = $('#rm-go');
+  if (go) go.onclick = () => { roomStep = 'focus'; render(); };
+  const back = $('#rm-back');
+  if (back) back.onclick = () => { roomStep = 'room'; render(); };
+}
+
 // Self-employed: no employer CPF and no OA or SA contributions, so each turn the top-up tile
 // asks whether to set money aside for retirement, until there's a yearly plan or they decide.
 function selfEmployedTopUpPending() {
   return !!(S.selfEmployed && sim.isWorking(S) && S.age < 65 && !sim.cpfTopUpPerYear(S) && S.sepTopUpDecided !== S.age && sim.topUpRoom(S) > 0);
 }
 
-// Things you can do as often as you like before you pick this turn's activity.
-function actionTiles() {
+// Things you can do as often as you like before you pick this turn's activity, in groups.
+function actionTileGroups() {
   const grown = S.stage === 'adult' || S.stage === 'senior';
   const working = sim.isWorking(S);
   const job = sim.careerInfo(S);
@@ -561,12 +653,20 @@ function actionTiles() {
     fun.push(['car', S.car ? cars.spec(S.car).icon : '🚗', 'Car', S.car ? `${cars.CAR.coeYears - cars.carAge(S.car, S.age)} yrs of COE left` : 'No car', S.car && cars.carAge(S.car, S.age) >= 8]);
   }
   fun.push(['shop', '🛍️', 'Buy items', `${S.room.length} owned`]);
+  return grown
+    ? [['💰 Your money', money_], ['🏡 Family, home and work', life], ['🎉 Lifestyle', fun]].filter(([, l]) => l.length)
+    : [['', [...money_, ...fun]]];
+}
+
+function actionTiles() {
+  const grown = S.stage === 'adult' || S.stage === 'senior';
+  const groups = actionTileGroups();
   const tile = ([panel, icon, label, note, warn]) => `
       <button class="tile" data-panel="${panel}"><span class="t-icon">${icon}</span><span class="t-label">${label}</span><span class="t-note ${warn ? 'neg' : ''}">${note}</span></button>`;
   const group = (title, list) => (list.length ? `<h3 class="tiles-group">${title}</h3><div class="tiles">${list.map(tile).join('')}</div>` : '');
   return `<h2 class="tiles-head">Optional extras</h2>
     <p class="tiles-hint">Do any of these first if you like, as often as you want. They don't use up your ${sim.yearsThisTurn(S) > 1 ? 'turn' : 'year'}. When you're ready, pick your focus below to move on.</p>
-    ${grown ? `${group('💰 Your money', money_)}${group('🏡 Family, home and work', life)}${group('🎉 Lifestyle', fun)}` : `<div class="tiles">${[...money_, ...fun].map(tile).join('')}</div>`}`;
+    ${grown ? groups.map(([t, l]) => group(t, l)).join('') : `<div class="tiles">${groups[0][1].map(tile).join('')}</div>`}`;
 }
 
 // What you spend money on, for one month, from your current budget.
@@ -1502,6 +1602,7 @@ async function milestones() {
   if (S.stage === 'adult' && !S.home && ((S.spouse && S.homeAskedMarried == null) || (S.age >= 27 && (S.homeAskedAt == null || S.age - S.homeAskedAt >= 6)))) {
     await homeDecision();
   }
+  if (S.dcpNew && !S.dcp) S.dcpNew = false;
   if (S.dcpNew) {
     S.dcpNew = false;
     logEvent(`💳 Debt Consolidation Plan: ${money(S.dcp.monthly)}/month`);
