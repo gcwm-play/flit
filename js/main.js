@@ -1602,6 +1602,7 @@ async function milestones() {
   if (S.stage === 'adult' && !S.home && ((S.spouse && S.homeAskedMarried == null) || (S.age >= 27 && (S.homeAskedAt == null || S.age - S.homeAskedAt >= 6)))) {
     await homeDecision();
   }
+  if (S.dcpNew && !S.dcp) S.dcpNew = false;
   if (S.dcpNew) {
     S.dcpNew = false;
     logEvent(`💳 Debt Consolidation Plan: ${money(S.dcp.monthly)}/month`);

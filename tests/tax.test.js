@@ -316,3 +316,18 @@ test('quick start to 40: a job, a lifestyle, and the years in between played', (
     assert.ok(cpf.cpfTotal(s.cpf) > 50000);
   }
 });
+
+test('a debt plan paid off in the same stretch leaves no new-plan notice behind', () => {
+  for (let i = 0; i < 300; i++) {
+    const s = sim.quickStart(sim.newGame('D', { animal: 'cat', gender: i % 2 ? 'male' : 'female', outfit: 0 }), 'random');
+    sim.quickStartAdult(s, 40);
+    if (s.dcpNew) assert.ok(s.dcp, 'dcpNew is set only while a plan is running');
+  }
+  const s = sim.newGame('E', { animal: 'cat', gender: 'female', outfit: 0 });
+  s.debt = 5000;
+  sim.startDcp(s);
+  s.bank = 10000;
+  sim.repayDebt(s, 5000);
+  assert.equal(s.dcp, null);
+  assert.equal(s.dcpNew, false);
+});
