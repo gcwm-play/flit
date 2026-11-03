@@ -392,8 +392,6 @@ export const CAREER_SWITCHES = [
     desc: 'Perform on local stages and grow an online audience. Arts grants can help.' },
   { id: 'teamlead', label: 'Sports team manager', icon: '🏟️', hybrid: 'teamwork', min: 23, pay: 6000,
     desc: 'Manage a professional or national sports team.' },
-  { id: 'officer', label: 'Regular officer in the SAF', icon: '🎖️', hybrid: 'discipline', min: 23, pay: 6800, oneEmployer: true,
-    desc: 'A structured career in the Singapore Armed Forces, with good benefits.' },
   { id: 'fnb', label: 'Owner of a food and drinks chain', icon: '🍲', hybrid: 'enterprise', min: 23, pay: 8000, selfEmployed: true,
     desc: 'Grow a hawker stall into a chain of outlets.' },
   { id: 'cfp', label: 'Certified wealth planner', icon: '📈', hybrid: 'planner', min: 23, pay: 8500,
@@ -438,3 +436,59 @@ export const CAREER_SWITCHES = [
   { id: 'studio', label: 'Owner of a yoga and wellness studio', icon: '🧘', hybrid: 'vitality', min: 23, pay: 5500, selfEmployed: true,
     desc: 'Run your own studio and classes.' },
 ];
+
+// Careers no longer offered, kept so older saves still show the job's name.
+export const OLD_CAREERS = [
+  { id: 'officer', label: 'Regular officer in the SAF', icon: '🎖️', pay: 6800, oneEmployer: true },
+];
+
+// ---------- a career in the Singapore Armed Forces ----------
+// You can only become an SAF regular by signing on: men during or at the end of National Service,
+// women straight after school. You start at the bottom of the rank ladder and are promoted over time.
+// You can't join halfway through another career.
+//
+// Sources (checked 2026-11): starting pay ranges and sign-on bonuses from SingSaver's SAF salary
+// guide 2026 (officer: diploma $3,050 to $3,450, degree $4,970 to $6,140; WOSpec with a diploma
+// $2,850 to $3,300; sign-on bonus $20,000 with a diploma, $30,000 with a degree, paid half on
+// signing and half after the first year) and Dollars and Sense (Captain $6,140 to $7,310).
+// Retirement ages from MINDEF (19 Sep 2022 fact sheet): officers retire at 50, most warrant
+// officers and specialists at 55. From 1 Jul 2025 SAF regulars get full employer and employee CPF.
+// Pay for the higher ranks and the years between promotions are the game's estimates: real
+// promotions depend on yearly appraisals, so here they need Leadership (officers) or Discipline
+// (specialists), and you stay at a rank until you have it.
+// `after` is the years at the rank below; `need` is the hybrid stat needed for the promotion.
+export const SAF = {
+  bondYears: 6, // the minimum service you sign on for
+  officer: {
+    id: 'saf-officer', label: 'SAF officer', icon: '🎖️', retireAge: 50, stat: 'leadership',
+    bonus: { diploma: 20000, degree: 30000 },
+    // A Service Bonus of 2 to 6 months' pay between 45 and 50 (SAVER plan, from 2025).
+    serviceBonusMonths: 4,
+    ranks: [
+      { abbr: '2LT', title: 'Second Lieutenant', pay: 3250, after: 0 },
+      { abbr: 'LTA', title: 'Lieutenant', pay: 3800, gradPay: 5500, after: 2 },
+      { abbr: 'CPT', title: 'Captain', pay: 5200, gradPay: 6600, after: 3, gradAfter: 1 },
+      { abbr: 'MAJ', title: 'Major', pay: 7600, after: 5, need: 16 },
+      { abbr: 'LTC', title: 'Lieutenant\u2011Colonel', pay: 10000, after: 6, need: 22 },
+      { abbr: 'SLTC', title: 'Senior Lieutenant\u2011Colonel', pay: 12000, after: 4, need: 28 },
+      { abbr: 'COL', title: 'Colonel', pay: 14000, after: 4, need: 34 },
+    ],
+  },
+  specialist: {
+    id: 'saf-specialist', label: 'SAF specialist', icon: '🪖', retireAge: 55, stat: 'discipline',
+    bonus: { diploma: 20000, ite: 20000 },
+    serviceBonusMonths: 0,
+    // With a Nitec, pay is about 10% lower at each rank.
+    iteFactor: 0.9,
+    ranks: [
+      { abbr: '3SG', title: 'Third Sergeant', pay: 2900, after: 0 },
+      { abbr: '2SG', title: 'Second Sergeant', pay: 3200, after: 2 },
+      { abbr: '1SG', title: 'First Sergeant', pay: 3600, after: 3 },
+      { abbr: 'SSG', title: 'Staff Sergeant', pay: 4100, after: 3, need: 13 },
+      { abbr: 'MSG', title: 'Master Sergeant', pay: 4700, after: 3, need: 16 },
+      { abbr: '3WO', title: 'Third Warrant Officer', pay: 5400, after: 3, need: 20 },
+      { abbr: '2WO', title: 'Second Warrant Officer', pay: 6200, after: 4, need: 25 },
+      { abbr: '1WO', title: 'First Warrant Officer', pay: 7000, after: 4, need: 30 },
+    ],
+  },
+};

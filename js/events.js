@@ -1,7 +1,7 @@
 // Random life events. World events change the coming years (and your stats can
 // soften them); personal events and cash gifts happen to you alone.
 import { rand, pick, FACTS } from './data.js';
-import { money, isWorking, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar, allocateGift } from './sim.js';
+import { money, isWorking, careerInfo, payFromMedisave, coverShortfall, marry, haveChild, spendCash, buyCar, allocateGift } from './sim.js';
 import * as cars from './car.js';
 import * as invest from './invest.js';
 import { scamsFor, mishapsFor, randomScam, randomMishap } from './mishaps.js';
@@ -28,6 +28,11 @@ export const WORLD_EVENTS = [
     run(s) {
       const keys = ['career', 'resilience'];
       const r = resistance(s, keys, ['leadership', 'teamwork']);
+      // The SAF, the SPF and SCDF don't retrench in a recession.
+      const job = careerInfo(s);
+      if (job && job.oneEmployer && !s.selfEmployed) {
+        return { icon: '📉', title: 'Recession!', text: `Companies are cutting jobs, but your job with ${job.saf ? 'the SAF' : job.id === 'police' ? 'the SPF' : 'SCDF'} is safe: the uniformed services don't retrench in a downturn. Investments still take a knock this year.`, opts: { market: -1.5 } };
+      }
       const hit = Math.random() > r;
       const months = hit ? Math.round(6 * (1 - r)) + (s.selfEmployed ? 2 : 0) : 0;
       const text = hit
