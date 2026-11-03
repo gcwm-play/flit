@@ -546,8 +546,63 @@ test('every holiday has a postcard and a tab, and trips record who went', async 
 test('careers with one employer in Singapore have no "another company" offer', () => {
   const s = sim.newGame('SAF', { gender: 'male', animal: 'dog', outfit: 0 });
   s.age = 35; s.stage = 'adult'; s.education = 'university';
-  sim.switchCareer(s, 'officer');
+  sim.switchCareer(s, 'scdf');
   for (let i = 0; i < 20; i++) assert.equal(sim.jobOffers(s, 'normal').offers.some((o) => o.same), false);
+});
+
+test('the SAF is never a mid-career switch or a job offer', async () => {
+  const { CAREER_SWITCHES, CAREERS } = await import('../js/data.js');
+  assert.equal([...CAREER_SWITCHES, ...CAREERS].some((c) => /SAF/.test(c.label)), false);
+  const s = sim.newGame('Pilot', { gender: 'male', animal: 'frog', outfit: 0 });
+  s.age = 48; s.stage = 'adult'; s.career = 'engineer'; s.salary = 9000;
+  for (const k of Object.keys(s.stats)) s.stats[k] = 60;
+  sim.checkHybrids(s);
+  for (let i = 0; i < 50; i++) {
+    assert.ok(!/^saf-|^officer$/.test(sim.careerSwitchOffer(s).id));
+    assert.equal(sim.jobOffers(s, 'normal').offers.some((o) => /^saf-|^officer$/.test(o.id)), false);
+  }
+});
+
+test('signing on after NS: officer starts as 2LT, is promoted with Leadership and retires at 50', () => {
+  const s = sim.newGame('Reg', { gender: 'male', animal: 'dog', outfit: 0 });
+  s.age = 21; s.stage = 'adult'; s.school = 'jc';
+  for (const k of Object.keys(s.stats)) s.stats[k] = 20;
+  sim.checkHybrids(s);
+  sim.planSaf(s, 'officer');
+  const bank = s.bank;
+  const o = sim.joinSaf(s);
+  assert.equal(o.rankAbbr, '2LT');
+  assert.equal(s.salary, 3250);
+  assert.equal(s.bank - bank, 20000);
+  assert.ok(sim.inSaf(s) && sim.safBonded(s));
+  assert.equal(sim.careerSwitchOffer(s), null); // signed on for 6 years
+  // Leadership 20: up to Major (needs 16), but not Lieutenant-Colonel (needs 22).
+  while (s.age < 40) sim.advanceYears(s, sim.yearsThisTurn(s));
+  assert.equal(sim.careerInfo(s).title, 'Major (MAJ) in the SAF');
+  for (const k of Object.keys(s.stats)) s.stats[k] = 30;
+  while (sim.inSaf(s)) sim.advanceYears(s, sim.yearsThisTurn(s));
+  assert.equal(s.age, 50);
+  assert.equal(s.workMode, 'retired');
+  assert.ok(/Lieutenant\u2011Colonel/.test(sim.careerInfo(s).title));
+  assert.ok(s.story.some((e) => /Retired from the SAF at 50/.test(e.text)));
+});
+
+test('SAF specialists with a Nitec start a little lower and retire at 55; sponsored officers start as LTA', () => {
+  const s = sim.newGame('Spec', { gender: 'female', animal: 'cat', outfit: 0 });
+  s.age = 21; s.stage = 'adult'; s.school = 'ite';
+  assert.equal(sim.safTracks(s).officer, false);
+  sim.planSaf(s, 'specialist');
+  const o = sim.joinSaf(s);
+  assert.equal(o.rankAbbr, '3SG');
+  assert.equal(s.salary, 2600);
+  for (let i = 0; i < 40 && sim.inSaf(s); i++) sim.advanceYears(s, sim.yearsThisTurn(s));
+  assert.equal(s.age, 55);
+  const g = sim.newGame('Grad', { gender: 'male', animal: 'cat', outfit: 0 });
+  g.school = 'jc'; g.stats.knowledge = 40;
+  const so = sim.safOffer(g, 'officer', true);
+  assert.equal(so.rankAbbr, 'LTA');
+  assert.equal(so.pay, 5500);
+  assert.equal(so.bonus, 30000);
 });
 
 test('career switches vary: a strong player is not always offered the same job', () => {

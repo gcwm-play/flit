@@ -12,7 +12,7 @@ import { characterHtml, itemHtml, itemWidth, lookOf, sheetUrl, OUTFITS, ANIMALS,
 import { mountRoom } from './room25d.js';
 import { rollWorldEvent, rollPersonalEvent, PERSONAL_EVENTS, quietWorldEvent, quietPersonalEvent } from './events.js';
 import {
-  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, SCHOOLS, CAREERS, CAREER_SWITCHES,
+  STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, ACTIVITIES, SHOP, EDUCATION, SCHOOLS, CAREERS, CAREER_SWITCHES, SAF,
   LIFESTYLES, RETIREMENT_LIFESTYLES, RENT_MONTHLY, FACTS, HOLIDAYS, HOLIDAY_GROUPS,
 } from './data.js';
 
@@ -1567,7 +1567,7 @@ async function nsIntro() {
       <li>No CPF is paid on NSF allowances, and they aren't taxed.</li>
       <li>No part-time job during these two years.</li>
       <li>After NS you're an NSman: in-camp training most years until about 40, and NSman Self Relief cuts your income tax ($3,000 in a year with training, $1,500 without).</li>
-      <li>After NS you choose: start work, or go to university if you went to JC or poly and your Knowledge is high enough (which means starting work two years later). JC and poly come before NS.</li>
+      <li>After NS you choose: start work, go to university if you went to JC or poly and your Knowledge is high enough (which means starting work two years later), or sign on as an SAF regular. JC and poly come before NS.</li>
     </ul>
     ${btn('ok', 'Report for duty', 'primary')}`);
 }
@@ -1618,6 +1618,7 @@ async function milestones() {
   if (S.car && cars.carAge(S.car, S.age) >= cars.CAR.coeYears) await coeEndDialog();
   await homeLoanMilestones();
   await cpfPlanStoppedNotice();
+  await safNews();
   const offer = sim.careerSwitchOffer(S);
   if (offer) await careerSwitchDialog(offer);
   for (const child of S.children || []) {
@@ -1712,7 +1713,7 @@ function workOptionsHtml() {
   const early = S.age < 63;
   return `<div class="limit-box"><h3>⏳ How much do you want to work?</h3>
     <p class="small">You can go part-time (half the hours and half the pay), or stop working. ${early ? 'Retiring before 63 means living on your own savings for longer: your CPF stays locked until 55 and CPF LIFE pays from 65.' : 'Singapore\'s retirement age is 63, and employers must offer re-employment up to 68.'}</p>
-    <div class="row">${S.workMode === 'part' ? btn('mode:full', '💼 Go back to full-time') : btn('mode:part', '⏳ Work part-time')}${S.age >= 40 ? btn('mode:retired', early ? '🌅 Retire early' : '🌅 Retire') : ''}</div>
+    <div class="row">${S.workMode === 'part' ? btn('mode:full', '💼 Go back to full-time') : sim.inSaf(S) ? '' : btn('mode:part', '⏳ Work part-time')}${S.age >= 40 ? btn('mode:retired', early ? '🌅 Retire early' : '🌅 Retire') : ''}</div>
     ${S.age < 40 ? '<p class="small muted-ink">Early retirement opens up from 40.</p>' : ''}</div>`;
 }
 
@@ -1748,6 +1749,11 @@ async function jobHunt(reason, economy) {
   if (reason === 'choice' && S.jobChangedAge === S.age && S.workMode !== 'retired') {
     const c = await dialog(`<div class="event"><div class="e-icon">💼</div><h2>You've just changed jobs</h2><p>Give it a year before looking for another.</p></div>${workOptionsHtml()}${btn('ok', 'OK', 'primary')}`);
     if (c.startsWith('mode:')) await changeWorkMode(c.slice(5));
+    return;
+  }
+  if (reason === 'choice' && sim.safBonded(S)) {
+    await dialog(`<div class="event"><div class="e-icon">${SAF[S.saf.track].icon}</div><h2>You signed on until ${S.saf.bondUntil}</h2>
+      <p>When you signed on with the SAF you agreed to serve at least ${SAF.bondYears} years. You can look at other jobs from age ${S.saf.bondUntil}.</p></div>${btn('ok', 'OK', 'primary')}`);
     return;
   }
   const back = reason === 'choice' && S.workMode === 'retired';
@@ -1949,6 +1955,92 @@ async function stageIntro(stage) {
   render();
 }
 
+// ---------- signing on with the SAF ----------
+
+// The only way into an SAF career: sign on at the end of NS (men) or after school (women).
+function safCardHtml() {
+  return `<button class="career" data-choice="saf"><span class="c-icon">🎖️</span><b>Sign on with the SAF</b>
+    <span>${sim.doesNs(S) ? 'Become a regular after NS' : 'Join as a regular'}</span>
+    <small>A career in the Singapore Armed Forces: a sign-on bonus, then promotion up the ranks. Officers retire at ${SAF.officer.retireAge}, specialists at ${SAF.specialist.retireAge}.</small></button>`;
+}
+
+// Choose officer, officer on an SAF-sponsored degree, or specialist. Returns false to go back.
+async function safSignOnDialog(firstJob = false) {
+  const ok = sim.safTracks(S);
+  const card = (id, track, sponsored, open, why) => {
+    const o = sim.safOffer(S, track, sponsored);
+    const t = SAF[track];
+    const top = t.ranks.at(-1);
+    const start = sponsored ? STAGES.adult.startAge + (sim.doesNs(S) ? sim.NS.years : 1) : Math.max(S.age, STAGES.adult.startAge);
+    return `<button class="career" data-choice="${id}" ${open ? '' : 'disabled'}><span class="c-icon">${t.icon}</span>
+      <b>${sponsored ? 'Officer, with a degree paid by the SAF' : track === 'officer' ? 'Officer' : 'Specialist'}</b>
+      <span>${o.rankTitle} (${o.rankAbbr}) at ${start}, ${money(o.pay)}/month</span>
+      <small>${open ? '' : `<span class="neg">✗ ${why}</span><br>`}${sponsored
+        ? `The SAF pays for your degree (an SAF study award); you study first and start as a Lieutenant. `
+        : track === 'officer' ? `Lead soldiers, sailors or airmen as a commissioned officer${o.grad ? ', on graduate pay' : ''}. ` : 'The sergeants and warrant officers who run training and equipment day to day. '}Sign&#8209;on bonus ${money(o.bonus)}. Ranks up to ${top.title} (${top.abbr}). Retire from the SAF at ${t.retireAge}.</small></button>`;
+  };
+  const c = await dialog(`<div class="event"><div class="e-icon">🎖️</div><p class="eyebrow">Signing on</p>
+    <h2>Become an SAF regular?</h2>
+    <p>${sim.doesNs(S) ? 'NSFs can sign on during or at the end of National Service, and graduates can sign on after university.' : 'Women can join the SAF as regulars after JC, poly, ITE or university.'} You start near the bottom of the rank ladder and are promoted as you gain experience. You sign on for at least <b>${SAF.bondYears} years</b>.</p></div>
+    <div class="careers">
+      ${card('officer', 'officer', false, ok.officer, 'Needs A-levels or a poly diploma')}
+      ${firstJob ? '' : card('sponsored', 'officer', true, ok.sponsored, S.school === 'ite' ? 'Needs JC or a poly diploma' : `Needs Knowledge ${EDUCATION.university.minKnowledge} for university`)}
+      ${card('specialist', 'specialist', false, ok.specialist, '')}
+    </div>
+    <div class="fact small"><p><b>How it works.</b> Promotions come every few years. The higher ranks need ${HYBRIDS.leadership.icon} Leadership (officers) or ${HYBRIDS.discipline.icon} Discipline (specialists), so keep building them. You pay CPF like any other employee and your employer adds its share. Regulars aren't retrenched in a recession. Officers retire at ${SAF.officer.retireAge} with a service bonus, and most specialists at ${SAF.specialist.retireAge}; after that you can start a second career.</p>
+    <p class="muted-ink">Pay and bonuses are 2026 estimates from published SAF salary guides; real promotions depend on yearly appraisals.</p></div>
+    <div class="row">${btn('back', 'Go back')}</div>`, { wide: true });
+  if (c === 'back' || c == null) return false;
+  sim.planSaf(S, c === 'specialist' ? 'specialist' : 'officer', c === 'sponsored');
+  logEvent(`🎖️ Signed on with the SAF`);
+  return true;
+}
+
+// The first day as an SAF regular, after NS, school or an SAF-sponsored degree.
+async function safStart() {
+  const o = sim.joinSaf(S);
+  const t = SAF[o.track];
+  const contrib = cpf.monthlyContribution(S.age, S.salary);
+  const next = sim.safNextRank(S);
+  logEvent(`${t.icon} Joined the SAF: ${o.rankTitle}`);
+  await dialog(`<div class="event"><div class="e-icon">${t.icon}</div><p class="eyebrow">${t.label}</p>
+    <h2>You're ${sim.aOrAn(o.rankTitle)} ${o.rankTitle} (${o.rankAbbr})!</h2>
+    <p>Pay: <b>${money(S.salary)}</b> a month. Your sign-on bonus of <b>${money(o.bonus)}</b> is paid in two halves this year.</p>
+    <p>Each month you put <b>${money(contrib.employee)}</b> into CPF and the SAF adds <b>${money(contrib.employer)}</b>.</p>
+    ${next ? `<p class="small">Next rank: ${next.title} (${next.abbr}) at about ${next.dueAge}${next.need ? `, if your ${HYBRIDS[next.stat].label} is ${next.need} or more` : ''}. You've signed on until ${S.saf.bondUntil}, and you retire from the SAF at ${t.retireAge}.</p>` : ''}</div>
+    ${btn('ok', 'Next', 'primary')}`);
+  await lifestyleDialog();
+}
+
+// Promotions, and retiring from the SAF, since the last turn.
+async function safNews() {
+  if (!S.saf || !(S.saf.news || []).length) return;
+  const news = S.saf.news.splice(0);
+  const t = SAF[S.saf.track];
+  for (const n of news) {
+    if (n.kind === 'promoted') {
+      logEvent(`${t.icon} Promoted to ${n.title} (${n.abbr})`);
+      await dialog(`${cheerHtml('Promoted!')}<div class="event"><div class="e-icon">${t.icon}</div><h2>You're now ${sim.aOrAn(n.title)} ${n.title} (${n.abbr})</h2>
+        <p>Promoted at ${n.age}. Your pay goes up to <b>${money(n.pay)}</b> a month.</p></div>${btn('ok', 'Yay!', 'primary')}`);
+    }
+  }
+  const ret = news.find((n) => n.kind === 'retired');
+  const next = sim.safNextRank(S);
+  if (!ret && next && !next.ok && S.age >= next.dueAge && !S.saf.toldNeed?.[next.abbr]) {
+    (S.saf.toldNeed ||= {})[next.abbr] = true;
+    await dialog(`<div class="event"><div class="e-icon">${t.icon}</div><h2>Not promoted this time</h2>
+      <p>You're due for ${next.title} (${next.abbr}), but it needs ${HYBRIDS[next.stat].icon} ${HYBRIDS[next.stat].label} ${next.need} and yours is ${Math.round(sim.hybridValue(S, next.stat))}. Build it up and you'll be promoted at the next review.</p></div>${btn('ok', 'OK', 'primary')}`);
+  }
+  if (!ret) return;
+  logEvent(`🎖️ Retired from the SAF at ${ret.age}`);
+  const c = await dialog(`<div class="event"><div class="e-icon">🎖️</div><p class="eyebrow">${t.label}</p>
+    <h2>You retire from the SAF at ${ret.age}</h2>
+    <p>You finish as ${sim.aOrAn(ret.title)} <b>${ret.title} (${ret.abbr})</b>. SAF ${S.saf.track === 'officer' ? 'officers retire at 50' : 'specialists and warrant officers retire at 55'}, so most regulars start a second career.${ret.bonus ? ` Your service bonus of <b>${money(ret.bonus)}</b> has gone into your cash.` : ''}</p>
+    <p class="small">MINDEF's Career Transition Resource Centre helps with courses and job matching. You can also stop working and live on your savings.</p></div>
+    <div class="row">${btn('jobs', 'Look for a second career', 'primary')}${btn('rest', 'Stay retired for now')}</div>`);
+  if (c === 'jobs') await jobHunt('choice');
+}
+
 // Men: after NS, start work with what they finished before NS, or go to university if their
 // Knowledge allows. Poly and JC come before NS, so university is the only study left.
 async function postNsChoice() {
@@ -1971,8 +2063,13 @@ async function postNsChoice() {
         <span>First job at ${STAGES.adult.startAge + sim.NS.years}</span>
         <small>${uniOk ? `✓ Knowledge ${need} (you have ${k})` : S.school === 'ite' ? '<span class="neg">✗ Needs JC or a poly diploma</span>' : `<span class="neg">✗ Needs Knowledge ${need} (you have ${k})</span>`}<br>A degree pays the most to start, but your pay and CPF start later.</small>
       </button>
+      ${safCardHtml()}
     </div>
-    <p class="small">Either way is fine: starting earlier gives your CPF more years to grow, while a degree usually means higher pay for the rest of your career.</p>`, { wide: true });
+    <p class="small">Any of these is fine: starting earlier gives your CPF more years to grow, while a degree usually means higher pay for the rest of your career.</p>`, { wide: true });
+  if (c === 'saf') {
+    if (!(await safSignOnDialog())) return postNsChoice();
+    return;
+  }
   S.postNs = c === 'uni' && uniOk ? 'uni' : 'work';
   sim.story(S, 'job', S.postNs === 'uni' ? '🎓' : '💼', S.postNs === 'uni' ? 'Went to university after NS' : 'Started work after NS');
 }
@@ -2007,7 +2104,12 @@ async function uniChoice() {
         <small>Pay as ${sim.aOrAn(workEd.label)} ${workEd.label} holder (about ${Math.round(workEd.pay * 100)}% of a graduate's starting pay for most jobs). Your CPF starts growing sooner.</small></button>
       <button class="career" data-choice="uni" ${ok ? '' : 'disabled'}><span class="c-icon">🎓</span><b>Go to university</b><span>First job at ${STAGES.adult.startAge + 1}</span>
         <small>${ok ? `✓ Knowledge ${need} (you have ${k})` : `<span class="neg">✗ Needs Knowledge ${need} (you have ${k})</span>`}<br>Three years of study from 19. A degree pays the most to start.</small></button>
+      ${safCardHtml()}
     </div>`, { wide: true });
+  if (c === 'saf') {
+    if (!(await safSignOnDialog())) return uniChoice();
+    return;
+  }
   S.postNs = c === 'uni' && ok ? 'uni' : 'work';
   sim.story(S, 'job', S.postNs === 'uni' ? '🎓' : '💼', S.postNs === 'uni' ? 'Went to university at 19' : 'Chose to start work at 21');
 }
@@ -2026,6 +2128,7 @@ async function studyAfterNs() {
 }
 
 async function adultStart() {
+  if (S.safPlan) return safStart();
   S.education = sim.educationFor(S);
   const ed = EDUCATION[S.education];
   const opts = sim.careerOptions(S);
@@ -2035,7 +2138,7 @@ async function adultStart() {
     <p class="small">Your qualification sets the starting pay for most jobs (a Nitec pays about ${Math.round(EDUCATION.ite.pay * 100)}% of a graduate's, a diploma ${Math.round(EDUCATION.poly.pay * 100)}%). Jobs marked 🧰 pay the same whatever your certificate.</p>
     <h3>Choose your first job</h3>
     <p class="small"><b>${opts.filter((o) => o.eligible).length} open to you</b>, then the ones that need more skills.</p>
-    <div class="careers">${opts.map((o) => `
+    <div class="careers">${safCardHtml()}${opts.map((o) => `
       <button class="career" data-choice="${o.id}" ${o.eligible ? '' : 'disabled'}>
         <span class="c-icon">${o.icon}</span><b>${o.label}</b>
         <span>${money(o.startPay)}/month${o.selfEmployed ? ' (varies)' : ''}${o.flat ? ' 🧰' : ''}</span>
@@ -2043,13 +2146,14 @@ async function adultStart() {
           ? `✓ ${STATS[k].label} ${v}`
           : `<span class="neg">✗ ${STATS[k].label} ${v} (you have ${Math.round(S.stats[k])})</span>`).join('<br>') || 'No requirements'}${o.selfEmployed ? '<br>Self-employed: no employer CPF, only MediSave' : ''}</small>
       </button>`).join('')}</div>
-    <p class="small">Locked jobs need more of a skill. You can still switch later: build the skill as an adult, then look for a new job from the Work tile.</p>
+    <p class="small">Locked jobs need more of a skill. You can still switch later: build the skill as an adult, then look for a new job from the Work tile. The SAF is different: you can only sign on now, at the start of your working life.</p>
     ${advancedJobHtml()}`, { wide: true });
   if (c === 'custom') {
     if (!(await customJobDialog())) return adultStart();
     await lifestyleDialog();
     return;
   }
+  if (c === 'saf') return (await safSignOnDialog(true)) ? safStart() : adultStart();
   sim.chooseCareer(S, c);
   logEvent(`💼 First job: ${opts.find((o) => o.id === c).label}`);
   const career = opts.find((o) => o.id === c);
@@ -2485,15 +2589,16 @@ function cashChart() {
   const d = h.map((p, i) => `${i ? 'L' : 'M'}${x(p.age).toFixed(1)},${y(p.cash).toFixed(1)}`).join(' ');
   const hits = h.map((p) => {
     const w = (W - L - R) / Math.max(1, h.length - 1);
-    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit"><title>Age ${p.age}: ${money(p.cash)}</title></rect>`;
+    const tip = `<b>Age ${p.age}</b><span class="tip-row"><i class="k-cash"></i>Cash <b>${p.cash < 0 ? '−' : ''}${money(Math.abs(p.cash))}</b></span>`;
+    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit" data-tip="${esc(tip)}" aria-label="Age ${p.age}: ${money(p.cash)}"></rect>`;
   }).join('');
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cash savings by age">
+  return `<div class="chart-box"><svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cash savings by age">
     <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" class="axis"/>
     <text x="${L - 6}" y="${y(maxV) + 4}" text-anchor="end">${shortMoney(maxV)}</text>
     <text x="${L - 6}" y="${y(0) + 4}" text-anchor="end">$0</text>
     ${minV < 0 ? `<text x="${L - 6}" y="${y(minV) + 4}" text-anchor="end">−${shortMoney(-minV)}</text>` : ''}
     <path d="${d}" class="l-cash"/>
-    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg>`;
+    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg><div class="chart-tip" hidden></div></div>`;
 }
 
 // Stacked chart of each CPF account by age, with markers for big moments.
@@ -2515,19 +2620,59 @@ function cpfTrendChart() {
     return `<path d="${d}" class="a-${k}"/>`;
   }).join('');
   const ticks = [0, 0.5, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${y(maxV * f)}" y2="${y(maxV * f)}" class="grid"/><text x="${L - 6}" y="${y(maxV * f) + 4}" text-anchor="end">${shortMoney(maxV * f)}</text>`).join('');
-  const marks = [55, 65].filter((a) => a > a0 && a < a1).map((a) => `<line x1="${x(a)}" x2="${x(a)}" y1="${T}" y2="${H - B}" class="mark"/><text x="${x(a) + 4}" y="${T + 10}">${a === 55 ? '55: RA formed' : '65: CPF LIFE'}</text>`).join('');
+  const marks = [55, 65].filter((a) => a > a0 && a < a1).map((a) => `<line x1="${x(a)}" x2="${x(a)}" y1="${T}" y2="${H - B}" class="mark"/><text x="${x(a) + 4}" y="${T + (a === 65 ? 24 : 10)}">${a === 55 ? '55: RA formed' : '65: CPF LIFE'}</text>`).join('');
   const hits = h.map((p, i) => {
     const w = (W - L - R) / Math.max(1, h.length - 1);
-    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit"><title>Age ${p.age}: CPF ${money(p.cpf)} (OA ${money(p.oa)}, SA ${money(p.sa)}, MA ${money(p.ma)}, RA ${money(p.ra)})</title></rect>`;
+    const row = (k, label, v) => `<span class="tip-row"><i class="k-${k}"></i>${label} <b>${money(v)}</b></span>`;
+    const tip = `<b>Age ${p.age}: ${money(p.cpf)}</b>${row('oa', 'OA', p.oa)}${p.age < 55 || p.sa > 0.5 ? row('sa', 'SA', p.sa) : ''}${p.age >= 55 || p.ra > 0.5 ? row('ra', 'RA', p.ra) : ''}${row('ma', 'MediSave', p.ma)}`;
+    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit" data-tip="${esc(tip)}" aria-label="Age ${p.age}: CPF ${money(p.cpf)}"></rect>`;
   }).join('');
   const first = h[0], last = h[h.length - 1];
-  return `<svg class="chart trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="CPF balances by account from age ${a0} to ${a1}">
+  return `<div class="chart-box"><svg class="chart trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="CPF balances by account from age ${a0} to ${a1}">
     ${ticks}${areas}${marks}
-    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg>
+    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg><div class="chart-tip" hidden></div></div>
     <p class="legend"><span class="k-oa"></span> OA <span class="k-sa"></span> SA <span class="k-ra"></span> RA <span class="k-ma"></span> MediSave</p>
     <p class="small">From age ${first.age} to ${last.age}, your CPF went from <b>${money(first.cpf)}</b> to <b>${money(last.cpf)}</b>. Hover or tap the chart for any year.</p>
     <p class="small">The accounts are stacked, so each band's thickness is that account. While you work the OA usually grows fastest, even at 2.5%: it gets the biggest share of every contribution (23% of your wage up to 35, against 6% for the SA), unless it's paying for a home.</p>`;
 }
+
+// Chart tooltips: hover with a mouse, or tap and drag with a finger, to see that year's money.
+// Touch pointers stay captured by the first element, so look up what's under the finger instead.
+function chartTip(e) {
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  let hit = el && el.closest && el.closest('.chart .hit');
+  // Between bars or on the chart's edge: the year nearest the finger.
+  const svg = !hit && el && el.closest && el.closest('.chart-box .chart');
+  if (svg) {
+    let best = Infinity;
+    for (const r of svg.querySelectorAll('.hit')) {
+      const b = r.getBoundingClientRect();
+      const d = Math.abs(b.left + b.width / 2 - e.clientX);
+      if (d < best) { best = d; hit = r; }
+    }
+  }
+  document.querySelectorAll('.chart-box').forEach((box) => {
+    if (hit && box.contains(hit)) return;
+    box.querySelector('.chart-tip').hidden = true;
+    box.querySelectorAll('.hit.on').forEach((r) => r.classList.remove('on'));
+  });
+  if (!hit) return;
+  const box = hit.closest('.chart-box');
+  const tip = box.querySelector('.chart-tip');
+  box.querySelectorAll('.hit.on').forEach((r) => r !== hit && r.classList.remove('on'));
+  hit.classList.add('on');
+  tip.innerHTML = hit.dataset.tip;
+  tip.hidden = false;
+  const b = box.getBoundingClientRect();
+  const r = hit.getBoundingClientRect();
+  const w = tip.offsetWidth;
+  const mid = r.left + r.width / 2 - b.left;
+  tip.style.left = `${Math.max(4, Math.min(b.width - w - 4, mid - w / 2))}px`;
+  // Above the bar on the right half, and the left of the chart is free for the big numbers.
+  tip.style.top = '6px';
+}
+document.addEventListener('pointermove', chartTip);
+document.addEventListener('pointerdown', chartTip);
 
 function shortMoney(v) {
   return v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `$${Math.round(v / 1000)}k` : money(v);
@@ -3212,7 +3357,7 @@ function runs(key) {
 function careerRecap() {
   const t = S.totals || {};
   const jobs = runs('job').filter((r) => r.value);
-  const info = (id) => (S.customJobs || {})[id] || CAREERS.find((c) => c.id === id) || CAREER_SWITCHES.find((c) => c.id === id);
+  const info = (id) => sim.jobInfo(S, id);
   const retiredAt = sim.isRetired(S) ? stories('job').findLast((e) => /^Retired/.test(e.text))?.age : null;
   const knocks = stories('job').filter((e) => e.icon === '📉');
   const peak = Math.max(0, ...(S.history || []).map((h) => h.pay || 0));

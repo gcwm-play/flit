@@ -8,6 +8,7 @@ import * as tax from './tax.js';
 import {
   STATS, HYBRIDS, HYBRID_THRESHOLD, STAGES, STAGE_ORDER, ACTIVITIES, SHOP, LIFESTYLES,
   RETIREMENT_LIFESTYLES, RENT_MONTHLY, EDUCATION, SCHOOLS, CAREERS, ACTIVITY_BASE, ACTIVITY_BONUS, HOLIDAYS, CAREER_SWITCHES,
+  OLD_CAREERS, SAF,
 } from './data.js';
 
 // Cash earns the base rate of a normal Singapore bank savings account (0.05% a year in 2026).
@@ -262,7 +263,120 @@ export const aOrAn = (w) => (/^[aeiou]/i.test(w) && !/^(uni|use|usu|eu)/i.test(w
 
 // The job you have now, whether you started in it or switched into it later.
 export function careerInfo(s) {
-  return (s.customJobs || {})[s.career] || CAREERS.find((c) => c.id === s.career) || CAREER_SWITCHES.find((c) => c.id === s.career) || null;
+  return jobInfo(s, s.career);
+}
+
+// Any job by its id: one of the careers, your own job, or the SAF (with your rank now).
+export function jobInfo(s, id) {
+  if (id === SAF.officer.id || id === SAF.specialist.id) {
+    const track = id === SAF.officer.id ? SAF.officer : SAF.specialist;
+    const r = s.saf && s.saf.track === (track === SAF.officer ? 'officer' : 'specialist') ? track.ranks[s.saf.rank] : track.ranks[0];
+    return { id, label: track.label, title: `${r.title} (${r.abbr}) in the SAF`, icon: track.icon, oneEmployer: true, saf: true };
+  }
+  return (s.customJobs || {})[id] || CAREERS.find((c) => c.id === id) || CAREER_SWITCHES.find((c) => c.id === id)
+    || OLD_CAREERS.find((c) => c.id === id) || null;
+}
+
+// ---------- the SAF ----------
+
+// Signing on: officers need A-levels or a diploma (or go to university on an SAF award);
+// specialists can sign on with any qualification.
+export function safTracks(s) {
+  const school = s.school || (lvl(s, 'knowledge') >= EDUCATION.poly.minKnowledge ? 'poly' : 'ite');
+  return {
+    officer: school !== 'ite',
+    sponsored: canGoToUniversity(s) && !s.career && s.age < firstJobAge(s) && s.postNs !== 'work',
+    specialist: true,
+  };
+}
+
+// What signing on would give you: starting rank and pay, the bonus and when you retire.
+export function safOffer(s, track, sponsored = false) {
+  const t = SAF[track];
+  const ite = track === 'specialist' && (s.school === 'ite' || (!s.school && lvl(s, 'knowledge') < EDUCATION.poly.minKnowledge));
+  // Graduates (SAF-sponsored, or signing on after a degree) start as Lieutenants on graduate pay.
+  const grad = track === 'officer' && (sponsored || s.education === 'university');
+  const rank = grad ? 1 : 0;
+  const r = t.ranks[rank];
+  const pay = grad ? r.gradPay : Math.round((r.pay * (ite ? t.iteFactor : 1)) / 50) * 50;
+  const bonus = grad ? t.bonus.degree : ite ? t.bonus.ite : t.bonus.diploma;
+  return { track, sponsored, grad, rank, rankTitle: r.title, rankAbbr: r.abbr, pay, bonus, ite, retireAge: t.retireAge, bondYears: SAF.bondYears };
+}
+
+// Signs on now for a career that starts at your first job (after university, if sponsored).
+export function planSaf(s, track, sponsored = false) {
+  s.safPlan = { track, sponsored: !!sponsored };
+  if (sponsored || !s.postNs) s.postNs = sponsored ? 'uni' : 'work';
+  // Joining later adds its own story line.
+  if (sponsored) story(s, 'job', SAF[track].icon, 'Signed on with the SAF, which pays for university');
+}
+
+// Starts the SAF career: first rank, pay and the sign-on bonus (half now, half after a year: both land this year).
+export function joinSaf(s) {
+  const { track, sponsored } = s.safPlan;
+  s.education = educationFor(s);
+  const o = safOffer(s, track, sponsored);
+  s.saf = { track, rank: o.rank, since: s.age, grad: o.grad, ite: o.ite, joined: s.age, bondUntil: s.age + SAF.bondYears, news: [] };
+  delete s.safPlan;
+  s.career = SAF[track].id;
+  s.selfEmployed = false;
+  s.salary = o.pay;
+  s.careerStartAge = s.age;
+  s.cpfWorked = true;
+  s.workMode = 'full';
+  s.bank += o.bonus;
+  s.saf.bonus = o.bonus;
+  story(s, 'job', SAF[track].icon, `Joined the SAF as ${aOrAn(o.rankTitle)} ${o.rankTitle} (${o.rankAbbr})`, { pay: o.pay });
+  return o;
+}
+
+// Serving in the SAF right now (not retired or moved to another job).
+export const inSaf = (s) => !!(s.saf && s.career === SAF[s.saf.track].id && s.workMode !== 'retired' && !s.saf.retired);
+// Still inside the minimum service you signed on for.
+export const safBonded = (s) => inSaf(s) && s.age < s.saf.bondUntil;
+
+// A rank's pay for you: graduates earn more at the junior officer ranks; a Nitec pays a bit less.
+function rankPay(s, i) {
+  const t = SAF[s.saf.track];
+  const r = t.ranks[i];
+  if (s.saf.grad && r.gradPay) return r.gradPay;
+  return Math.round((r.pay * (s.saf.ite && t.iteFactor ? t.iteFactor : 1)) / 50) * 50;
+}
+
+// The next promotion: when it's due and what it needs.
+export function safNextRank(s) {
+  if (!s.saf) return null;
+  const t = SAF[s.saf.track];
+  const next = t.ranks[s.saf.rank + 1];
+  if (!next) return null;
+  const after = s.saf.grad && next.gradAfter != null ? next.gradAfter : next.after;
+  return { ...next, dueAge: s.saf.since + after, stat: t.stat, pay: rankPay(s, s.saf.rank + 1),
+    ok: !next.need || hybridValue(s, t.stat) >= next.need };
+}
+
+// One year in the SAF: a yearly increment of about 1.5%, a promotion when it's due and you have
+// the Leadership or Discipline for it, and retirement at 50 (officers) or 55 (specialists).
+function safYear(s, age) {
+  const t = SAF[s.saf.track];
+  s.salary = Math.min(15000, s.salary * 1.015);
+  const next = safNextRank(s);
+  if (next && age + 1 >= next.dueAge && next.ok) {
+    s.saf.rank++;
+    s.saf.since = age + 1;
+    s.salary = Math.max(s.salary, next.pay);
+    s.saf.news.push({ kind: 'promoted', age: age + 1, title: next.title, abbr: next.abbr, pay: s.salary });
+    (s.story ||= []).push({ age: age + 1, kind: 'job', icon: t.icon, text: `Promoted to ${next.title} (${next.abbr})`, pay: s.salary });
+  }
+  if (age + 1 >= t.retireAge) {
+    const bonus = s.salary * t.serviceBonusMonths;
+    s.bank += bonus;
+    s.saf.retired = true;
+    s.workMode = 'retired';
+    s.retiredAge = age + 1;
+    const r = t.ranks[s.saf.rank];
+    s.saf.news.push({ kind: 'retired', age: age + 1, title: r.title, abbr: r.abbr, bonus });
+    (s.story ||= []).push({ age: age + 1, kind: 'job', icon: '🎖️', text: `Retired from the SAF at ${age + 1} as ${aOrAn(r.title)} ${r.title} (${r.abbr})` });
+  }
 }
 
 // ---------- your own job (Advanced) ----------
@@ -307,7 +421,7 @@ export function takeCustomJob(s, { title, annual, growth = 0, growthYears = 65 -
 
 // A career switch you've earned with a very high stat, not offered in the last 10 years.
 export function careerSwitchOffer(s) {
-  if (s.stage !== 'adult' || s.age < 25 || s.age > 60 || (s.customJobs || {})[s.career]) return null;
+  if (s.stage !== 'adult' || s.age < 25 || s.age > 60 || (s.customJobs || {})[s.career] || safBonded(s)) return null;
   // Any career you qualify for, picked at random so lives don't all lead to the same job.
   const ok = CAREER_SWITCHES.filter((c) => {
     if (c.id === s.career) return false;
@@ -407,6 +521,8 @@ export function yearsThisTurn(s) {
   const st = STAGES[s.stage];
   // Men at university after NS: the turn stops when it's time to find a first job.
   if (isStudying(s)) return Math.min(st.yearsPerTurn, firstJobAge(s) - s.age);
+  // In the SAF, the turn stops when you retire from it.
+  if (inSaf(s)) return Math.max(1, Math.min(st.yearsPerTurn, st.endAge - s.age, SAF[s.saf.track].retireAge - s.age));
   return Math.min(st.yearsPerTurn, st.endAge - s.age);
 }
 
@@ -734,7 +850,9 @@ function oneYear(s, sum, opts) {
   // Real pay growth, after inflation. Your own job (Advanced) grows at the rate and for the years you chose.
   const own = (s.customJobs || {})[s.career];
   const growth = own ? (age < (own.growthUntil ?? 65) ? own.growth : 0) : age < 45 ? 0.025 : age < 55 ? 0.005 : 0;
-  if (s.salary && !young) s.salary = own ? s.salary * (1 + growth) : Math.min(15000, s.salary * (1 + growth));
+  // In the SAF, pay follows your rank instead.
+  if (inSaf(s)) safYear(s, age);
+  else if (s.salary && !young) s.salary = own ? s.salary * (1 + growth) : Math.min(15000, s.salary * (1 + growth));
   if (s.spouse) s.spouse.salary *= 1 + growth;
   if (s.home) housing.yearPassed(s.home);
 }
