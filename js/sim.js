@@ -757,7 +757,7 @@ function oneYear(s, sum, opts) {
         sum.debtPaid += pay;
         sum.dcpPaid += pay;
         out += pay;
-        if (s.debt < 1) { s.debt = 0; s.dcp = null; s.debtCrisis = false; }
+        if (s.debt < 1) endDcp(s);
       }
       // CPF Education Scheme: your child repays your OA after graduating.
       for (const r of s.eduRefunds || []) {
@@ -1018,6 +1018,14 @@ export function startDcp(s) {
   if (s.stage === 'adult') s.lifestyle = 'simple';
 }
 
+// Debt cleared: the plan ends, and a plan that started and ended in the same turn needs no notice.
+function endDcp(s) {
+  s.debt = 0;
+  s.dcp = null;
+  s.debtCrisis = false;
+  s.dcpNew = false;
+}
+
 // Pays off debt from cash. Returns the amount paid.
 export function repayDebt(s, amount) {
   const pay = Math.min(amount, s.debt, Math.max(0, s.bank));
@@ -1025,9 +1033,7 @@ export function repayDebt(s, amount) {
   spendCash(s, pay);
   s.debt -= pay;
   if (s.debt < 1) {
-    s.debt = 0;
-    s.dcp = null;
-    s.debtCrisis = false;
+    endDcp(s);
   } else if (s.dcp) {
     // Paying early shortens nothing here: the instalment is recalculated over the time left.
     const yearsLeft = Math.max(1, DCP.years - (s.age - s.dcp.startAge));

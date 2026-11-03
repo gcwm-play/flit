@@ -81,6 +81,14 @@ function sheetCss(look) {
   return `url("${src || sheetSrc(look)}")`;
 }
 
+// The walk sheet for the room mode's canvas: { url, custom } (custom PNGs have 128px frames with
+// the feet on row 126; the drawn stand-in has 32px frames), or null while the PNG is loading.
+export function sheetUrl(look) {
+  const src = artSrc(look);
+  if (src === null) return null;
+  return src ? { url: src, custom: true } : { url: sheetSrc(look), custom: false };
+}
+
 // The custom PNGs all wear a light blue shirt. Family members get another colour by turning
 // the shirt's blues to a new hue, keeping the shading. Outfit 0 keeps the blue.
 const SHIRT_HUES = [null, 4, 140, 40, 280, 330];

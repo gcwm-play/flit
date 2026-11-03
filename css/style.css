@@ -1026,3 +1026,87 @@ html.k-running, html.k-running body { overscroll-behavior: none; }
 .cpf-where td:first-child { text-align: left; }
 .cpf-where .where-total td { font-weight: 700; }
 .where-life { background: var(--t-purple-soft); border: 1px solid var(--t-purple); border-radius: 14px; padding: 10px 12px; font-size: 14px; text-align: left; }
+
+/* ---------- start page: the Alpha prototypes ---------- */
+.alpha { margin-top: 28px; text-align: left; }
+.alpha-divider { display: flex; align-items: center; gap: 12px; margin: 0 0 6px; font-family: var(--display); font-weight: 600; font-size: 15px; letter-spacing: .14em; text-transform: uppercase; color: var(--t-purple-ink); }
+.alpha-divider::before, .alpha-divider::after { content: ''; flex: 1; border-top: 2px solid var(--t-purple); }
+.alpha-intro { margin: 0 0 12px; text-align: center; font-size: 14px; color: var(--muted); }
+.alpha-mode { background: var(--panel); border: 1.5px dashed #cbbdf0; border-radius: 20px; padding: 14px 16px 16px; display: grid; gap: 8px; }
+.alpha-mode + .alpha-mode { margin-top: 14px; }
+.alpha-mode h3 { margin: 0; display: flex; align-items: center; gap: 8px; font-family: var(--display); font-weight: 600; font-size: 18px; }
+.alpha-mode h3 .sm-i { font-size: 24px; }
+.alpha-mode h3 em { font-style: normal; font-family: var(--body, inherit); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--t-purple-ink); background: var(--t-purple-soft); border-radius: 999px; padding: 2px 8px; }
+.alpha-mode > p { margin: 0; font-size: 14px; line-height: 1.45; color: var(--body-ink); }
+.alpha-mode > .btn { justify-self: start; }
+.alpha-mode .qs-box { margin-top: 0; }
+.alpha-mode .start-mode { justify-content: flex-start; }
+
+/* ---------- room mode (alpha): the whole turn on one screen ---------- */
+.rm { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+.rm .hud { flex: none; width: 100%; box-sizing: border-box; padding-bottom: 6px; }
+/* Info buttons (look only) are flat and outlined; choice tiles are raised. */
+.rm .chip { box-shadow: none; border: 1.5px solid var(--edge); background: #fbf8f3; padding: 5px 10px; }
+.rm .chip b { font-size: 16px; }
+.rm .chip small { font-size: 11px; }
+.rm-body { flex: 1; min-height: 0; width: 100%; max-width: 1100px; margin: 0 auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px;
+  padding: 0 max(16px, env(safe-area-inset-right, 0px)) 12px max(16px, env(safe-area-inset-left, 0px)); }
+.rm-step { flex: none; margin: 0; display: flex; align-items: baseline; gap: 10px; font-size: 14px; color: var(--body-ink); }
+.rm-tag { flex: none; background: var(--ink); color: #fff; font-weight: 800; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; border-radius: 999px; padding: 3px 9px; }
+.rm-line { flex: none; margin: 0; min-height: 1.5em; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; font-size: 15px; color: var(--muted); }
+.rm-line > b { font-family: var(--display); font-weight: 600; font-size: 17px; color: var(--ink); }
+.rm-line .num { color: var(--ink); font-variant-numeric: tabular-nums; }
+.rm-line .pos { color: var(--good); font-weight: 800; }
+.rm-room { position: relative; flex: 1; min-height: 180px; background: var(--panel); border-radius: 22px; overflow: hidden; box-shadow: var(--shadow); }
+.rm-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: manipulation; cursor: pointer; }
+.rm-label { position: absolute; left: 12px; top: 10px; z-index: 1; font-size: 13px; font-weight: 800; color: var(--muted); pointer-events: none; }
+.rm-extras { flex: none; background: #eef7f2; border: 1.5px solid #c6e6d8; border-radius: 20px; padding: 8px 12px 10px; }
+.rm-extras-head { margin: 0 0 6px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 10px; }
+.rm-extras-head b { font-family: var(--display); font-weight: 600; font-size: 17px; color: var(--t-green-ink); }
+.rm-extras-head span { font-size: 13px; color: #3d5a49; }
+.rm-groups { display: flex; gap: 14px; }
+.rm-group { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.rm-gt { font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #3d5a49; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rm-tiles { display: flex; gap: 6px; }
+.rm-tile { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 7px 3px 6px; font: inherit; color: var(--ink);
+  background: var(--panel); border: 0; border-radius: 14px; box-shadow: 0 3px 0 #b9d9c5; cursor: pointer; }
+.rm-tile:hover { transform: translateY(-1px); box-shadow: 0 4px 0 #b9d9c5; }
+.rm-ti { font-size: 22px; line-height: 1.1; }
+.rm-tl { font-weight: 800; font-size: 13px; line-height: 1.15; text-align: center; }
+.rm-tn { font-size: 11px; line-height: 1.2; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+.rm-next { flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 14px; }
+.rm-next span { font-size: 14px; color: var(--muted); }
+.rm-go { font-size: 18px; padding: 12px 22px; }
+.rm-zone { flex: none; }
+.rm-zone > h2 { margin: 0 0 8px; }
+.rm-back { margin-top: 8px; }
+/* Step 2 can be taller than the screen (6+ focus cards), so the page scrolls and the room keeps a fixed height. */
+.rm.rm-focus-step { height: auto; min-height: 100vh; min-height: 100dvh; overflow: visible; }
+.rm-focus-step .rm-room { flex: none; height: clamp(200px, 34vh, 320px); }
+@media (max-width: 900px) {
+  .rm-groups { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 5px; }
+  .rm-group, .rm-tiles { display: contents; }
+  .rm-gt, .rm-tn { display: none; }
+  .rm-tile { padding: 6px 2px 5px; border-radius: 12px; }
+  .rm-ti { font-size: 19px; }
+  .rm-tl { font-size: 11px; }
+}
+@media (max-width: 600px) {
+  .rm { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; }
+  .rm .hud { padding-top: 8px; gap: 6px; }
+  .rm .who-pic { width: 38px; height: 38px; }
+  .rm .who b { font-size: 16px; }
+  .rm .chip { padding: 3px 8px; }
+  .rm .chip b { font-size: 15px; }
+  .rm-body { gap: 6px; padding-bottom: 6px; }
+  .rm-step { font-size: 12.5px; line-height: 1.3; }
+  .rm-line { font-size: 13px; min-height: 2.6em; }
+  .rm-line > b { font-size: 15px; }
+  .rm-extras { padding: 6px 6px 8px; }
+  .rm-extras-head b { font-size: 15px; }
+  .rm-extras-head span { font-size: 11px; }
+  .rm-next span { display: none; }
+  .rm-go { flex: 1; font-size: 17px; padding: 11px 12px; }
+  .rm .menu .nav-btn { padding: 5px 4px; }
+  .rm-zone .cards { gap: 6px; }
+}
