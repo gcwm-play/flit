@@ -2488,15 +2488,16 @@ function cashChart() {
   const d = h.map((p, i) => `${i ? 'L' : 'M'}${x(p.age).toFixed(1)},${y(p.cash).toFixed(1)}`).join(' ');
   const hits = h.map((p) => {
     const w = (W - L - R) / Math.max(1, h.length - 1);
-    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit"><title>Age ${p.age}: ${money(p.cash)}</title></rect>`;
+    const tip = `<b>Age ${p.age}</b><span class="tip-row"><i class="k-cash"></i>Cash <b>${p.cash < 0 ? '−' : ''}${money(Math.abs(p.cash))}</b></span>`;
+    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit" data-tip="${esc(tip)}" aria-label="Age ${p.age}: ${money(p.cash)}"></rect>`;
   }).join('');
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cash savings by age">
+  return `<div class="chart-box"><svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cash savings by age">
     <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" class="axis"/>
     <text x="${L - 6}" y="${y(maxV) + 4}" text-anchor="end">${shortMoney(maxV)}</text>
     <text x="${L - 6}" y="${y(0) + 4}" text-anchor="end">$0</text>
     ${minV < 0 ? `<text x="${L - 6}" y="${y(minV) + 4}" text-anchor="end">−${shortMoney(-minV)}</text>` : ''}
     <path d="${d}" class="l-cash"/>
-    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg>`;
+    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg><div class="chart-tip" hidden></div></div>`;
 }
 
 // Stacked chart of each CPF account by age, with markers for big moments.
@@ -2518,19 +2519,59 @@ function cpfTrendChart() {
     return `<path d="${d}" class="a-${k}"/>`;
   }).join('');
   const ticks = [0, 0.5, 1].map((f) => `<line x1="${L}" x2="${W - R}" y1="${y(maxV * f)}" y2="${y(maxV * f)}" class="grid"/><text x="${L - 6}" y="${y(maxV * f) + 4}" text-anchor="end">${shortMoney(maxV * f)}</text>`).join('');
-  const marks = [55, 65].filter((a) => a > a0 && a < a1).map((a) => `<line x1="${x(a)}" x2="${x(a)}" y1="${T}" y2="${H - B}" class="mark"/><text x="${x(a) + 4}" y="${T + 10}">${a === 55 ? '55: RA formed' : '65: CPF LIFE'}</text>`).join('');
+  const marks = [55, 65].filter((a) => a > a0 && a < a1).map((a) => `<line x1="${x(a)}" x2="${x(a)}" y1="${T}" y2="${H - B}" class="mark"/><text x="${x(a) + 4}" y="${T + (a === 65 ? 24 : 10)}">${a === 55 ? '55: RA formed' : '65: CPF LIFE'}</text>`).join('');
   const hits = h.map((p, i) => {
     const w = (W - L - R) / Math.max(1, h.length - 1);
-    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit"><title>Age ${p.age}: CPF ${money(p.cpf)} (OA ${money(p.oa)}, SA ${money(p.sa)}, MA ${money(p.ma)}, RA ${money(p.ra)})</title></rect>`;
+    const row = (k, label, v) => `<span class="tip-row"><i class="k-${k}"></i>${label} <b>${money(v)}</b></span>`;
+    const tip = `<b>Age ${p.age}: ${money(p.cpf)}</b>${row('oa', 'OA', p.oa)}${p.age < 55 || p.sa > 0.5 ? row('sa', 'SA', p.sa) : ''}${p.age >= 55 || p.ra > 0.5 ? row('ra', 'RA', p.ra) : ''}${row('ma', 'MediSave', p.ma)}`;
+    return `<rect x="${(x(p.age) - w / 2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${H - T - B}" class="hit" data-tip="${esc(tip)}" aria-label="Age ${p.age}: CPF ${money(p.cpf)}"></rect>`;
   }).join('');
   const first = h[0], last = h[h.length - 1];
-  return `<svg class="chart trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="CPF balances by account from age ${a0} to ${a1}">
+  return `<div class="chart-box"><svg class="chart trend" viewBox="0 0 ${W} ${H}" role="img" aria-label="CPF balances by account from age ${a0} to ${a1}">
     ${ticks}${areas}${marks}
-    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg>
+    <text x="${L}" y="${H - 8}">Age ${a0}</text><text x="${W - R}" y="${H - 8}" text-anchor="end">Age ${a1}</text>${hits}</svg><div class="chart-tip" hidden></div></div>
     <p class="legend"><span class="k-oa"></span> OA <span class="k-sa"></span> SA <span class="k-ra"></span> RA <span class="k-ma"></span> MediSave</p>
     <p class="small">From age ${first.age} to ${last.age}, your CPF went from <b>${money(first.cpf)}</b> to <b>${money(last.cpf)}</b>. Hover or tap the chart for any year.</p>
     <p class="small">The accounts are stacked, so each band's thickness is that account. While you work the OA usually grows fastest, even at 2.5%: it gets the biggest share of every contribution (23% of your wage up to 35, against 6% for the SA), unless it's paying for a home.</p>`;
 }
+
+// Chart tooltips: hover with a mouse, or tap and drag with a finger, to see that year's money.
+// Touch pointers stay captured by the first element, so look up what's under the finger instead.
+function chartTip(e) {
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  let hit = el && el.closest && el.closest('.chart .hit');
+  // Between bars or on the chart's edge: the year nearest the finger.
+  const svg = !hit && el && el.closest && el.closest('.chart-box .chart');
+  if (svg) {
+    let best = Infinity;
+    for (const r of svg.querySelectorAll('.hit')) {
+      const b = r.getBoundingClientRect();
+      const d = Math.abs(b.left + b.width / 2 - e.clientX);
+      if (d < best) { best = d; hit = r; }
+    }
+  }
+  document.querySelectorAll('.chart-box').forEach((box) => {
+    if (hit && box.contains(hit)) return;
+    box.querySelector('.chart-tip').hidden = true;
+    box.querySelectorAll('.hit.on').forEach((r) => r.classList.remove('on'));
+  });
+  if (!hit) return;
+  const box = hit.closest('.chart-box');
+  const tip = box.querySelector('.chart-tip');
+  box.querySelectorAll('.hit.on').forEach((r) => r !== hit && r.classList.remove('on'));
+  hit.classList.add('on');
+  tip.innerHTML = hit.dataset.tip;
+  tip.hidden = false;
+  const b = box.getBoundingClientRect();
+  const r = hit.getBoundingClientRect();
+  const w = tip.offsetWidth;
+  const mid = r.left + r.width / 2 - b.left;
+  tip.style.left = `${Math.max(4, Math.min(b.width - w - 4, mid - w / 2))}px`;
+  // Above the bar on the right half, and the left of the chart is free for the big numbers.
+  tip.style.top = '6px';
+}
+document.addEventListener('pointermove', chartTip);
+document.addEventListener('pointerdown', chartTip);
 
 function shortMoney(v) {
   return v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1000 ? `$${Math.round(v / 1000)}k` : money(v);
